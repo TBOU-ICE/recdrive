@@ -35,6 +35,30 @@ logger = logging.getLogger(__name__)
 CONFIG_PATH = "config/pdm_scoring"
 CONFIG_NAME = "default_run_pdm_score"
 
+class InferenceSampler(torch.utils.data.sampler.Sampler):
+    def __init__(self, size):
+        self._size = int(size)
+        assert size > 0
+        self._rank = dist.get_rank()
+        self._world_size = dist.get_world_size()
+        self._local_indices = self._get_local_indices(size, self._world_size, self._rank)
+
+    @staticmethod
+    def _get_local_indices(total_size, world_size, rank):
+        shard_size = total_size // world_size
+        left = total_size % world_size
+        shard_sizes = [shard_size + int(r < left) for r in range(world_size)]
+
+        begin = sum(shard_sizes[:rank])
+        end = min(sum(shard_sizes[:rank + 1]), total_size)
+        return range(begin, end)
+
+    def __iter__(self):
+        yield from self._local_indices
+
+    def __len__(self):
+        return len(self._local_indices)
+
 
 def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[Dict[str, Any]]:
     """
@@ -70,17 +94,12 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
     )
 
     tokens_to_evaluate = list(set(scene_loader.tokens) & set(metric_cache_loader.tokens))
-
-    sampler = DistributedSampler(tokens_to_evaluate, num_replicas=dist.get_world_size(), rank=dist.get_rank())
+    tokens_to_evaluate = sorted(tokens_to_evaluate) 
     
-    total_tokens = len(sampler)
     pdm_results: List[Dict[str, Any]] = []
-    index = 0
-    for idx in sampler:  
-        token = tokens_to_evaluate[idx] 
-        index += 1
+    for idx, (token) in enumerate(tokens_to_evaluate):
         if dist.get_rank() == 0:
-            logger.info(f"Rank {dist.get_rank()} processing scenario {index} / {total_tokens} in thread_id={thread_id}, node_id={node_id}")
+            logger.info(f"Rank {dist.get_rank()} processing scenario {idx+1} / {len(tokens_to_evaluate)} in thread_id={thread_id}, node_id={node_id}")
 
         score_row: Dict[str, Any] = {"token": token, "valid": True}
         try:
@@ -88,13 +107,13 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
             with lzma.open(metric_cache_path, "rb") as f:
                 metric_cache: MetricCache = pickle.load(f)
 
+            requires_scene = False
             agent_input = scene_loader.get_agent_input_from_token(token)
-            if agent.requires_scene:
+            if requires_scene:
                 scene = scene_loader.get_scene_from_token(token)
                 trajectory = agent.compute_trajectory(agent_input, scene)
             else:
                 trajectory = agent.compute_trajectory(agent_input)
-
             pdm_result = pdm_score(
                 metric_cache=metric_cache,
                 model_trajectory=trajectory,
@@ -103,6 +122,7 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
                 scorer=scorer,
             )
             score_row.update(asdict(pdm_result))
+            score_row['rank'] = dist.get_rank()
         except Exception as e:
             logger.warning(f"----------- Agent failed for token {token}:")
             traceback.print_exc()
@@ -111,6 +131,29 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
         pdm_results.append(score_row)
     serialized_score_rows = pickle.dumps(pdm_results)
     return serialized_score_rows
+
+def broadcast_object(obj: Any, device: torch.device, src: int = 0) -> Any:
+    """
+    Helper function to broadcast an object from the source rank to all other processes.
+    :param obj: Object to broadcast.
+    :param device: Device to use for tensor operations.
+    :param src: Source rank.
+    :return: Broadcasted object.
+    """
+    if dist.get_rank() == src:
+        buffer = pickle.dumps(obj)
+        tensor = torch.ByteTensor(list(buffer)).to(device)
+        size_tensor = torch.tensor(len(tensor)).to(device)
+        dist.broadcast(size_tensor, src=src)
+        dist.broadcast(tensor, src=src)
+    else:
+        size_tensor = torch.tensor(0).to(device)
+        dist.broadcast(size_tensor, src=src)
+        tensor = torch.ByteTensor(size_tensor.item()).to(device)
+        dist.broadcast(tensor, src=src)
+        buffer = tensor.cpu().numpy().tobytes()
+        obj = pickle.loads(buffer)
+    return obj
 
 
 @hydra.main(config_path=CONFIG_PATH, config_name=CONFIG_NAME, version_base=None)
@@ -130,56 +173,84 @@ def main(cfg: DictConfig) -> None:
     )
     
     torch.cuda.set_device(local_rank)
+    device = torch.device(f'cuda:{local_rank}')
 
     build_logger(cfg)
     worker = build_worker(cfg)
 
-    scene_loader = SceneLoader(
-        sensor_blobs_path=None,
-        data_path=Path(cfg.navsim_log_path),
-        scene_filter=instantiate(cfg.train_test_split.scene_filter),
-        sensor_config=SensorConfig.build_no_sensors(),
-    )
-    metric_cache_loader = MetricCacheLoader(Path(cfg.metric_cache_path))
 
-    tokens_to_evaluate = list(set(scene_loader.tokens) & set(metric_cache_loader.tokens))
-    num_missing_metric_cache_tokens = len(set(scene_loader.tokens) - set(metric_cache_loader.tokens))
-    num_unused_metric_cache_tokens = len(set(metric_cache_loader.tokens) - set(scene_loader.tokens))
-    if num_missing_metric_cache_tokens > 0:
-        logger.warning(f"Missing metric cache for {num_missing_metric_cache_tokens} tokens. Skipping these tokens.")
-    if num_unused_metric_cache_tokens > 0:
-        logger.warning(f"Unused metric cache for {num_unused_metric_cache_tokens} tokens. Skipping these tokens.")
+    scene_loader = SceneLoader(
+            sensor_blobs_path=None,
+            data_path=Path(cfg.navsim_log_path),
+            scene_filter=instantiate(cfg.train_test_split.scene_filter),
+            sensor_config=SensorConfig.build_no_sensors(),
+        )
+    if rank == 0:
+        metric_cache_loader = MetricCacheLoader(Path(cfg.metric_cache_path))
+        tokens_to_evaluate = list(set(scene_loader.tokens) & set(metric_cache_loader.tokens))
+        tokens_to_evaluate = sorted(tokens_to_evaluate)  
+        num_missing_metric_cache_tokens = len(set(scene_loader.tokens) - set(metric_cache_loader.tokens))
+        num_unused_metric_cache_tokens = len(set(metric_cache_loader.tokens) - set(scene_loader.tokens))
+        if num_missing_metric_cache_tokens > 0:
+            logger.warning(f"Missing metric cache for {num_missing_metric_cache_tokens} tokens. Skipping these tokens.")
+        if num_unused_metric_cache_tokens > 0:
+            logger.warning(f"Unused metric cache for {num_unused_metric_cache_tokens} tokens. Skipping these tokens.")
+    else:
+        tokens_to_evaluate = []
+
+    tokens_to_evaluate = broadcast_object(tokens_to_evaluate, device=device, src=0)
+
+
     logger.info("Starting pdm scoring of %s scenarios...", str(len(tokens_to_evaluate)))
-    data_points = [
-        {
+
+    sampler = InferenceSampler(len(tokens_to_evaluate))
+
+    data_points = []
+    for idx in sampler:
+        token = tokens_to_evaluate[idx]
+        log_file = scene_loader.token_to_log_file[token] 
+        data_points.append({
             "cfg": cfg,
             "log_file": log_file,
-            "tokens": tokens_list,
-        }
-        for log_file, tokens_list in scene_loader.get_tokens_list_per_log().items()
-    ]
+            "tokens": [token],
+        })
+
     serialized_score_rows = run_pdm_score(data_points)
 
+
     device = torch.device("cpu" if not torch.cuda.is_available() else "cuda")
+
     serialized_tensor = torch.ByteTensor(list(serialized_score_rows)).to(device)
 
-    torch.distributed.barrier()
-    gathered_results = [torch.empty_like(serialized_tensor) for _ in range(dist.get_world_size())]
-    dist.all_gather(gathered_results, serialized_tensor)
+    local_size = len(serialized_tensor)
+    size_list = [torch.tensor(local_size).to(device) for _ in range(dist.get_world_size())]
+    dist.all_gather(size_list, torch.tensor(local_size).to(device))
 
-    final_results = []
-    for gathered_tensor in gathered_results:
-        serialized_data = gathered_tensor.cpu().numpy().tobytes()
-        final_results.extend(pickle.loads(serialized_data))
+    max_size = max(size_list).item() 
+
+    if local_size < max_size:
+        padded_tensor = torch.cat([serialized_tensor, torch.zeros(max_size - local_size, dtype=torch.uint8).to(device)])
+    else:
+        padded_tensor = serialized_tensor
+
+    gathered_results = [torch.empty_like(padded_tensor) for _ in range(dist.get_world_size())]
+    dist.all_gather(gathered_results, padded_tensor)
 
     if dist.get_rank() == 0:
+        final_results = []
+        for gathered_tensor in gathered_results:
+            gathered_tensor = gathered_tensor[:local_size]  
+            serialized_data = gathered_tensor.cpu().numpy().tobytes()
+            final_results.extend(pickle.loads(serialized_data))  # 
+    
         pdm_score_df = pd.DataFrame(final_results)
 
         num_sucessful_scenarios = pdm_score_df["valid"].sum()
         num_failed_scenarios = len(pdm_score_df) - num_sucessful_scenarios
-        average_row = pdm_score_df.drop(columns=["token", "valid"]).mean(skipna=True)
+        average_row = pdm_score_df.drop(columns=["token", "valid",'rank']).mean(skipna=True)
         average_row["token"] = "average"
         average_row["valid"] = pdm_score_df["valid"].all()
+        average_row["rank"] = "0"
         pdm_score_df.loc[len(pdm_score_df)] = average_row
 
         save_path = Path(cfg.output_dir)

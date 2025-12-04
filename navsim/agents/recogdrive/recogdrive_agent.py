@@ -56,11 +56,12 @@ class ReCogDriveAgent(AbstractAgent):
         self.metric_cache_path = metric_cache_path
         self.reference_policy_checkpoint = reference_policy_checkpoint
         self.vlm_size = vlm_size
-
+        
+        local_rank = int(os.getenv("LOCAL_RANK", "0"))
+        device = f"cuda:{local_rank}"
+        self.device = device
         if not self.cache_hidden_state and not self.cache_mode:
             print("Agent running in 'no-cache' mode. Initializing internal backbone.")
-            local_rank = int(os.getenv("LOCAL_RANK", "0"))
-            device = f"cuda:{local_rank}"
             if not self.vlm_path or not self.vlm_type:
                 raise ValueError("In 'no-cache' mode, vlm_path and vlm_type are required.")
             self.backbone = RecogDriveBackbone(
@@ -109,6 +110,7 @@ class ReCogDriveAgent(AbstractAgent):
             cache_hidden_state=self.cache_hidden_state,
             model_type=self.vlm_type,
             checkpoint_path=self.vlm_path,
+            device=self.device,
             cache_mode=self.cache_mode,
         )]
 
@@ -192,11 +194,20 @@ class ReCogDriveAgent(AbstractAgent):
             action_inputs = BatchFeature({"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype)})
             return self.action_head.get_action(last_hidden_state.to(model_dtype), action_inputs)
 
-    def compute_trajectory(self, features: Dict[str, torch.Tensor]) -> Trajectory:
+    def compute_trajectory(self, agent_input: AgentInput) -> Trajectory:
         self.eval()
+
+        features: Dict[str, torch.Tensor] = {}
+        # build features
+        for builder in self.get_feature_builders():
+            features.update(builder.compute_features(agent_input))
+        # add batch dimension
+        features = {k: v.unsqueeze(0) for k, v in features.items()}
+
         with torch.no_grad():
             predictions = self.forward(features)
             poses = predictions["pred_traj"].float().cpu().squeeze(0)
+
         return Trajectory(poses)
 
     def compute_trajectory_vis(self, agent_input: AgentInput) -> Trajectory:

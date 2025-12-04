@@ -20,7 +20,6 @@ import pandas as pd
 
 from nuplan.planning.script.builders.logging_builder import build_logger
 from nuplan.planning.utils.multithreading.worker_utils import worker_map
-from navsim.planning.training.dataset import CacheOnlyDataset, Dataset
 
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.common.dataloader import SceneLoader, SceneFilter, MetricCacheLoader
@@ -91,21 +90,13 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
         data_path=Path(cfg.navsim_log_path),
         scene_filter=scene_filter,
         sensor_config=agent.get_sensor_config(),
-    )
-    train_data = Dataset(
-        scene_loader=scene_loader,
-        feature_builders=agent.get_feature_builders(),
-        target_builders=agent.get_target_builders(),
-        cache_path=cfg.cache_path,
-        force_cache_computation=True,
-        is_decoder=True
+        load_image_path=True
     )
 
 
     tokens_to_evaluate = list(set(scene_loader.tokens) & set(metric_cache_loader.tokens))
-    # Use DistributedSampler to split the tokens for each GPU
+    tokens_to_evaluate = sorted(tokens_to_evaluate) 
     
-    # Distribute tasks to different GPUs by iterating over the sampled tokens
     pdm_results: List[Dict[str, Any]] = []
     for idx, (token) in enumerate(tokens_to_evaluate):
         if dist.get_rank() == 0:
@@ -118,11 +109,12 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
                 metric_cache: MetricCache = pickle.load(f)
 
             requires_scene = False
-
-            train_data.load_token_cache(token)
-            features, targets = train_data._load_scene_with_token(token)
-
-            trajectory = agent.compute_trajectory(features)
+            agent_input = scene_loader.get_agent_input_from_token(token)
+            if requires_scene:
+                scene = scene_loader.get_scene_from_token(token)
+                trajectory = agent.compute_trajectory(agent_input, scene)
+            else:
+                trajectory = agent.compute_trajectory(agent_input)
             pdm_result = pdm_score(
                 metric_cache=metric_cache,
                 model_trajectory=trajectory,
@@ -150,22 +142,16 @@ def broadcast_object(obj: Any, device: torch.device, src: int = 0) -> Any:
     :return: Broadcasted object.
     """
     if dist.get_rank() == src:
-        # 序列化对象
         buffer = pickle.dumps(obj)
         tensor = torch.ByteTensor(list(buffer)).to(device)
-        # 广播数据长度
         size_tensor = torch.tensor(len(tensor)).to(device)
         dist.broadcast(size_tensor, src=src)
-        # 广播数据内容
         dist.broadcast(tensor, src=src)
     else:
-        # 接收数据长度
         size_tensor = torch.tensor(0).to(device)
         dist.broadcast(size_tensor, src=src)
-        # 接收数据内容
         tensor = torch.ByteTensor(size_tensor.item()).to(device)
         dist.broadcast(tensor, src=src)
-        # 反序列化对象
         buffer = tensor.cpu().numpy().tobytes()
         obj = pickle.loads(buffer)
     return obj
@@ -188,22 +174,12 @@ def main(cfg: DictConfig) -> None:
     )
     
     torch.cuda.set_device(local_rank)
-    device = torch.device(f'cuda:{local_rank}')  # 显式定义 device
+    device = torch.device(f'cuda:{local_rank}')
 
     build_logger(cfg)
     worker = build_worker(cfg)
 
-    # Extract scenes based on scene-loader to know which tokens to distribute across workers
-    # TODO: infer the tokens per log from metadata, to not have to load metric cache and scenes here
-    # scene_loader = SceneLoader(
-    #     sensor_blobs_path=None,
-    #     data_path=Path(cfg.navsim_log_path),
-    #     scene_filter=instantiate(cfg.train_test_split.scene_filter),
-    #     sensor_config=SensorConfig.build_no_sensors(),
-    # )
-    # metric_cache_loader = MetricCacheLoader(Path(cfg.metric_cache_path))
 
-    # tokens_to_evaluate = list(set(scene_loader.tokens) & set(metric_cache_loader.tokens))
     scene_loader = SceneLoader(
             sensor_blobs_path=None,
             data_path=Path(cfg.navsim_log_path),
@@ -213,8 +189,7 @@ def main(cfg: DictConfig) -> None:
     if rank == 0:
         metric_cache_loader = MetricCacheLoader(Path(cfg.metric_cache_path))
         tokens_to_evaluate = list(set(scene_loader.tokens) & set(metric_cache_loader.tokens))
-        tokens_to_evaluate = sorted(tokens_to_evaluate)  # 确保顺序一致
-        #tokens_to_evaluate = tokens_to_evaluate[:1000] #for test
+        tokens_to_evaluate = sorted(tokens_to_evaluate)  
         num_missing_metric_cache_tokens = len(set(scene_loader.tokens) - set(metric_cache_loader.tokens))
         num_unused_metric_cache_tokens = len(set(metric_cache_loader.tokens) - set(scene_loader.tokens))
         if num_missing_metric_cache_tokens > 0:
@@ -224,73 +199,50 @@ def main(cfg: DictConfig) -> None:
     else:
         tokens_to_evaluate = []
 
-    # 广播 tokens_to_evaluate 到所有进程
     tokens_to_evaluate = broadcast_object(tokens_to_evaluate, device=device, src=0)
 
-    # 后续使用同步后的 tokens_to_evaluate
 
     logger.info("Starting pdm scoring of %s scenarios...", str(len(tokens_to_evaluate)))
-    # data_points = [
-    #     {
-    #         "cfg": cfg,
-    #         "log_file": log_file,
-    #         "tokens": tokens_list,
-    #     }
-    #     for log_file, tokens_list in scene_loader.get_tokens_list_per_log().items()
-    # ]
+
     sampler = InferenceSampler(len(tokens_to_evaluate))
 
-    # 构建 data_points，只包含当前 GPU 需要处理的 tokens
     data_points = []
     for idx in sampler:
         token = tokens_to_evaluate[idx]
-        log_file = scene_loader.token_to_log_file[token]  # 获取 token 对应的 log_file
+        log_file = scene_loader.token_to_log_file[token] 
         data_points.append({
             "cfg": cfg,
             "log_file": log_file,
-            "tokens": [token],  # 只包含当前 token
+            "tokens": [token],
         })
 
-    # Run PDM scoring and get serialized_score_rows
     serialized_score_rows = run_pdm_score(data_points)
 
-    # Run PDM scoring and get serialized_score_rows
-    #serialized_score_rows = run_pdm_score(data_points)
 
-    # Convert the serialized result into a tensor (byte string)
     device = torch.device("cpu" if not torch.cuda.is_available() else "cuda")
-    # serialized_score_rows is a byte string, so we treat it as a tensor directly
+
     serialized_tensor = torch.ByteTensor(list(serialized_score_rows)).to(device)
 
-    # Step 1: Gather tensor sizes across all GPUs
     local_size = len(serialized_tensor)
     size_list = [torch.tensor(local_size).to(device) for _ in range(dist.get_world_size())]
     dist.all_gather(size_list, torch.tensor(local_size).to(device))
 
-    # Step 2: Determine the maximum size
-    max_size = max(size_list).item()  # Maximum size across all GPUs
+    max_size = max(size_list).item() 
 
-    # Step 3: Pad the tensors to match the maximum size
     if local_size < max_size:
         padded_tensor = torch.cat([serialized_tensor, torch.zeros(max_size - local_size, dtype=torch.uint8).to(device)])
     else:
         padded_tensor = serialized_tensor
 
-    # Step 4: Perform all_gather on the padded tensors
     gathered_results = [torch.empty_like(padded_tensor) for _ in range(dist.get_world_size())]
     dist.all_gather(gathered_results, padded_tensor)
 
-    # Step 5: After gathering, deserialize the data (should be done after gathering)
     if dist.get_rank() == 0:
         final_results = []
         for gathered_tensor in gathered_results:
-            # Trim off the padding
-            gathered_tensor = gathered_tensor[:local_size]  # Remove padding after gathering
-            # Deserialize the byte data back to the original Python object
+            gathered_tensor = gathered_tensor[:local_size]  
             serialized_data = gathered_tensor.cpu().numpy().tobytes()
             final_results.extend(pickle.loads(serialized_data))  # 
-    # Now final_results contains the combined results from all GPUs
-    # You can continue processing here, like saving the results to a file
     
         pdm_score_df = pd.DataFrame(final_results)
 

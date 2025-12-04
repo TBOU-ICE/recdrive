@@ -35,19 +35,11 @@ For the diffusion planner training, the first step is to **cache datasets for fa
 Since DiT training converges relatively slowly, training VLM and DiT jointly can be very time-consuming. To accelerate, we cache the hidden states output by the VLM, which enables much faster training.  
 > ⚠️ Note: Caching requires approximately **1–2 TB of disk space**. We are also working on faster training methods.  
 
-We also provide the option to skip caching hidden states and directly train VLM + DiT together, though this will be slower. We recommend using ReCogDrive-2B for training for better efficiency.
 
 ### Step 1: Cache hidden states
 ```bash
 # cache dataset for training
 sh cache_dataset/run_caching_recogdrive_hidden_state.sh
-
-# cache dataset for evaluation
-sh cache_dataset/run_caching_recogdrive_hidden_state_eval.sh
-
-# cache dataset for evaluation without caching hidden state
-sh cache_dataset/run_caching_recogdrive_no_hidden_state_eval.sh
-
 ```
 
 ### Step 2: Configure and run training
@@ -70,11 +62,6 @@ After training is complete, you can configure the evaluation script and launch e
 
 ```bash
 sh evaluation/run_recogdrive_agent_pdm_score_evaluation_2b.sh
-
-or
-
-sh evaluation/run_recogdrive_agent_pdm_score_evaluation_2b_no_hidden_state.sh
-
 ```
 
 This will evaluate your trained agent using **PDM scores** on the navtest.
@@ -119,11 +106,6 @@ After training is complete, you can configure the evaluation script and launch e
 
 ```bash
 sh evaluation/run_recogdrive_agent_pdm_score_evaluation_2b.sh
-
-or
-
-sh evaluation/run_recogdrive_agent_pdm_score_evaluation_2b_no_hidden_state.sh
-
 ```
 This will evaluate your trained agent using **PDM scores** on the navtest.
 
