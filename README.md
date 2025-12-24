@@ -35,9 +35,15 @@ Arxiv 2025
 - [x] Release Updated Paper
 
 ## Table of Contents
-- [Abstract](#Abstract)
-- [Qualitative Results on NAVSIM Navtest](#qualitative-results-on-navsim-navtest)
+- [News](#news)
+- [Updates](#updates)
+- [Table of Contents](#table-of-contents)
+- [Abstract](#abstract)
 - [Getting Started](#getting-started)
+- [Checkpoint](#checkpoint)
+- [Driving Pretraining Datasets](#driving-pretraining-datasets)
+- [Qualitative Results on NAVSIM Navtest](#qualitative-results-on-navsim-navtest)
+- [Qualitative Results on Bench2drive](#qualitative-results-on-bench2drive)
 - [Contact](#contact)
 - [Acknowledgement](#acknowledgement)
 - [Citation](#citation)
@@ -121,6 +127,7 @@ Recent studies have explored leveraging the world knowledge and cognitive capabi
     <tr>
       <th rowspan="2" style="text-align:center">Method</th>
       <th rowspan="2" style="text-align:center">DriveLM (GPT-Score)</th>
+      <th rowspan="2" style="text-align:center">LingoQA (Lingo-Judge)</th>
       <th colspan="5" style="text-align:center">DriveBench</th>
     </tr>
     <tr>
@@ -137,6 +144,7 @@ Recent studies have explored leveraging the world knowledge and cognitive capabi
         <a href="https://huggingface.co/owl10/ReCogDrive-VLM-DriveLM/tree/main" target="_blank">ReCogDrive</a>
       </td>
       <td style="text-align:center"><strong>67.30</strong></td>
+      <td style="text-align:center"><strong>67.20</strong></td>
       <td style="text-align:center">64.95</td>
       <td style="text-align:center">49.34</td>
       <td style="text-align:center">70.20</td>
