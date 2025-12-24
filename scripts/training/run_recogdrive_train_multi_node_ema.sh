@@ -22,7 +22,7 @@ export CUDA_LAUNCH_BLOCKING=1
 
 
 torchrun \
-    --nnodes=4 \
+    --nnodes=1 \
     --node_rank=$MLP_ROLE_INDEX \
     --master_addr=$MLP_WORKER_0_HOST \
     --nproc_per_node=${GPUS} \
@@ -36,8 +36,11 @@ torchrun \
     agent.cache_hidden_state=True \
     agent.vlm_type="internvl" \
     agent.dit_type="small" \
+    agent.vlm_size="large" \
     agent.sampling_method="ddim" \
     trainer.params.max_epochs=100 \
+    trainer.params.num_nodes=1 \
+    trainer.params.devices=8 \
     experiment_name=training_recogdrive_agent \
     train_test_split=$TRAIN_TEST_SPLIT \
     cache_path="/path/to/recogdrive_agent_cache_dir_train" \

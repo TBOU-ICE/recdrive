@@ -16,6 +16,7 @@ cache_mode: False
 cache_hidden_state: True
 metric_cache_path: ''
 reference_policy_checkpoint: ''
-vlm_size: 'large'
+vlm_size: 'small'
+train_backbone: false
 grpo: False
 lr: 1e-4

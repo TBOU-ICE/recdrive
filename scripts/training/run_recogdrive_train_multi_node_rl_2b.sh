@@ -19,10 +19,10 @@ export PORT=${PORT}
 echo "GPUS: ${GPUS}"
 export CUDA_LAUNCH_BLOCKING=1
 
-
+CHECKPOINT="/path/to/diffusion-planner.ckpt"
 
 torchrun \
-    --nnodes=4 \
+    --nnodes=1 \
     --node_rank=$MLP_ROLE_INDEX \
     --master_addr=$MLP_WORKER_0_HOST \
     --nproc_per_node=${GPUS} \
@@ -42,8 +42,10 @@ torchrun \
     agent.metric_cache_path="/path/to/metric_cache_dir" \
     agent.reference_policy_checkpoint="'$CHECKPOINT'" \
     trainer.params.max_epochs=10 \
+    trainer.params.num_nodes=1 \
+    trainer.params.devices=8 \
     dataloader.params.batch_size=8 \
-    experiment_name=training_internvl_agent_dit \
+    experiment_name=training_recogdrive_agent \
     train_test_split=$TRAIN_TEST_SPLIT \
     cache_path="/path/to/recogdrive_agent_cache_dir_train" \
     use_cache_without_dataset=True \

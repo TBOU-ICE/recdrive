@@ -40,7 +40,8 @@ class ReCogDriveAgent(AbstractAgent):
         grpo: bool = False,
         metric_cache_path: Optional[str] = '', 
         reference_policy_checkpoint: Optional[str] = '', 
-        vlm_size: Optional[str] = 'large', 
+        vlm_size: Optional[str] = 'small', 
+        train_backbone: bool = False,
     ):
         super().__init__()
         self._trajectory_sampling = trajectory_sampling
@@ -56,7 +57,8 @@ class ReCogDriveAgent(AbstractAgent):
         self.metric_cache_path = metric_cache_path
         self.reference_policy_checkpoint = reference_policy_checkpoint
         self.vlm_size = vlm_size
-        
+        self.train_backbone = train_backbone
+
         local_rank = int(os.getenv("LOCAL_RANK", "0"))
         device = f"cuda:{local_rank}"
         self.device = device
@@ -69,6 +71,13 @@ class ReCogDriveAgent(AbstractAgent):
                 checkpoint_path=self.vlm_path,
                 device=device
             )
+
+            if not self.train_backbone:
+                for p in self.backbone.parameters():
+                    p.requires_grad = False
+            else:
+                for p in self.backbone.parameters():
+                    p.requires_grad = True
 
         if self.dit_type == "large":
             cfg = make_recogdrive_config(self.dit_type, action_dim=3, action_horizon=8, grpo=self.grpo, input_embedding_dim=1536,sampling_method=sampling_method)
@@ -124,9 +133,10 @@ class ReCogDriveAgent(AbstractAgent):
         history_trajectory = features["history_trajectory"].cuda()
         high_command_one_hot = features["high_command_one_hot"].cuda()
         
-        
-        if history_trajectory.ndim == 2: history_trajectory = history_trajectory.unsqueeze(0)
-        if high_command_one_hot.ndim == 1: high_command_one_hot = high_command_one_hot.unsqueeze(0)
+        if history_trajectory.ndim == 2:
+            history_trajectory = history_trajectory.unsqueeze(0)
+        if high_command_one_hot.ndim == 1:
+            high_command_one_hot = high_command_one_hot.unsqueeze(0)
 
         if self.cache_hidden_state:
             last_hidden_state = features["last_hidden_state"].cuda()
@@ -134,7 +144,8 @@ class ReCogDriveAgent(AbstractAgent):
             if self.backbone is None:
                 raise RuntimeError("Agent is in 'no-cache' mode, but backbone is not initialized.")
             image_path_tensor = features["image_path_tensor"]
-            if image_path_tensor.ndim == 1: image_path_tensor = image_path_tensor.unsqueeze(0)
+            if image_path_tensor.ndim == 1:
+                image_path_tensor = image_path_tensor.unsqueeze(0)
             image_paths = self._decode_paths_from_tensor(image_path_tensor)
             
             pixel_values_list = [load_image(path) for path in image_paths]
@@ -178,9 +189,12 @@ class ReCogDriveAgent(AbstractAgent):
             last_hidden_state = outputs.hidden_states[-1]
 
         status_feature = features["status_feature"].cuda()
-        if status_feature.ndim == 1: status_feature = status_feature.unsqueeze(0)
-        if last_hidden_state.ndim == 2: last_hidden_state = last_hidden_state.unsqueeze(0)
+        if status_feature.ndim == 1:
+            status_feature = status_feature.unsqueeze(0)
+        if last_hidden_state.ndim == 2:
+            last_hidden_state = last_hidden_state.unsqueeze(0)
 
+        last_hidden_state = last_hidden_state.to(model_dtype)
         history_trajectory_reshaped = history_trajectory.view(history_trajectory.size(0), -1)
         input_state = torch.cat([status_feature, history_trajectory_reshaped], dim=1)
 
@@ -237,7 +251,12 @@ class ReCogDriveAgent(AbstractAgent):
 
     def get_optimizers(self) -> Union[Optimizer, Dict[str, LRScheduler]]:
         optimizer_cfg = DictConfig(dict(type="AdamW", lr=self._lr, weight_decay=1e-4, betas=(0.9, 0.95)))
-        optimizer = build_from_configs(optim, optimizer_cfg, params=self.action_head.parameters())
+
+        params = list(self.action_head.parameters())
+        if self.backbone is not None and self.train_backbone:
+            params += list(self.backbone.parameters())
+
+        optimizer = build_from_configs(optim, optimizer_cfg, params=params)
         
         if self.grpo:
             scheduler = WarmupCosLR(optimizer=optimizer, lr=self._lr, min_lr=0.0, epochs=10, warmup_epochs=0)
