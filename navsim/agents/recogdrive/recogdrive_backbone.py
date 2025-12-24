@@ -95,7 +95,9 @@ class RecogDriveBackbone(nn.Module):
     def forward(self, pixel_values: torch.Tensor, questions: List[str], num_patches_list: List[int]):
         if not self.model:
             raise RuntimeError("Backbone model has not been initialized. Call initialize() on the agent first.")
-            
+        
+        model_dtype = next(self.model.parameters()).dtype
+
         queries = []
         for idx, num_patches in enumerate(num_patches_list):
             question = questions[idx]
@@ -125,7 +127,7 @@ class RecogDriveBackbone(nn.Module):
 
 
         return self.model(
-                pixel_values=pixel_values.bfloat16(),
+                pixel_values=pixel_values.to(model_dtype),
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
