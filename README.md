@@ -12,7 +12,7 @@ Hangjun Ye<sup>2</sup>, [Wenyu Liu](https://eic.hust.edu.cn/professor/liuwenyu/)
 
 (\*) Equal contribution. (†) Project leader. (✉) Corresponding author.  
 
-Arxiv 2025
+International Conference on Learning Representation (ICLR), 2026
 
 <a href="https://arxiv.org/abs/2506.08052"><img src='https://img.shields.io/badge/arXiv-ReCogDrive-red' alt='Paper PDF'></a>   <a href="https://xiaomi-research.github.io/recogdrive/"><img src='https://img.shields.io/badge/Project_Page-ReCogDrive-green' alt='Project Page'></a> [![huggingface collection](https://img.shields.io/badge/%F0%9F%A4%97%20Weights-Recogdrive-yellow)](https://huggingface.co/collections/owl10/recogdrive-68bafa143de172bab8de5752)&nbsp; [![huggingface datasets](https://img.shields.io/badge/%F0%9F%A4%97%20Datasets-Recogdrive-red)](https://huggingface.co/datasets/owl10/ReCogDrive_Pretraining)&nbsp;
 </div>
@@ -21,6 +21,7 @@ Arxiv 2025
 </div>
 
 ## News
+* **` Jan. 26th, 2025`:** Our paper has been accepted at ICLR 2026. 🎉
 * **` Sept. 30th, 2025`:** We have updated our latest paper with more model details, experiments, and comprehensive visualizations. Meanwhile, we fixed the unintended NumPy issue 🐛 that previously caused inconsistencies in the training metric cache. Now the code ensures reproducible and consistent results. Special thanks to the discussion in [issue #10](https://github.com/riron1206) for bringing this up!
 * **` Aug. 24th, 2025`:** We have released all driving pretraining QA, including 12 driving datasets and our own annotated NavSim data. We have rewritten the scoring, filtering, and evaluation for open-source data. If it’s helpful to you, feel free to star and cite our work! 🚗💨
 * **` Aug. 21th, 2025`:** We release the initial version of code and weight on NAVSIM, along with documentation and training/evaluation scripts. We will also update our new revision of the paper and the pretraining datasets later this month or next month. Please stay tuned! ☕️
