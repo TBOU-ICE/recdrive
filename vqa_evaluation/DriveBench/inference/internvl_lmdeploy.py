@@ -142,7 +142,7 @@ class LLMPredictor:
         self.pipe = pipeline(
             model_path,
             backend_config=TurbomindEngineConfig(session_len=30000,dtype='bfloat16'),
-            chat_template_config=ChatTemplateConfig(model_name='internvl2_5', meta_instruction=system_message)
+            chat_template_config=ChatTemplateConfig(model_name='internvl2_5', meta_instruction=system_prompt)
         )
         
         self.system_prompt = system_prompt
