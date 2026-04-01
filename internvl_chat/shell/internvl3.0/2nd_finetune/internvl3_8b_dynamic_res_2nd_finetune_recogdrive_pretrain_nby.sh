@@ -8,10 +8,10 @@ GRADIENT_ACC=$((BATCH_SIZE / PER_DEVICE_BATCH_SIZE / GPUS))
 # Start from 0 for stability, then tune up (1/2/4) if resources allow.
 DATALOADER_NUM_WORKERS=${DATALOADER_NUM_WORKERS:-4}
 
-NNODES="${WORLD_SIZE:-1}"
-RANK="${RANK:-0}"
-MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
-MASTER_PORT="${MASTER_PORT:-34229}"
+NNODES="${WORLD_SIZE:?WORLD_SIZE is empty}"
+RANK="${RANK:?RANK is empty}"
+MASTER_ADDR="${MASTER_ADDR:?MASTER_ADDR is empty}"
+MASTER_PORT="${MASTER_PORT:?MASTER_PORT is empty}"
 GPUS="${GPUS:-8}"  
 
 
@@ -30,7 +30,7 @@ if command -v x86_64-conda-linux-gnu-gcc >/dev/null 2>&1 && command -v x86_64-co
   export CUDAHOSTCXX="${CUDAHOSTCXX:-x86_64-conda-linux-gnu-g++}"
 fi
 
-OUTPUT_DIR='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/outputs/pretrain/internvl3_2b_finetune_full_recogdrive_pretrain'
+OUTPUT_DIR='/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/outputs/ReCogDrive_pretrain/all_data'
 
 if [ ! -d "$OUTPUT_DIR" ]; then
   mkdir -p "$OUTPUT_DIR"
@@ -63,7 +63,7 @@ torchrun \
   --master_port=${MASTER_PORT} \
   --nproc_per_node=${GPUS} \
   internvl/train/internvl_chat_finetune.py \
-  --model_name_or_path "/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/InternVL3-2B" \
+  --model_name_or_path "/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/InternVL3-2B" \
   --conv_style "internvl2_5" \
   --use_fast_tokenizer False \
   --output_dir ${OUTPUT_DIR} \
