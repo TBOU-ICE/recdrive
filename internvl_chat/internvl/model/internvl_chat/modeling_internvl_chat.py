@@ -163,6 +163,7 @@ class InternVLChatModel(PreTrainedModel):
 
         vit_embeds = self.extract_feature(pixel_values)
         vit_embeds = vit_embeds[image_flags == 1]
+        vit_embeds = vit_embeds.to(dtype=input_embeds.dtype)
         vit_batch_size = pixel_values.shape[0]
 
         B, N, C = input_embeds.shape

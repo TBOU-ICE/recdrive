@@ -708,7 +708,8 @@ class LazySupervisedDataset(Dataset):
                 data_item = json.loads(self.raw_data[i])
                 if 'image' in data_item:
                     if type(data_item['image']) == list:
-                        images = [self.root + item for item in data_item['image']]
+                        # images = [self.root + item for item in data_item['image']]
+                        images = [os.path.join(self.root, item) for item in data_item['image']]
                         print(f'Failed to load image: {images}, the dataset is: {self.ds_name}')
                     else:
                         if data_item['image'].startswith('s3://'):
