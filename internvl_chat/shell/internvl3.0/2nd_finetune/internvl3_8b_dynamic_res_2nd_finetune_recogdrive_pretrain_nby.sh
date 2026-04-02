@@ -3,7 +3,7 @@
 set -x
 
 # 强制使用指定 conda 环境（不依赖 activate，兼容所有机器）
-export PATH="/mnt/volumes/nby/conda_envs/recdrive/bin:$PATH"
+export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH"
 
 # 验证（可选，调试用）
 echo "Using python: $(which python)"
@@ -13,6 +13,9 @@ GPUS=${GPUS:-8}
 BATCH_SIZE=${BATCH_SIZE:-128}
 PER_DEVICE_BATCH_SIZE=${PER_DEVICE_BATCH_SIZE:-1}
 GRADIENT_ACC=$((BATCH_SIZE / PER_DEVICE_BATCH_SIZE / GPUS))
+if [ "${GRADIENT_ACC}" -lt 1 ]; then
+  GRADIENT_ACC=1
+fi
 # Start from 0 for stability, then tune up (1/2/4) if resources allow.
 DATALOADER_NUM_WORKERS=${DATALOADER_NUM_WORKERS:-4}
 
@@ -64,7 +67,7 @@ fi
   # --node_rank=$MLP_ROLE_INDEX \
   # --master_addr=$MLP_WORKER_0_HOST \
   # --master_port=$MLP_WORKER_0_PORT \
-/mnt/volumes/nby/conda_envs/recdrive/bin/torchrun \
+/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
   --nnodes=${NNODES} \
   --node_rank=${RANK} \
   --master_addr=${MASTER_ADDR} \

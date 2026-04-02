@@ -1,7 +1,7 @@
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive"
+export NAVSIM_DEVKIT_ROOT="/workspace/code"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 TRAIN_TEST_SPLIT=navtrain
@@ -27,7 +27,7 @@ export CUDA_LAUNCH_BLOCKING=0
 
 
 
-/mnt/volumes/nby/conda_envs/recdrive/bin/torchrun \
+/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
     --nnodes=${NNODES} \
     --node_rank=${RANK} \
     --master_addr=${MASTER_ADDR} \
