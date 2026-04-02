@@ -1,5 +1,13 @@
+#!/bin/bash
+
 set -x
 
+# 强制使用指定 conda 环境（不依赖 activate，兼容所有机器）
+export PATH="/mnt/volumes/nby/conda_envs/recdrive/bin:$PATH"
+
+# 验证（可选，调试用）
+echo "Using python: $(which python)"
+echo "Python version: $(python --version)"
 PARTITION=${PARTITION:-"Intern5"}
 GPUS=${GPUS:-8}
 BATCH_SIZE=${BATCH_SIZE:-128}
@@ -56,7 +64,7 @@ fi
   # --node_rank=$MLP_ROLE_INDEX \
   # --master_addr=$MLP_WORKER_0_HOST \
   # --master_port=$MLP_WORKER_0_PORT \
-/opt/conda/envs/recdrive/bin/torchrun \
+/mnt/volumes/nby/conda_envs/recdrive/bin/torchrun \
   --nnodes=${NNODES} \
   --node_rank=${RANK} \
   --master_addr=${MASTER_ADDR} \
