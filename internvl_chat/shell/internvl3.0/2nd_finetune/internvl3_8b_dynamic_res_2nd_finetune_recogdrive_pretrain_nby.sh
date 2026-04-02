@@ -56,7 +56,7 @@ fi
   # --node_rank=$MLP_ROLE_INDEX \
   # --master_addr=$MLP_WORKER_0_HOST \
   # --master_port=$MLP_WORKER_0_PORT \
-/opt/conda/envs/recdrive/bin/torchrun \
+/mnt/volumes/nby/conda_envs/recdrive/bin/torchrun \
   --nnodes=${NNODES} \
   --node_rank=${RANK} \
   --master_addr=${MASTER_ADDR} \
