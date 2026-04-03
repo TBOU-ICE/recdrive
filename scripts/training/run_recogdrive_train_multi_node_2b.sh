@@ -1,3 +1,4 @@
+export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH" #nby
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
@@ -49,7 +50,7 @@ export CUDA_LAUNCH_BLOCKING=0
     trainer.params.devices=${GPUS} \
     experiment_name=training_recogdrive_vlm_nby \
     train_test_split=$TRAIN_TEST_SPLIT \
-    cache_path="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/recogdrive_agent_cache_dir_train_jiaoqf" \
+    cache_path="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/recdrive_agent_cache_dir_train_jiaoqf" \
     use_cache_without_dataset=True \
     force_cache_computation=False \
     hydra/job_logging=stdout \

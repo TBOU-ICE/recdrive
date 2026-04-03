@@ -3,7 +3,27 @@
 set -x
 
 # 强制使用指定 conda 环境（不依赖 activate，兼容所有机器）
-export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH"
+# 部分调度器/误配会把 URL（如 http://IP:PORT）写进 PATH；按 ":" 切分后会变成 //IP、tcp、80 等假路径，
+# Accelerate 等库校验 PATH 时会报错。这里先去掉这些片段再 prepend conda。
+internvl_sanitize_path() {
+  local _p="$1" _d _out="" 
+  _p="${_p}:"
+  while [ -n "$_p" ]; do
+    _d="${_p%%:*}"
+    _p="${_p#*:}"
+    [ -z "$_d" ] && continue
+    case "$_d" in
+      *"://"*|http://*|https://*|tcp://*) continue ;;
+      //*) continue ;;
+      tcp) continue ;;
+    esac
+    [[ "$_d" =~ ^[0-9]+$ ]] && continue
+    _out="${_out+${_out}:}${_d}"
+  done
+  printf '%s' "$_out"
+}
+_REC_DRIVE_BIN="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin"
+export PATH="${_REC_DRIVE_BIN}:$(internvl_sanitize_path "$PATH")"
 
 # 验证（可选，调试用）
 echo "Using python: $(which python)"

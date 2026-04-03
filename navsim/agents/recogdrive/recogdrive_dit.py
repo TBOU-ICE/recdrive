@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # ------------------------------------------------------------------------
 # Modified from LightningDiT(https://github.com/hustvl/LightningDiT)
 # Copyright (c) Xiaomi Corporation. All rights reserved.
