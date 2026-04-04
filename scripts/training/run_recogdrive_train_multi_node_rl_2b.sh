@@ -23,7 +23,7 @@ export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1  #nby
 
 # echo "GPUS: ${GPUS}"
 # export CUDA_LAUNCH_BLOCKING=1
-NODES="${WORLD_SIZE:-1}"
+NNODES="${WORLD_SIZE:-1}"
 RANK="${RANK:-0}"
 MASTER_ADDR="${MASTER_ADDR:?MASTER_ADDR is empty}"
 MASTER_PORT="${MASTER_PORT:-23456}"
@@ -34,9 +34,11 @@ TORCH_NCCL_ASYNC_ERROR_HANDLING="${TORCH_NCCL_ASYNC_ERROR_HANDLING:-1}"
 
 PORT=${PORT:-63665}
 
-echo "GPUS: ${GPUS}"
-echo "NNODES: ${NNODES}"
-echo "RANK: ${RANK}"
+echo "GPUS per Node: ${GPUS}"
+echo "Total Nodes (NNODES): ${NNODES}"
+echo "Current Node Rank: ${RANK}"
+echo "Master Addr: ${MASTER_ADDR}"
+
 export CUDA_LAUNCH_BLOCKING=0
 
 CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/training_recogdrive_agent/2026.03.03.07.42.42/lightning_logs/version_0/checkpoints/epoch-196_step-32899.ckpt"
@@ -52,7 +54,7 @@ CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/training_recogdrive_
     $NAVSIM_DEVKIT_ROOT/navsim/planning/script/run_training_recogdrive_rl.py \
     agent=recogdrive_agent \
     agent.lr=1e-4 \
-    agent.vlm_path='/mnt/volumes/ad-e2e-al-sh01/cy/outputs/ReCogDrive_pretrain/all_data_new' \
+    agent.vlm_path='/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/outs' \
     agent.cam_type='single' \
     agent.grpo=True \
     agent.cache_hidden_state=True \
@@ -69,7 +71,7 @@ CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/training_recogdrive_
     dataloader.params.batch_size=8 \
     experiment_name=training_recogdrive_agent_rl \
     train_test_split=$TRAIN_TEST_SPLIT \
-    cache_path="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/recogdrive_agent_cache_dir_train_update" \
+    cache_path="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/recogdrive_agent_cache_dir_train_jiaoqf" \
     use_cache_without_dataset=True \
     force_cache_computation=False \
     hydra/job_logging=stdout \
