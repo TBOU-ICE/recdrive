@@ -1,36 +1,58 @@
+export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH" #nby
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/path/to/NAVSIM/dataset/maps"
-export NAVSIM_EXP_ROOT="/path/to/NAVSIM/exp"
-export NAVSIM_DEVKIT_ROOT="/path/to/NAVSIM/navsim-main"
-export OPENSCENE_DATA_ROOT="/path/to/NAVSIM/dataset"
+export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
+export NAVSIM_DEVKIT_ROOT="/workspace/code"
+export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
+
+
 TRAIN_TEST_SPLIT=navtrain
 export NCCL_IB_DISABLE=0
 export NCCL_P2P_DISABLE=0
 export NCCL_SHM_DISABLE=0
+export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1  #nby
 
-MASTER_PORT=${MASTER_PORT:-63669}
-PORT=${PORT:-63665}
+
+# MASTER_PORT=${MASTER_PORT:-63669}
+# PORT=${PORT:-63665}
+# GPUS=${GPUS:-8}
+# GPUS_PER_NODE=${GPUS_PER_NODE:-8}
+# NODES=$((GPUS / GPUS_PER_NODE))
+# export MASTER_PORT=${MASTER_PORT}
+# export PORT=${PORT}
+
+# echo "GPUS: ${GPUS}"
+# export CUDA_LAUNCH_BLOCKING=1
+NODES="${WORLD_SIZE:-1}"
+RANK="${RANK:-0}"
+MASTER_ADDR="${MASTER_ADDR:?MASTER_ADDR is empty}"
+MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS=${GPUS:-8}
-GPUS_PER_NODE=${GPUS_PER_NODE:-8}
-NODES=$((GPUS / GPUS_PER_NODE))
-export MASTER_PORT=${MASTER_PORT}
-export PORT=${PORT}
+NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
+TORCH_DISTRIBUTED_DEBUG="${TORCH_DISTRIBUTED_DEBUG:-DETAIL}"
+TORCH_NCCL_ASYNC_ERROR_HANDLING="${TORCH_NCCL_ASYNC_ERROR_HANDLING:-1}"
+
+PORT=${PORT:-63665}
 
 echo "GPUS: ${GPUS}"
-export CUDA_LAUNCH_BLOCKING=1
+echo "NNODES: ${NNODES}"
+echo "RANK: ${RANK}"
+export CUDA_LAUNCH_BLOCKING=0
 
-CHECKPOINT="/path/to/diffusion-planner.ckpt"
+CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/training_recogdrive_agent/2026.03.03.07.42.42/lightning_logs/version_0/checkpoints/epoch-196_step-32899.ckpt"
 
-torchrun \
-    --nnodes=1 \
-    --node_rank=$MLP_ROLE_INDEX \
-    --master_addr=$MLP_WORKER_0_HOST \
+
+
+/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
+    --nnodes=${NNODES} \
+    --node_rank=${RANK} \
+    --master_addr=${MASTER_ADDR} \
     --nproc_per_node=${GPUS} \
-    --master_port=$MLP_WORKER_0_PORT \
+    --master_port=${MASTER_PORT} \
     $NAVSIM_DEVKIT_ROOT/navsim/planning/script/run_training_recogdrive_rl.py \
     agent=recogdrive_agent \
     agent.lr=1e-4 \
-    agent.vlm_path='/path/to/pretrain_model' \
+    agent.vlm_path='/mnt/volumes/ad-e2e-al-sh01/cy/outputs/ReCogDrive_pretrain/all_data_new' \
     agent.cam_type='single' \
     agent.grpo=True \
     agent.cache_hidden_state=True \
@@ -39,15 +61,19 @@ torchrun \
     agent.dit_type="small" \
     agent.vlm_size="small" \
     agent.sampling_method="ddim" \
-    agent.metric_cache_path="/path/to/metric_cache_dir" \
+    agent.metric_cache_path="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache_train" \
     agent.reference_policy_checkpoint="'$CHECKPOINT'" \
     trainer.params.max_epochs=10 \
-    trainer.params.num_nodes=1 \
-    trainer.params.devices=8 \
+    trainer.params.num_nodes=${NNODES} \
+    trainer.params.devices=${GPUS} \
     dataloader.params.batch_size=8 \
-    experiment_name=training_recogdrive_agent \
+    experiment_name=training_recogdrive_agent_rl \
     train_test_split=$TRAIN_TEST_SPLIT \
-    cache_path="/path/to/recogdrive_agent_cache_dir_train" \
+    cache_path="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/recogdrive_agent_cache_dir_train_update" \
     use_cache_without_dataset=True \
-    force_cache_computation=False > train_recogdrive_rl_2b.txt 2>&1
+    force_cache_computation=False \
+    hydra/job_logging=stdout \
+    hydra.output_subdir=null
+    # > train_recogdrive_rl_2b.txt 2>&1
   # 2>&1 | tee -a "training_log.txt" &
+
