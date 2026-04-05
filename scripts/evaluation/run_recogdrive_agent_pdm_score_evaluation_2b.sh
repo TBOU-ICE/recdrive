@@ -3,10 +3,12 @@ set -x
 TRAIN_TEST_SPLIT=navtest
 
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/path/to/NAVSIM/dataset/maps"
-export NAVSIM_EXP_ROOT="/path/to/NAVSIM/exp"
-export NAVSIM_DEVKIT_ROOT="/path/to/NAVSIM/navsim-main"
+export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
+export NAVSIM_DEVKIT_ROOT="/workspace/code"
 export OPENSCENE_DATA_ROOT="/path/to/NAVSIM/dataset"
+export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
+
 export NCCL_IB_DISABLE=0
 export NCCL_P2P_DISABLE=0
 export NCCL_SHM_DISABLE=0
@@ -23,13 +25,12 @@ echo "GPUS: ${GPUS}"
 export CUDA_LAUNCH_BLOCKING=1
 
 
-CHECKPOINT="/path/to/recogdrive.ckpt"
+CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/training_recogdrive_agent_rl_jiaoqf/2026.03.07.11.46.20/lightning_logs/version_0/checkpoints/epoch=9-step=3330.ckpt"
 
 
 # 1. Set NAVSIM dataset and related environment variables
 # 2. Configure torchrun (e.g., single machine: --nproc_per_node=8; adjust for multi-node)
 # 3. Set agent.vlm_path and agent.checkpoint_path CHECKPOINT
-
 
 
 torchrun \
@@ -38,7 +39,7 @@ torchrun \
     train_test_split=$TRAIN_TEST_SPLIT \
     agent=recogdrive_agent \
     agent.checkpoint_path="'$CHECKPOINT'" \
-    agent.vlm_path='/path/to/ReCogDrive-VLM-2B' \
+    agent.vlm_path='mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/outs' \
     agent.cam_type='single' \
     agent.grpo=False \
     agent.cache_hidden_state=False \
