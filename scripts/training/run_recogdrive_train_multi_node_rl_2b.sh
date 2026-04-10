@@ -41,7 +41,8 @@ echo "Master Addr: ${MASTER_ADDR}"
 
 export CUDA_LAUNCH_BLOCKING=0
 
-CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/training_recogdrive_agent/2026.03.03.07.42.42/lightning_logs/version_0/checkpoints/epoch-196_step-32899.ckpt"
+#CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/training_recogdrive_agent/2026.03.03.07.42.42/lightning_logs/version_0/checkpoints/epoch-196_step-32899.ckpt"
+CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_nby/2026.04.04.00.28.46/lightning_logs/version_0/checkpoints/epoch=199-step=133000.ckpt"
 
 
 
