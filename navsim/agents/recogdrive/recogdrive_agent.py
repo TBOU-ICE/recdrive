@@ -1,4 +1,5 @@
 from typing import Any, List, Dict, Optional, Union
+import inspect
 import os
 import torch
 from torch.optim import Optimizer
@@ -99,7 +100,10 @@ class ReCogDriveAgent(AbstractAgent):
 
     def initialize(self) -> None:
         if self.checkpoint_path:
-            ckpt = torch.load(self.checkpoint_path, map_location="cpu")["state_dict"]
+            load_kw: Dict[str, Any] = {"map_location": "cpu"}
+            if "weights_only" in inspect.signature(torch.load).parameters:
+                load_kw["weights_only"] = False
+            ckpt = torch.load(self.checkpoint_path, **load_kw)["state_dict"]
             model_dict = self.state_dict()
             filtered_ckpt = {}
             for k, v in ckpt.items():
