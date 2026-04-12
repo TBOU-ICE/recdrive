@@ -27,7 +27,7 @@ echo "GPUS: ${GPUS}"
 
 
 #CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/training_recogdrive_agent_rl_jiaoqf/2026.03.07.11.46.20/lightning_logs/version_0/checkpoints/epoch=9-step=3330.ckpt"
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_agent_rl/2026.04.10.15.57.57/lightning_logs/version_0/checkpoints/epoch=7-step=10640.ckpt"
+CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt"
 # PDMS on navtest: use metric_cache (eval); metric_cache_train is for training and won't match navtest tokens.
 METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
 
