@@ -1,13 +1,13 @@
 set -x
 
 TRAIN_TEST_SPLIT=navtest
+export OPENBLAS_CORETYPE=Haswell
 export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH" #nby
-export PYTHONPATH="/workspace/code:${PYTHONPATH:-}"  #nby
-
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="/workspace/code"
+export NAVSIM_DEVKIT_ROOT="/workspace/recdrive"
+export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}:${PYTHONPATH:-}"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
 
 
