@@ -53,7 +53,7 @@ for task in "${EVAL_TASKS[@]}"; do
     "${TORCHRUN}" \
         --nproc_per_node=1 \
         --master_port=$MASTER_PORT \
-        /workspace/recdrive/navsim/planning/script/run_pdm_score_recogdrive.py \
+        /workspace/code/navsim/planning/script/run_pdm_score_recogdrive.py \
         train_test_split=$TRAIN_TEST_SPLIT \
         agent=recogdrive_agent \
         "agent.checkpoint_path='$ckpt_path'" \
