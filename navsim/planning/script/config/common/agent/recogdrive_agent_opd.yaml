@@ -1,0 +1,38 @@
+_target_: navsim.agents.recogdrive.recogdrive_agent.ReCogDriveAgent
+_convert_: 'all'
+
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+
+# Student VLM (2B, trainable LLM part)
+vlm_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B'
+vlm_type: 'internvl'
+vlm_size: 'small'
+dit_type: 'small'
+sampling_method: 'ddim'
+
+# DiT checkpoint (Stage 3 RL, frozen)
+checkpoint_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+
+# OPD mode
+opd: True
+teacher_vlm_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-8B'
+opd_topk: 32
+opd_norm_to_one: True
+opd_reward_weight_mode: 'normalize'
+opd_use_reward_weighting: True
+opd_max_new_tokens: 256
+
+# PDM metric cache for reward
+metric_cache_path: '/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache_train'
+
+# Disable grpo and cache modes
+grpo: False
+cache_mode: False
+cache_hidden_state: False   # must be False in OPD mode (online VLM)
+train_backbone: False       # ViT frozen; only LLM part trained via opd flag
+reference_policy_checkpoint: ''
+lr: 2e-6

@@ -3,6 +3,7 @@ import torch
 from torch import nn
 from transformers import AutoModel, AutoTokenizer
 from transformers.modeling_outputs import CausalLMOutputWithPast
+from transformers import GenerationConfig
 
 from .utils.conversation import get_conv_template
 
@@ -92,41 +93,113 @@ class RecogDriveBackbone(nn.Module):
         self.model.img_context_token_id = self.img_context_token_id
         print("InternVL model configured.")
     
-    def forward(self, pixel_values: torch.Tensor, questions: List[str], num_patches_list: List[int]):
-        if not self.model:
-            raise RuntimeError("Backbone model has not been initialized. Call initialize() on the agent first.")
-        
+    def _build_model_inputs(
+        self,
+        pixel_values: torch.Tensor,
+        questions: List[str],
+        num_patches_list: List[int],
+        max_length: int = 2800,
+    ):
+        """Shared tokenization logic for forward and forward_with_logits."""
         model_dtype = next(self.model.parameters()).dtype
-
         queries = []
         for idx, num_patches in enumerate(num_patches_list):
             question = questions[idx]
             if pixel_values is not None and '<image>' not in question:
                 question = '<image>\n' + question
-            
             template = get_conv_template("internvl2_5")
             template.system_message = system_message
             template.append_message(template.roles[0], question)
             template.append_message(template.roles[1], None)
             query = template.get_prompt()
-
             image_tokens = IMG_START_TOKEN + IMG_CONTEXT_TOKEN * self.num_image_token * num_patches + IMG_END_TOKEN
             query = query.replace('<image>', image_tokens, 1)
             queries.append(query)
+
         self.tokenizer.padding_side = 'left'
-        model_inputs = self.tokenizer(queries, return_tensors='pt', padding='max_length', max_length=2800)
+        model_inputs = self.tokenizer(
+            queries, return_tensors='pt', padding='max_length', max_length=max_length
+        )
         device = torch.device('cuda')
-        input_ids = model_inputs['input_ids'].to(device)
+        input_ids      = model_inputs['input_ids'].to(device)
         attention_mask = model_inputs['attention_mask'].to(device)
-
-        position_ids = attention_mask.long().cumsum(-1) - 1
+        position_ids   = attention_mask.long().cumsum(-1) - 1
         position_ids.masked_fill_(attention_mask == 0, 1)
-        
-        num_patches = pixel_values.size(0)
-        image_flags = torch.tensor([1] * num_patches, dtype=torch.long)
+        num_patches_total = pixel_values.size(0)
+        image_flags = torch.tensor([1] * num_patches_total, dtype=torch.long, device=device)
+        return input_ids, attention_mask, position_ids, image_flags, model_dtype
 
+    def forward(self, pixel_values: torch.Tensor, questions: List[str], num_patches_list: List[int]):
+        if not self.model:
+            raise RuntimeError("Backbone model has not been initialized.")
+
+        input_ids, attention_mask, position_ids, image_flags, model_dtype = \
+            self._build_model_inputs(pixel_values, questions, num_patches_list)
 
         return self.model(
+            pixel_values=pixel_values.to(model_dtype),
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            image_flags=image_flags.squeeze(-1),
+            output_hidden_states=True,
+            return_dict=True,
+        )
+
+    def forward_with_logits(
+        self,
+        pixel_values: torch.Tensor,
+        questions: List[str],
+        num_patches_list: List[int],
+        generated_input_ids: Optional[torch.Tensor] = None,
+        generated_attention_mask: Optional[torch.Tensor] = None,
+    ):
+        """
+        Forward pass that returns both hidden states and logits.
+
+        If generated_input_ids is provided (student's on-policy token sequence),
+        the model runs a teacher-forcing forward on those tokens and returns logits.
+        This is used for OPD: both teacher and student call this with the same
+        generated_input_ids to get their respective logits for KL computation.
+
+        Returns:
+            output: model output with .logits (B, T, V), .hidden_states, .attentions
+            response_mask: (B, T) bool mask marking the response tokens (not prompt/image)
+        """
+        if not self.model:
+            raise RuntimeError("Backbone model has not been initialized.")
+
+        input_ids, attention_mask, position_ids, image_flags, model_dtype = \
+            self._build_model_inputs(pixel_values, questions, num_patches_list)
+
+        if generated_input_ids is not None:
+            # Teacher-forcing: run forward on the student's generated sequence.
+            # Concatenate prompt input_ids with generated response ids.
+            full_ids  = torch.cat([input_ids,  generated_input_ids],  dim=1)
+            gen_mask  = torch.ones_like(generated_input_ids)
+            full_mask = torch.cat([attention_mask, gen_mask], dim=1)
+            full_pos  = full_mask.long().cumsum(-1) - 1
+            full_pos.masked_fill_(full_mask == 0, 1)
+
+            output = self.model(
+                pixel_values=pixel_values.to(model_dtype),
+                input_ids=full_ids,
+                attention_mask=full_mask,
+                position_ids=full_pos,
+                image_flags=image_flags.squeeze(-1),
+                output_hidden_states=True,
+                return_dict=True,
+            )
+            # response_mask: only the generated part (last T_gen tokens)
+            T_gen = generated_input_ids.size(1)
+            response_mask = gen_mask.bool()                              # (B, T_gen)
+            # logits aligned to generated tokens: shift by 1 (predict next token)
+            # logits[:, prompt_len-1 : prompt_len-1+T_gen, :] predicts generated tokens
+            prompt_len = input_ids.size(1)
+            logits = output.logits[:, prompt_len - 1 : prompt_len - 1 + T_gen, :]
+        else:
+            # Standard forward without generation (returns full sequence logits)
+            output = self.model(
                 pixel_values=pixel_values.to(model_dtype),
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -134,6 +207,10 @@ class RecogDriveBackbone(nn.Module):
                 image_flags=image_flags.squeeze(-1),
                 output_hidden_states=True,
                 return_dict=True,
-        )
+            )
+            logits = output.logits
+            response_mask = attention_mask.bool()
+
+        return output, logits, response_mask
 
     

@@ -70,35 +70,26 @@ class AgentLightningDiT(pl.LightningModule):
     """Pytorch lightning wrapper for learnable agent."""
 
     def __init__(self, agent: AbstractAgent):
-        """
-        Initialise the lightning module wrapper.
-        :param agent: agent interface in NAVSIM
-        """
         super().__init__()
         self.agent = agent
 
     def _step(self, batch: Tuple[Dict[str, Tensor], Dict[str, Tensor]], logging_prefix: str) -> Tensor:
-        """
-        Propagates the model forward and backwards and computes/logs losses and metrics.
-        :param batch: tuple of dictionaries for feature and target tensors (batched)
-        :param logging_prefix: prefix where to log step
-        :return: scalar loss
-        """
         features, targets, tokens_list = batch
-        prediction = self.agent.forward(features,targets,tokens_list)
+        prediction = self.agent.forward(features, targets, tokens_list)
         if logging_prefix == 'train':
             predictions = self.agent.compute_loss(features, targets, prediction)
 
             loss = predictions.loss
-            reward = predictions.reward
-            policy_loss = predictions.policy_loss
-            bc_loss = predictions.bc_loss
+
             self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-            self.log(f"{logging_prefix}/reward", reward, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-            self.log(f"{logging_prefix}/policy_loss", policy_loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-            self.log(f"{logging_prefix}/bc_loss", bc_loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+
+            # log extra keys if present (grpo or opd)
+            for key in ("reward", "policy_loss", "bc_loss", "opd_loss", "reward_mean", "reward_weight"):
+                if key in predictions:
+                    self.log(f"{logging_prefix}/{key}", predictions[key],
+                             on_step=True, on_epoch=True, prog_bar=False, sync_dist=True)
         else:
-            prediction = self.agent.forward(features,targets)
+            prediction = self.agent.forward(features, targets)
             loss = self.agent.compute_loss(features, targets, prediction)
             self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss

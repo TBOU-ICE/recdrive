@@ -23,6 +23,7 @@ from .recogdrive_diffusion_planner import (
     ReCogDriveDiffusionPlanner,
     ReCogDriveDiffusionPlannerConfig,
 )
+from .recogdrive_opd_trainer import ReCogDriveOPDTrainer
 
 
 class ReCogDriveAgent(AbstractAgent):
@@ -43,6 +44,14 @@ class ReCogDriveAgent(AbstractAgent):
         reference_policy_checkpoint: Optional[str] = '', 
         vlm_size: Optional[str] = 'small', 
         train_backbone: bool = False,
+        # ── OPD-specific ──────────────────────────────────────────────────────
+        opd: bool = False,
+        teacher_vlm_path: Optional[str] = None,
+        opd_topk: int = 32,
+        opd_norm_to_one: bool = True,
+        opd_reward_weight_mode: str = 'normalize',
+        opd_use_reward_weighting: bool = True,
+        opd_max_new_tokens: int = 256,
     ):
         super().__init__()
         self._trajectory_sampling = trajectory_sampling
@@ -54,6 +63,8 @@ class ReCogDriveAgent(AbstractAgent):
         self.cache_hidden_state = cache_hidden_state
         self._lr = lr
         self.grpo = grpo
+        self.opd = opd
+        self.opd_max_new_tokens = opd_max_new_tokens
         self.backbone = None
         self.metric_cache_path = metric_cache_path
         self.reference_policy_checkpoint = reference_policy_checkpoint
@@ -63,22 +74,43 @@ class ReCogDriveAgent(AbstractAgent):
         local_rank = int(os.getenv("LOCAL_RANK", "0"))
         device = f"cuda:{local_rank}"
         self.device = device
-        if not self.cache_hidden_state and not self.cache_mode:
-            print("Agent running in 'no-cache' mode. Initializing internal backbone.")
-            if not self.vlm_path or not self.vlm_type:
-                raise ValueError("In 'no-cache' mode, vlm_path and vlm_type are required.")
-            self.backbone = RecogDriveBackbone(
-                model_type=self.vlm_type,
-                checkpoint_path=self.vlm_path,
-                device=device
-            )
 
-            if not self.train_backbone:
+        # ── Student VLM backbone (always online in OPD mode) ──────────────────
+        if opd or (not self.cache_hidden_state and not self.cache_mode):
+            print("Agent running in online VLM mode. Initializing student backbone.")
+            if not vlm_path or not vlm_type:
+                raise ValueError("vlm_path and vlm_type are required for online VLM mode.")
+            self.backbone = RecogDriveBackbone(
+                model_type=vlm_type,
+                checkpoint_path=vlm_path,
+                device=device,
+            )
+            if not self.train_backbone and not opd:
                 for p in self.backbone.parameters():
                     p.requires_grad = False
-            else:
-                for p in self.backbone.parameters():
-                    p.requires_grad = True
+            elif opd:
+                # In OPD mode: only the LLM part of the student VLM is trainable
+                # ViT and MLP projector stay frozen
+                for name, p in self.backbone.model.named_parameters():
+                    if 'vision_model' in name or 'mlp1' in name:
+                        p.requires_grad = False
+                    else:
+                        p.requires_grad = True
+
+        # ── Teacher VLM (frozen, 8B) ──────────────────────────────────────────
+        self.teacher_backbone = None
+        if opd:
+            if not teacher_vlm_path:
+                raise ValueError("teacher_vlm_path is required for OPD mode.")
+            print(f"Loading teacher VLM from {teacher_vlm_path}")
+            self.teacher_backbone = RecogDriveBackbone(
+                model_type=vlm_type,
+                checkpoint_path=teacher_vlm_path,
+                device=device,
+            )
+            for p in self.teacher_backbone.parameters():
+                p.requires_grad = False
+            self.teacher_backbone.model.eval()
 
         if self.dit_type == "large":
             cfg = make_recogdrive_config(self.dit_type, action_dim=3, action_horizon=8, grpo=self.grpo, input_embedding_dim=1536,sampling_method=sampling_method)
@@ -94,6 +126,17 @@ class ReCogDriveAgent(AbstractAgent):
         self.action_head = ReCogDriveDiffusionPlanner(cfg).cuda()
         self.num_inference_samples = 1
         self.inference_selection_mode = "median"
+
+        # ── OPD trainer ───────────────────────────────────────────────────────
+        self.opd_trainer = None
+        if opd:
+            self.opd_trainer = ReCogDriveOPDTrainer(
+                metric_cache_path=metric_cache_path,
+                topk=opd_topk,
+                norm_to_one=opd_norm_to_one,
+                reward_weight_mode=opd_reward_weight_mode,
+                use_reward_weighting=opd_use_reward_weighting,
+            )
 
     def name(self) -> str:
         return self.__class__.__name__
@@ -142,11 +185,11 @@ class ReCogDriveAgent(AbstractAgent):
         if high_command_one_hot.ndim == 1:
             high_command_one_hot = high_command_one_hot.unsqueeze(0)
 
-        if self.cache_hidden_state:
+        if self.cache_hidden_state and not self.opd:
             last_hidden_state = features["last_hidden_state"].cuda()
         else:
             if self.backbone is None:
-                raise RuntimeError("Agent is in 'no-cache' mode, but backbone is not initialized.")
+                raise RuntimeError("Agent is in online VLM mode, but backbone is not initialized.")
             image_path_tensor = features["image_path_tensor"]
             if image_path_tensor.ndim == 1:
                 image_path_tensor = image_path_tensor.unsqueeze(0)
@@ -208,10 +251,19 @@ class ReCogDriveAgent(AbstractAgent):
         elif self.training and self.grpo:
             action_inputs = BatchFeature(data={"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype), "action": targets["trajectory"].to(model_dtype)})
             return self.action_head.forward_grpo(last_hidden_state, action_inputs, tokens_list)
+        elif self.training and self.opd:
+            # OPD mode: dispatch to forward_opd which handles VLM online generation
+            return self.forward_opd(
+                pixel_values=pixel_values_cat,
+                questions=questions,
+                num_patches_list=num_patches_list,
+                history_trajectory=history_trajectory,
+                status_feature=status_feature,
+                tokens_list=tokens_list,
+            )
         else: 
             action_inputs = BatchFeature({"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype)})
             return self.action_head.get_action(last_hidden_state.to(model_dtype), action_inputs)
-
     def compute_trajectory(self, agent_input: AgentInput) -> Trajectory:
         self.eval()
 
@@ -245,9 +297,124 @@ class ReCogDriveAgent(AbstractAgent):
         return Trajectory(poses)
 
 
+    def forward_opd(
+        self,
+        pixel_values: torch.Tensor,
+        questions: List[str],
+        num_patches_list: List[int],
+        history_trajectory: torch.Tensor,
+        status_feature: torch.Tensor,
+        tokens_list: List[str],
+    ):
+        """
+        OPD forward pass:
+        1. Student VLM generates tokens on-policy (top-p sampling).
+        2. Both student and teacher VLM run teacher-forcing on those tokens → logits.
+        3. Compute Teacher-TopK KL loss.
+        4. DiT (frozen) converts student hidden states → trajectory → PDM score.
+        5. Return reward-weighted OPD loss.
+        """
+        assert self.opd_trainer is not None, "opd_trainer not initialized"
+        assert self.teacher_backbone is not None, "teacher_backbone not initialized"
+
+        model_dtype = next(self.backbone.model.parameters()).dtype
+        device = pixel_values.device
+
+        # ── Step 1: Student VLM on-policy generation ──────────────────────────
+        # Build prompt input_ids via backbone tokenizer
+        self.backbone.tokenizer.padding_side = 'left'
+        from .utils.conversation import get_conv_template
+        from .recogdrive_backbone import IMG_START_TOKEN, IMG_END_TOKEN, IMG_CONTEXT_TOKEN, system_message
+        queries = []
+        for idx, num_patches in enumerate(num_patches_list):
+            q = questions[idx]
+            if '<image>' not in q:
+                q = '<image>\n' + q
+            template = get_conv_template("internvl2_5")
+            template.system_message = system_message
+            template.append_message(template.roles[0], q)
+            template.append_message(template.roles[1], None)
+            query = template.get_prompt()
+            image_tokens = IMG_START_TOKEN + IMG_CONTEXT_TOKEN * self.backbone.num_image_token * num_patches + IMG_END_TOKEN
+            query = query.replace('<image>', image_tokens, 1)
+            queries.append(query)
+
+        model_inputs = self.backbone.tokenizer(
+            queries, return_tensors='pt', padding='max_length', max_length=2800
+        )
+        prompt_input_ids = model_inputs['input_ids'].to(device)
+        prompt_attention_mask = model_inputs['attention_mask'].to(device)
+
+        # Generate student tokens (on-policy, top-p=0.9)
+        with torch.no_grad():
+            vit_embeds = self.backbone.model.extract_feature(pixel_values.to(model_dtype))
+            input_embeds = self.backbone.model.language_model.get_input_embeddings()(prompt_input_ids)
+            B, N, C = input_embeds.shape
+            input_embeds_flat = input_embeds.reshape(B * N, C)
+            ids_flat = prompt_input_ids.reshape(B * N)
+            selected = (ids_flat == self.backbone.img_context_token_id)
+            input_embeds_flat[selected] = vit_embeds.reshape(-1, C).to(input_embeds_flat.device)
+            input_embeds = input_embeds_flat.reshape(B, N, C)
+
+            generated_ids = self.backbone.model.language_model.generate(
+                inputs_embeds=input_embeds,
+                attention_mask=prompt_attention_mask,
+                max_new_tokens=self.opd_max_new_tokens,
+                do_sample=True,
+                top_p=0.9,
+                temperature=1.0,
+                pad_token_id=self.backbone.tokenizer.pad_token_id,
+                eos_token_id=self.backbone.tokenizer.eos_token_id,
+            )  # (B, T_gen)
+
+        # ── Step 2: Student logits (teacher-forcing on generated tokens) ───────
+        _, student_logits, response_mask = self.backbone.forward_with_logits(
+            pixel_values=pixel_values,
+            questions=questions,
+            num_patches_list=num_patches_list,
+            generated_input_ids=generated_ids,
+        )  # student_logits: (B, T_gen, V)
+
+        # ── Step 3: Teacher logits (frozen, same generated tokens) ────────────
+        with torch.no_grad():
+            _, teacher_logits, _ = self.teacher_backbone.forward_with_logits(
+                pixel_values=pixel_values,
+                questions=questions,
+                num_patches_list=num_patches_list,
+                generated_input_ids=generated_ids,
+            )  # teacher_logits: (B, T_gen, V)
+
+        # ── Step 4: DiT trajectory (frozen, uses student hidden states) ───────
+        # Re-run student VLM forward to get hidden states for DiT
+        with torch.no_grad():
+            student_output = self.backbone.forward(pixel_values, questions, num_patches_list)
+            last_hidden_state = student_output.hidden_states[-1].to(model_dtype)
+
+            history_trajectory_reshaped = history_trajectory.view(history_trajectory.size(0), -1)
+            input_state = torch.cat([status_feature, history_trajectory_reshaped], dim=1)
+            action_inputs = BatchFeature(data={
+                "state": input_state.to(model_dtype),
+                "his_traj": history_trajectory_reshaped.to(model_dtype),
+                "status_feature": status_feature.to(model_dtype),
+            })
+            traj_output = self.action_head.get_action(last_hidden_state, action_inputs)
+            pred_traj = traj_output["pred_traj"]  # (B, H, 3) denormalized
+
+        # ── Step 5: Reward-weighted OPD loss ──────────────────────────────────
+        result = self.opd_trainer.compute_loss(
+            student_logits=student_logits.float(),
+            teacher_logits=teacher_logits.float(),
+            response_mask=response_mask.float(),
+            pred_traj=pred_traj,
+            tokens_list=list(tokens_list),
+        )
+        return result
+
     def compute_loss(self, features: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor], predictions: Dict[str, torch.Tensor]) -> torch.Tensor:
         if self.training and self.grpo:
             return predictions
+        elif self.training and self.opd:
+            return predictions  # BatchFeature returned directly from forward_opd
         elif self.training:
             return predictions.loss
         else:
