@@ -376,7 +376,8 @@ class ReCogDriveAgent(AbstractAgent):
             )  # (B, T_gen)
 
         # ── Step 2: Student logits (teacher-forcing on generated tokens) ───────
-        _, student_logits, response_mask = self.backbone.forward_with_logits(
+        # output also contains hidden_states, reused in Step 4 to avoid a 3rd VLM forward
+        student_output, student_logits, response_mask = self.backbone.forward_with_logits(
             pixel_values=pixel_values,
             questions=questions,
             num_patches_list=num_patches_list,
@@ -392,11 +393,13 @@ class ReCogDriveAgent(AbstractAgent):
                 generated_input_ids=generated_ids,
             )  # teacher_logits: (B, T_gen, V)
 
-        # ── Step 4: DiT trajectory (frozen, uses student hidden states) ───────
-        # Re-run student VLM forward to get hidden states for DiT
+        # ── Step 4: DiT trajectory (frozen, uses student hidden states from Step 2) ───────
+        # Reuse student_output.hidden_states[-1] — no extra VLM forward needed
         with torch.no_grad():
-            student_output = self.backbone.forward(pixel_values, questions, num_patches_list)
-            last_hidden_state = student_output.hidden_states[-1].to(model_dtype)
+            # Take only the prompt portion of hidden states (first prompt_len tokens),
+            # matching what the standard forward() path produces from backbone.forward()
+            prompt_len = 2800  # max_length used in _build_model_inputs
+            last_hidden_state = student_output.hidden_states[-1][:, :prompt_len, :].detach().to(model_dtype)
 
             history_trajectory_reshaped = history_trajectory.view(history_trajectory.size(0), -1)
             input_state = torch.cat([status_feature, history_trajectory_reshaped], dim=1)
