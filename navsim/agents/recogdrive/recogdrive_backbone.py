@@ -1,4 +1,5 @@
 from typing import List, Optional, Tuple, Union
+import contextlib
 import torch
 from torch import nn
 from transformers import AutoModel, AutoTokenizer
@@ -86,6 +87,14 @@ class RecogDriveBackbone(nn.Module):
 
         print(f"Backbone '{self.model_type}' loaded successfully on device '{self.device}'.")
 
+    def _autocast_ctx(self, model_dtype: torch.dtype):
+        """Align vision and text branches under AMP (fixes BF16 input_embeds vs FP32 vit)."""
+        if model_dtype == torch.bfloat16:
+            return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        if model_dtype == torch.float16:
+            return torch.autocast(device_type="cuda", dtype=torch.float16)
+        return contextlib.nullcontext()
+
     def _configure_internvl(self):
         """Applies specific configurations required for the InternVL model."""
         self.model.system_message = system_message
@@ -136,15 +145,16 @@ class RecogDriveBackbone(nn.Module):
         input_ids, attention_mask, position_ids, image_flags, model_dtype = \
             self._build_model_inputs(pixel_values, questions, num_patches_list)
 
-        return self.model(
-            pixel_values=pixel_values.to(model_dtype),
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            image_flags=image_flags.squeeze(-1),
-            output_hidden_states=True,
-            return_dict=True,
-        )
+        with self._autocast_ctx(model_dtype):
+            return self.model(
+                pixel_values=pixel_values.to(model_dtype),
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                image_flags=image_flags.squeeze(-1),
+                output_hidden_states=True,
+                return_dict=True,
+            )
 
     def forward_with_logits(
         self,
@@ -181,15 +191,16 @@ class RecogDriveBackbone(nn.Module):
             full_pos  = full_mask.long().cumsum(-1) - 1
             full_pos.masked_fill_(full_mask == 0, 1)
 
-            output = self.model(
-                pixel_values=pixel_values.to(model_dtype),
-                input_ids=full_ids,
-                attention_mask=full_mask,
-                position_ids=full_pos,
-                image_flags=image_flags.squeeze(-1),
-                output_hidden_states=True,
-                return_dict=True,
-            )
+            with self._autocast_ctx(model_dtype):
+                output = self.model(
+                    pixel_values=pixel_values.to(model_dtype),
+                    input_ids=full_ids,
+                    attention_mask=full_mask,
+                    position_ids=full_pos,
+                    image_flags=image_flags.squeeze(-1),
+                    output_hidden_states=True,
+                    return_dict=True,
+                )
             # response_mask: only the generated part (last T_gen tokens)
             T_gen = generated_input_ids.size(1)
             response_mask = gen_mask.bool()                              # (B, T_gen)
@@ -199,15 +210,16 @@ class RecogDriveBackbone(nn.Module):
             logits = output.logits[:, prompt_len - 1 : prompt_len - 1 + T_gen, :]
         else:
             # Standard forward without generation (returns full sequence logits)
-            output = self.model(
-                pixel_values=pixel_values.to(model_dtype),
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                image_flags=image_flags.squeeze(-1),
-                output_hidden_states=True,
-                return_dict=True,
-            )
+            with self._autocast_ctx(model_dtype):
+                output = self.model(
+                    pixel_values=pixel_values.to(model_dtype),
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    image_flags=image_flags.squeeze(-1),
+                    output_hidden_states=True,
+                    return_dict=True,
+                )
             logits = output.logits
             response_mask = attention_mask.bool()
 

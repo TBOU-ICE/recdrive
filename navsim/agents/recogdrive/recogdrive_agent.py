@@ -359,7 +359,9 @@ class ReCogDriveAgent(AbstractAgent):
             input_embeds_flat = input_embeds.reshape(B * N, C)
             ids_flat = prompt_input_ids.reshape(B * N)
             selected = (ids_flat == self.backbone.img_context_token_id)
-            input_embeds_flat[selected] = vit_embeds.reshape(-1, C).to(input_embeds_flat.device)
+            input_embeds_flat[selected] = vit_embeds.reshape(-1, C).to(
+                device=input_embeds_flat.device, dtype=input_embeds_flat.dtype
+            )
             input_embeds = input_embeds_flat.reshape(B, N, C)
 
             generated_ids = self.backbone.model.language_model.generate(
