@@ -11,3 +11,4 @@ build/
 .venv/
 venv/
 .env
+assets/images/*.jpg
