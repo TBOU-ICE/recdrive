@@ -50,6 +50,7 @@ echo "GPUS: ${GPUS}  NNODES: ${NNODES}  RANK: ${RANK}"
     agent.sampling_method='ddim' \
     agent.grpo=False \
     trainer.params.max_epochs=10 \
+    trainer.params.precision=bf16-true \
     trainer.params.num_nodes=${NNODES} \
     trainer.params.devices=${GPUS} \
     dataloader.params.batch_size=4 \
