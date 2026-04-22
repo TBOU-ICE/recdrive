@@ -129,7 +129,7 @@ class RecogDriveBackbone(nn.Module):
         model_inputs = self.tokenizer(
             queries, return_tensors='pt', padding='max_length', max_length=max_length
         )
-        device = torch.device('cuda')
+        device = pixel_values.device
         input_ids      = model_inputs['input_ids'].to(device)
         attention_mask = model_inputs['attention_mask'].to(device)
         position_ids   = attention_mask.long().cumsum(-1) - 1

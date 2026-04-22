@@ -190,21 +190,18 @@ class ReCogDriveAgent(AbstractAgent):
         if high_command_one_hot.ndim == 1:
             high_command_one_hot = high_command_one_hot.unsqueeze(0)
 
-        if self.cache_hidden_state and not self.opd:
-            last_hidden_state = features["last_hidden_state"].cuda()
-        else:
+        # ── OPD branch: skip VLM forward here, forward_opd handles everything ──
+        if self.training and self.opd:
             if self.backbone is None:
-                raise RuntimeError("Agent is in online VLM mode, but backbone is not initialized.")
+                raise RuntimeError("Agent is in OPD mode, but student backbone is not initialized.")
             image_path_tensor = features["image_path_tensor"]
             if image_path_tensor.ndim == 1:
                 image_path_tensor = image_path_tensor.unsqueeze(0)
             image_paths = self._decode_paths_from_tensor(image_path_tensor)
-            
+
             pixel_values_list = [load_image(path) for path in image_paths]
-            
             num_patches_list = [p.shape[0] for p in pixel_values_list]
             pixel_values_cat = torch.cat(pixel_values_list, dim=0).cuda()
-            
 
             navigation_commands = ['turn left', 'go straight', 'turn right']
             command_indices = torch.argmax(high_command_one_hot, dim=-1)
@@ -213,21 +210,74 @@ class ReCogDriveAgent(AbstractAgent):
             questions = []
             batch_size = high_command_one_hot.shape[0]
             for i in range(batch_size):
-                history_trajectory_sample = history_trajectory[i]
-                command_str_sample = command_str_list[i]
-
+                ht = history_trajectory[i]
                 history_str = ' '.join([
-                    f'   - t-{3-j}: ({format_number(history_trajectory_sample[j, 0].item())}, '
-                    f'{format_number(history_trajectory_sample[j, 1].item())}, '
-                    f'{format_number(history_trajectory_sample[j, 2].item())})'
-                    for j in range(history_trajectory_sample.shape[0])
+                    f'   - t-{3-j}: ({format_number(ht[j, 0].item())}, '
+                    f'{format_number(ht[j, 1].item())}, '
+                    f'{format_number(ht[j, 2].item())})'
+                    for j in range(ht.shape[0])
                 ])
-                
                 prompt = (
                     "<image>\nAs an autonomous driving system, predict the vehicle's trajectory based on:\n"
                     "1. Visual perception from front camera view\n"
                     f"2. Historical motion context (last 4 timesteps):{history_str}\n"
-                    f"3. Active navigation command: [{command_str_sample.upper()}]"
+                    f"3. Active navigation command: [{command_str_list[i].upper()}]"
+                )
+                output_requirements = (
+                    "\nOutput requirements:\n- Predict 8 future trajectory points\n"
+                    "- Each point format: (x:float, y:float, heading:float)\n"
+                    "- Use [PT, ...] to encapsulate the trajectory\n"
+                    "- Maintain numerical precision to 2 decimal places"
+                )
+                questions.append(f"{prompt}{output_requirements}")
+
+            status_feature = features["status_feature"].cuda()
+            if status_feature.ndim == 1:
+                status_feature = status_feature.unsqueeze(0)
+
+            return self.forward_opd(
+                pixel_values=pixel_values_cat,
+                questions=questions,
+                num_patches_list=num_patches_list,
+                history_trajectory=history_trajectory,
+                status_feature=status_feature,
+                tokens_list=tokens_list,
+            )
+
+        # ── Non-OPD branches: need last_hidden_state ─────────────────────────
+        if self.cache_hidden_state:
+            last_hidden_state = features["last_hidden_state"].cuda()
+        else:
+            if self.backbone is None:
+                raise RuntimeError("Agent is in online VLM mode, but backbone is not initialized.")
+            image_path_tensor = features["image_path_tensor"]
+            if image_path_tensor.ndim == 1:
+                image_path_tensor = image_path_tensor.unsqueeze(0)
+            image_paths = self._decode_paths_from_tensor(image_path_tensor)
+
+            pixel_values_list = [load_image(path) for path in image_paths]
+            num_patches_list = [p.shape[0] for p in pixel_values_list]
+            pixel_values_cat = torch.cat(pixel_values_list, dim=0).cuda()
+
+            navigation_commands = ['turn left', 'go straight', 'turn right']
+            command_indices = torch.argmax(high_command_one_hot, dim=-1)
+            command_str_list = [navigation_commands[idx.item()] for idx in command_indices]
+
+            questions = []
+            batch_size = high_command_one_hot.shape[0]
+            for i in range(batch_size):
+                ht = history_trajectory[i]
+                history_str = ' '.join([
+                    f'   - t-{3-j}: ({format_number(ht[j, 0].item())}, '
+                    f'{format_number(ht[j, 1].item())}, '
+                    f'{format_number(ht[j, 2].item())})'
+                    for j in range(ht.shape[0])
+                ])
+                prompt = (
+                    "<image>\nAs an autonomous driving system, predict the vehicle's trajectory based on:\n"
+                    "1. Visual perception from front camera view\n"
+                    f"2. Historical motion context (last 4 timesteps):{history_str}\n"
+                    f"3. Active navigation command: [{command_str_list[i].upper()}]"
                 )
                 output_requirements = (
                     "\nOutput requirements:\n- Predict 8 future trajectory points\n"
@@ -250,17 +300,6 @@ class ReCogDriveAgent(AbstractAgent):
         history_trajectory_reshaped = history_trajectory.view(history_trajectory.size(0), -1)
         input_state = torch.cat([status_feature, history_trajectory_reshaped], dim=1)
 
-        # OPD must be checked before (training and not grpo), otherwise grpo=False+opd=True
-        # always takes the standard IL diffusion branch and never runs forward_opd.
-        if self.training and self.opd:
-            return self.forward_opd(
-                pixel_values=pixel_values_cat,
-                questions=questions,
-                num_patches_list=num_patches_list,
-                history_trajectory=history_trajectory,
-                status_feature=status_feature,
-                tokens_list=tokens_list,
-            )
         if self.training and not self.grpo:
             action_inputs = BatchFeature(data={"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype), "action": targets["trajectory"].to(model_dtype)})
             return self.action_head(last_hidden_state, action_inputs)
@@ -327,29 +366,9 @@ class ReCogDriveAgent(AbstractAgent):
         device = pixel_values.device
 
         # ── Step 1: Student VLM on-policy generation ──────────────────────────
-        # Build prompt input_ids via backbone tokenizer
-        self.backbone.tokenizer.padding_side = 'left'
-        from .utils.conversation import get_conv_template
-        from .recogdrive_backbone import IMG_START_TOKEN, IMG_END_TOKEN, IMG_CONTEXT_TOKEN, system_message
-        queries = []
-        for idx, num_patches in enumerate(num_patches_list):
-            q = questions[idx]
-            if '<image>' not in q:
-                q = '<image>\n' + q
-            template = get_conv_template("internvl2_5")
-            template.system_message = system_message
-            template.append_message(template.roles[0], q)
-            template.append_message(template.roles[1], None)
-            query = template.get_prompt()
-            image_tokens = IMG_START_TOKEN + IMG_CONTEXT_TOKEN * self.backbone.num_image_token * num_patches + IMG_END_TOKEN
-            query = query.replace('<image>', image_tokens, 1)
-            queries.append(query)
-
-        model_inputs = self.backbone.tokenizer(
-            queries, return_tensors='pt', padding='max_length', max_length=2800
-        )
-        prompt_input_ids = model_inputs['input_ids'].to(device)
-        prompt_attention_mask = model_inputs['attention_mask'].to(device)
+        # Reuse _build_model_inputs to avoid duplicating tokenization logic.
+        prompt_input_ids, prompt_attention_mask, _, _, _ = \
+            self.backbone._build_model_inputs(pixel_values, questions, num_patches_list)
 
         # Generate student tokens (on-policy, top-p=0.9)
         with torch.no_grad():
@@ -383,6 +402,9 @@ class ReCogDriveAgent(AbstractAgent):
             num_patches_list=num_patches_list,
             generated_input_ids=generated_ids,
         )  # student_logits: (B, T_gen, V)
+        # Detach hidden_states immediately to free the (2800+T_gen) activation graph;
+        # only student_logits needs gradients for the KL loss.
+        student_hidden = student_output.hidden_states[-1].detach()
 
         # ── Step 3: Teacher logits (frozen, same generated tokens) ────────────
         with torch.no_grad():
@@ -394,12 +416,12 @@ class ReCogDriveAgent(AbstractAgent):
             )  # teacher_logits: (B, T_gen, V)
 
         # ── Step 4: DiT trajectory (frozen, uses student hidden states from Step 2) ───────
-        # Reuse student_output.hidden_states[-1] — no extra VLM forward needed
+        # Reuse student_hidden (already detached) — no extra VLM forward needed.
+        # prompt_len is derived dynamically from generated_ids offset so it stays
+        # correct if _build_model_inputs max_length ever changes.
         with torch.no_grad():
-            # Take only the prompt portion of hidden states (first prompt_len tokens),
-            # matching what the standard forward() path produces from backbone.forward()
-            prompt_len = 2800  # max_length used in _build_model_inputs
-            last_hidden_state = student_output.hidden_states[-1][:, :prompt_len, :].detach().to(model_dtype)
+            prompt_len = student_hidden.size(1) - generated_ids.size(1)
+            last_hidden_state = student_hidden[:, :prompt_len, :].to(model_dtype)
 
             history_trajectory_reshaped = history_trajectory.view(history_trajectory.size(0), -1)
             input_state = torch.cat([status_feature, history_trajectory_reshaped], dim=1)
