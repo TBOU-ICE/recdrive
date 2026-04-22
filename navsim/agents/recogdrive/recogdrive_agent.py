@@ -24,6 +24,7 @@ from .recogdrive_diffusion_planner import (
     ReCogDriveDiffusionPlannerConfig,
 )
 from .recogdrive_opd_trainer import ReCogDriveOPDTrainer
+from .recogdrive_dit_distill_trainer import ReCogDriveDiTDistillTrainer
 
 
 class ReCogDriveAgent(AbstractAgent):
@@ -48,6 +49,11 @@ class ReCogDriveAgent(AbstractAgent):
         opd: bool = False,
         teacher_vlm_path: Optional[str] = None,
         opd_topk: int = 32,
+        # ── DiT distillation ──────────────────────────────────────────────────
+        dit_distill: bool = False,
+        teacher_dit_checkpoint: Optional[str] = None,
+        dit_distill_reward_weight_mode: str = 'normalize',
+        dit_distill_use_reward_weighting: bool = True,
         opd_norm_to_one: bool = True,
         opd_reward_weight_mode: str = 'normalize',
         opd_use_reward_weighting: bool = True,
@@ -65,6 +71,8 @@ class ReCogDriveAgent(AbstractAgent):
         self.grpo = grpo
         self.opd = opd
         self.opd_max_new_tokens = opd_max_new_tokens
+        self.dit_distill = dit_distill
+        self.teacher_dit_checkpoint = teacher_dit_checkpoint
         self.backbone = None
         self.metric_cache_path = metric_cache_path
         self.reference_policy_checkpoint = reference_policy_checkpoint
@@ -141,6 +149,52 @@ class ReCogDriveAgent(AbstractAgent):
                 norm_to_one=opd_norm_to_one,
                 reward_weight_mode=opd_reward_weight_mode,
                 use_reward_weighting=opd_use_reward_weighting,
+            )
+
+        # ── DiT distillation: teacher DiT (frozen) + distill trainer ──────────
+        self.teacher_action_head = None
+        self.dit_distill_trainer = None
+        if dit_distill:
+            if not teacher_dit_checkpoint:
+                raise ValueError("teacher_dit_checkpoint is required for dit_distill mode.")
+            # Build teacher DiT with same architecture as student
+            teacher_cfg = make_recogdrive_config(
+                self.dit_type, action_dim=3, action_horizon=8,
+                grpo=False,
+                input_embedding_dim=384 if self.dit_type == 'small' else 1536,
+                sampling_method=sampling_method,
+            )
+            teacher_cfg.vlm_size = self.vlm_size
+            self.teacher_action_head = ReCogDriveDiffusionPlanner(teacher_cfg).cuda()
+            # Load teacher checkpoint
+            load_kw: Dict[str, Any] = {"map_location": "cpu"}
+            if "weights_only" in inspect.signature(torch.load).parameters:
+                load_kw["weights_only"] = False
+            teacher_ckpt = torch.load(teacher_dit_checkpoint, **load_kw)
+            state = teacher_ckpt.get("state_dict", teacher_ckpt)
+            # strip "agent.action_head." prefix if present
+            stripped = {}
+            for k, v in state.items():
+                if k.startswith("agent.action_head."):
+                    stripped[k[len("agent.action_head."):]] = v
+                elif k.startswith("action_head."):
+                    stripped[k[len("action_head."):]] = v
+                else:
+                    stripped[k] = v
+            missing, unexpected = self.teacher_action_head.load_state_dict(stripped, strict=False)
+            print(f"[DiT distill] Teacher loaded. Missing: {len(missing)}, Unexpected: {len(unexpected)}")
+            for p in self.teacher_action_head.parameters():
+                p.requires_grad = False
+            self.teacher_action_head.eval()
+
+            # student DiT is trainable
+            for p in self.action_head.parameters():
+                p.requires_grad = True
+
+            self.dit_distill_trainer = ReCogDriveDiTDistillTrainer(
+                metric_cache_path=metric_cache_path,
+                reward_weight_mode=dit_distill_reward_weight_mode,
+                use_reward_weighting=dit_distill_use_reward_weighting,
             )
 
     def name(self) -> str:
@@ -300,12 +354,27 @@ class ReCogDriveAgent(AbstractAgent):
         history_trajectory_reshaped = history_trajectory.view(history_trajectory.size(0), -1)
         input_state = torch.cat([status_feature, history_trajectory_reshaped], dim=1)
 
-        if self.training and not self.grpo:
+        if self.training and not self.grpo and not self.dit_distill:
             action_inputs = BatchFeature(data={"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype), "action": targets["trajectory"].to(model_dtype)})
             return self.action_head(last_hidden_state, action_inputs)
         elif self.training and self.grpo:
             action_inputs = BatchFeature(data={"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype), "action": targets["trajectory"].to(model_dtype)})
             return self.action_head.forward_grpo(last_hidden_state, action_inputs, tokens_list)
+        elif self.training and self.dit_distill:
+            # DiT distillation: student and teacher share the same vl_features
+            action_inputs = BatchFeature(data={
+                "state": input_state.to(model_dtype),
+                "his_traj": history_trajectory_reshaped.to(model_dtype),
+                "status_feature": status_feature.to(model_dtype),
+                "action": targets["trajectory"].to(model_dtype),
+            })
+            return self.dit_distill_trainer.compute_loss(
+                student_planner=self.action_head,
+                teacher_planner=self.teacher_action_head,
+                vl_features=last_hidden_state,
+                action_input=action_inputs,
+                tokens_list=list(tokens_list),
+            )
         else: 
             action_inputs = BatchFeature({"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype)})
             return self.action_head.get_action(last_hidden_state.to(model_dtype), action_inputs)
@@ -448,6 +517,8 @@ class ReCogDriveAgent(AbstractAgent):
             return predictions
         elif self.training and self.opd:
             return predictions  # BatchFeature returned directly from forward_opd
+        elif self.training and self.dit_distill:
+            return predictions  # BatchFeature returned directly from dit_distill_trainer
         elif self.training:
             return predictions.loss
         else:
@@ -465,6 +536,9 @@ class ReCogDriveAgent(AbstractAgent):
         if self.opd:
             assert self.backbone is not None
             params = [p for p in self.backbone.parameters() if p.requires_grad]
+        elif self.dit_distill:
+            # only student DiT is trainable
+            params = [p for p in self.action_head.parameters() if p.requires_grad]
         else:
             params = list(self.action_head.parameters())
             if self.backbone is not None and self.train_backbone:

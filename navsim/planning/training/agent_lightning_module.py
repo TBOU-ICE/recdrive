@@ -76,48 +76,37 @@ class AgentLightningDiT(pl.LightningModule):
     def _step(self, batch: Tuple[Dict[str, Tensor], Dict[str, Tensor]], logging_prefix: str) -> Tensor:
         features, targets, tokens_list = batch
         prediction = self.agent.forward(features, targets, tokens_list)
-        if logging_prefix == 'train':
-            predictions = self.agent.compute_loss(features, targets, prediction)
+        predictions = self.agent.compute_loss(features, targets, prediction)
 
+        # compute_loss returns either a plain tensor (IL val) or a BatchFeature (grpo/opd/dit_distill)
+        if hasattr(predictions, "loss"):
             loss = predictions.loss
+        else:
+            loss = predictions
 
-            self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
-            # log extra keys if present (grpo or opd)
-            for key in ("reward", "policy_loss", "bc_loss", "opd_loss", "reward_mean", "reward_weight"):
+        if hasattr(predictions, "__contains__"):
+            for key in ("reward", "policy_loss", "bc_loss", "opd_loss", "reward_mean", "reward_weight", "distill_loss"):
                 if key in predictions:
                     self.log(f"{logging_prefix}/{key}", predictions[key],
-                             on_step=True, on_epoch=True, prog_bar=False, sync_dist=True)
-        else:
-            prediction = self.agent.forward(features, targets, tokens_list)
-            predictions = self.agent.compute_loss(features, targets, prediction)
-            loss = predictions.loss if hasattr(predictions, "loss") else predictions
-            self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-            for key in ("opd_loss", "reward_mean", "reward_weight"):
-                if hasattr(predictions, key) and getattr(predictions, key) is not None:
-                    self.log(f"{logging_prefix}/{key}", getattr(predictions, key),
                              on_step=True, on_epoch=True, prog_bar=False, sync_dist=True)
         return loss
     
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         """
-        每次保存 checkpoint 时，只保留 state_dict 中不以 'agent.model' 开头的条目。
+        Drop the frozen teacher backbone and teacher DiT weights from checkpoints.
+        They are not needed for resuming training or inference.
         """
         filtered_sd = {
             k: v
             for k, v in checkpoint['state_dict'].items()
-            if not k.startswith('agent.model')
+            if not k.startswith('agent.teacher_backbone.')
+            and not k.startswith('agent.teacher_action_head.')
         }
         checkpoint['state_dict'] = filtered_sd
 
     def training_step(self, batch: Tuple[Dict[str, Tensor], Dict[str, Tensor]], batch_idx: int) -> Tensor:
-        """
-        Step called on training samples
-        :param batch: tuple of dictionaries for feature and target tensors (batched)
-        :param batch_idx: index of batch (ignored)
-        :return: scalar loss
-        """
-        #print(batch_idx)
         return self._step(batch, "train")
 
     def validation_step(self, batch: Tuple[Dict[str, Tensor], Dict[str, Tensor]], batch_idx: int):
