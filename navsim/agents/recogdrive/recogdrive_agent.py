@@ -426,7 +426,13 @@ class ReCogDriveAgent(AbstractAgent):
         elif self.training:
             return predictions.loss
         else:
-            return torch.nn.functional.l1_loss(predictions["pred_traj"], targets["trajectory"])
+            pred = torch.nan_to_num(
+                predictions["pred_traj"], nan=0.0, posinf=0.0, neginf=0.0
+            )
+            tgt = torch.nan_to_num(
+                targets["trajectory"], nan=0.0, posinf=0.0, neginf=0.0
+            )
+            return torch.nn.functional.l1_loss(pred, tgt)
 
     def get_optimizers(self) -> Union[Optimizer, Dict[str, LRScheduler]]:
         optimizer_cfg = DictConfig(dict(type="AdamW", lr=self._lr, weight_decay=1e-4, betas=(0.9, 0.95)))

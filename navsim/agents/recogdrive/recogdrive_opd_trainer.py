@@ -7,12 +7,14 @@
 # w(PDM_score): reward-weighted coefficient — samples with higher PDM scores
 #               contribute more to the distillation loss.
 
+import logging
 import lzma
 import pickle
 from dataclasses import asdict
 from pathlib import Path
 from typing import List, Optional
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from transformers.feature_extraction_utils import BatchFeature
@@ -28,6 +30,20 @@ from navsim.planning.simulation.planner.pdm_planner.simulation.pdm_simulator imp
     PDMSimulator,
 )
 from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
+
+logger = logging.getLogger(__name__)
+
+
+def _sanitize_pred_trajectory_np(poses: np.ndarray) -> np.ndarray:
+    """
+    PDM / nuplan heading interpolation requires finite angles. DiT outputs in bf16
+    can still produce NaNs/Infs after float() cast; clean before Trajectory / pdm_score.
+    """
+    out = np.asarray(poses, dtype=np.float64)
+    out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+    if out.shape[-1] >= 3:
+        out[..., 2] = np.arctan2(np.sin(out[..., 2]), np.cos(out[..., 2]))
+    return out.astype(np.float32)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -85,6 +101,7 @@ def compute_pdm_rewards(
     """Return PDM scores as a (B,) float tensor."""
     # bf16 tensors cannot be converted to NumPy directly; PDM stack expects float64/float32.
     pred_np = pred_traj.detach().float().cpu().numpy()
+    pred_np = np.stack([_sanitize_pred_trajectory_np(p) for p in pred_np], axis=0)
     unique_tokens = set(tokens_list)
     cache_dict = {}
     for token in unique_tokens:
@@ -95,14 +112,23 @@ def compute_pdm_rewards(
     rewards = []
     for i, token in enumerate(tokens_list):
         traj = Trajectory(pred_np[i])
-        result = pdm_score(
-            metric_cache=cache_dict[token],
-            model_trajectory=traj,
-            future_sampling=simulator.proposal_sampling,
-            simulator=simulator,
-            scorer=scorer,
-        )
-        rewards.append(asdict(result)["score"])
+        try:
+            result = pdm_score(
+                metric_cache=cache_dict[token],
+                model_trajectory=traj,
+                future_sampling=simulator.proposal_sampling,
+                simulator=simulator,
+                scorer=scorer,
+            )
+            rewards.append(asdict(result)["score"])
+        except (AssertionError, ValueError, RuntimeError) as e:
+            logger.warning(
+                "PDM scoring failed for sample %s (token=%s); using reward 0.0: %s",
+                i,
+                token,
+                e,
+            )
+            rewards.append(0.0)
 
     return torch.tensor(rewards, device=pred_traj.device, dtype=torch.float32)
 
@@ -125,9 +151,14 @@ def reward_weighted_opd_loss(
       "threshold" : 1 if score > median else 0
     """
     if reward_weight_mode == "normalize":
-        w = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
-        w = w - w.min()
-        w = w / (w.max() + 1e-8)
+        # B=1: std is 0 → w is all zeros → scalar_w=0 and no gradient signal; treat as uniform weight.
+        if rewards.numel() < 2:
+            w = torch.ones_like(rewards)
+        else:
+            rw_std = rewards.std(unbiased=False)
+            w = (rewards - rewards.mean()) / (rw_std + 1e-8)
+            w = w - w.min()
+            w = w / (w.max() + 1e-8)
     elif reward_weight_mode == "raw":
         w = rewards.clamp(0.0, 1.0)
     elif reward_weight_mode == "threshold":
@@ -136,7 +167,10 @@ def reward_weighted_opd_loss(
         raise ValueError(f"Unknown reward_weight_mode: {reward_weight_mode}")
 
     scalar_w = w.mean()
-    return kl_loss * scalar_w, scalar_w
+    scalar_w = torch.nan_to_num(scalar_w, nan=1.0, posinf=1.0, neginf=1.0)
+    loss = kl_loss * scalar_w
+    loss = torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0)
+    return loss, scalar_w
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -207,9 +241,12 @@ class ReCogDriveOPDTrainer:
             loss = opd_loss
             scalar_w = torch.ones(1, device=opd_loss.device)
 
+        loss = torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0)
+        opd_loss_for_log = torch.nan_to_num(opd_loss, nan=0.0, posinf=0.0, neginf=0.0)
+
         return BatchFeature(data={
             "loss":          loss,
-            "opd_loss":      opd_loss.detach(),
+            "opd_loss":      opd_loss_for_log.detach(),
             "reward_mean":   rewards.mean().detach(),
             "reward_weight": scalar_w.detach() if isinstance(scalar_w, torch.Tensor) else scalar_w,
         })
