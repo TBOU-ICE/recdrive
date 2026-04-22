@@ -22,15 +22,22 @@ export NCCL_P2P_DISABLE=0
 export NCCL_SHM_DISABLE=0
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
-NNODES="${WORLD_SIZE:-1}"
-NODE_RANK="${RANK:-0}"
-MASTER_ADDR="${MASTER_ADDR:?MASTER_ADDR is empty}"  #多机
-#MASTER_ADDR=127.0.0.1 #单机
+NNODES="${NNODES:-1}"
+NODE_RANK="${NODE_RANK:-0}"
+MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-63670}"
-GPUS_PER_NODE="${GPUS:-8}"
+GPUS_PER_NODE="${GPUS_PER_NODE:-${GPUS:-8}}"
+
+export MASTER_ADDR="${MASTER_ADDR}"
+export MASTER_PORT="${MASTER_PORT}"
 
 echo "Caching image-path features for OPD training..."
 echo "Cache path: $CACHE_PATH"
+echo "MASTER_ADDR: ${MASTER_ADDR}"
+echo "MASTER_PORT: ${MASTER_PORT}"
+echo "NNODES: ${NNODES}"
+echo "NODE_RANK: ${NODE_RANK}"
+echo "GPUS_PER_NODE: ${GPUS_PER_NODE}"
 
 /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
     --nnodes=${NNODES} \
