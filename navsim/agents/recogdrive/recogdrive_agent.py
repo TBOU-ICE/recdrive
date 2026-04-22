@@ -127,6 +127,11 @@ class ReCogDriveAgent(AbstractAgent):
         self.num_inference_samples = 1
         self.inference_selection_mode = "median"
 
+        if opd:
+            for p in self.action_head.parameters():
+                p.requires_grad = False
+            self.action_head.eval()
+
         # ── OPD trainer ───────────────────────────────────────────────────────
         self.opd_trainer = None
         if opd:
@@ -245,14 +250,9 @@ class ReCogDriveAgent(AbstractAgent):
         history_trajectory_reshaped = history_trajectory.view(history_trajectory.size(0), -1)
         input_state = torch.cat([status_feature, history_trajectory_reshaped], dim=1)
 
-        if self.training and not self.grpo:
-            action_inputs = BatchFeature(data={"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype), "action": targets["trajectory"].to(model_dtype)})
-            return self.action_head(last_hidden_state, action_inputs)
-        elif self.training and self.grpo:
-            action_inputs = BatchFeature(data={"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype), "action": targets["trajectory"].to(model_dtype)})
-            return self.action_head.forward_grpo(last_hidden_state, action_inputs, tokens_list)
-        elif self.training and self.opd:
-            # OPD mode: dispatch to forward_opd which handles VLM online generation
+        # OPD must be checked before (training and not grpo), otherwise grpo=False+opd=True
+        # always takes the standard IL diffusion branch and never runs forward_opd.
+        if self.training and self.opd:
             return self.forward_opd(
                 pixel_values=pixel_values_cat,
                 questions=questions,
@@ -261,6 +261,12 @@ class ReCogDriveAgent(AbstractAgent):
                 status_feature=status_feature,
                 tokens_list=tokens_list,
             )
+        if self.training and not self.grpo:
+            action_inputs = BatchFeature(data={"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype), "action": targets["trajectory"].to(model_dtype)})
+            return self.action_head(last_hidden_state, action_inputs)
+        elif self.training and self.grpo:
+            action_inputs = BatchFeature(data={"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype), "action": targets["trajectory"].to(model_dtype)})
+            return self.action_head.forward_grpo(last_hidden_state, action_inputs, tokens_list)
         else: 
             action_inputs = BatchFeature({"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype)})
             return self.action_head.get_action(last_hidden_state.to(model_dtype), action_inputs)
@@ -423,9 +429,13 @@ class ReCogDriveAgent(AbstractAgent):
     def get_optimizers(self) -> Union[Optimizer, Dict[str, LRScheduler]]:
         optimizer_cfg = DictConfig(dict(type="AdamW", lr=self._lr, weight_decay=1e-4, betas=(0.9, 0.95)))
 
-        params = list(self.action_head.parameters())
-        if self.backbone is not None and self.train_backbone:
-            params += list(self.backbone.parameters())
+        if self.opd:
+            assert self.backbone is not None
+            params = [p for p in self.backbone.parameters() if p.requires_grad]
+        else:
+            params = list(self.action_head.parameters())
+            if self.backbone is not None and self.train_backbone:
+                params += list(self.backbone.parameters())
 
         optimizer = build_from_configs(optim, optimizer_cfg, params=params)
         

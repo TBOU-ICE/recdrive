@@ -89,9 +89,14 @@ class AgentLightningDiT(pl.LightningModule):
                     self.log(f"{logging_prefix}/{key}", predictions[key],
                              on_step=True, on_epoch=True, prog_bar=False, sync_dist=True)
         else:
-            prediction = self.agent.forward(features, targets)
-            loss = self.agent.compute_loss(features, targets, prediction)
+            prediction = self.agent.forward(features, targets, tokens_list)
+            predictions = self.agent.compute_loss(features, targets, prediction)
+            loss = predictions.loss if hasattr(predictions, "loss") else predictions
             self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+            for key in ("opd_loss", "reward_mean", "reward_weight"):
+                if hasattr(predictions, key) and getattr(predictions, key) is not None:
+                    self.log(f"{logging_prefix}/{key}", getattr(predictions, key),
+                             on_step=True, on_epoch=True, prog_bar=False, sync_dist=True)
         return loss
     
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:

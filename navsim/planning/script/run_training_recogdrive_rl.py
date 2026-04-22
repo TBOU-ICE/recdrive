@@ -33,21 +33,35 @@ def custom_collate_fn(
     high_command_one_hot = torch.stack([features['high_command_one_hot'] for features in features_list], dim=0).cpu()
     status_feature = torch.stack([features['status_feature'] for features in features_list], dim=0).cpu()
 
-    last_hidden_state = rnn_utils.pad_sequence(
-        [features['last_hidden_state'] for features in features_list],
-        batch_first=True,
-        padding_value=0.0
-    ).clone().detach()
-
     trajectory = torch.stack([targets['trajectory'] for targets in targets_list], dim=0).cpu()
 
-
-    features = {
-        'history_trajectory': history_trajectory,
-        'high_command_one_hot': high_command_one_hot,
-        'status_feature': status_feature,
-        'last_hidden_state': last_hidden_state,
-    }
+    if 'last_hidden_state' in features_list[0]:
+        last_hidden_state = rnn_utils.pad_sequence(
+            [features['last_hidden_state'] for features in features_list],
+            batch_first=True,
+            padding_value=0.0
+        ).clone().detach()
+        features = {
+            'history_trajectory': history_trajectory,
+            'high_command_one_hot': high_command_one_hot,
+            'status_feature': status_feature,
+            'last_hidden_state': last_hidden_state,
+        }
+    else:
+        # OPD / no-hidden-state cache: pad image_path_tensor to batch
+        path_tensors = [features['image_path_tensor'] for features in features_list]
+        max_len = max(t.shape[0] for t in path_tensors)
+        padded_paths = []
+        for t in path_tensors:
+            pad = max_len - t.shape[0]
+            padded_paths.append(torch.nn.functional.pad(t, (0, pad), value=0))
+        image_path_tensor = torch.stack(padded_paths, dim=0).cpu()
+        features = {
+            'history_trajectory': history_trajectory,
+            'high_command_one_hot': high_command_one_hot,
+            'status_feature': status_feature,
+            'image_path_tensor': image_path_tensor,
+        }
     targets = {
         'trajectory': trajectory
     }

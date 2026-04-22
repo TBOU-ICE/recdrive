@@ -4,11 +4,14 @@
 # (no VLM forward pass, no hidden states)
 # This cache is used by OPD training where VLM runs online.
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-$REPO_ROOT}"
+
 TRAIN_TEST_SPLIT=navtrain
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="/workspace/code"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
 
 # Separate cache dir from the hidden-state cache
@@ -21,7 +24,8 @@ export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 NNODES="${WORLD_SIZE:-1}"
 NODE_RANK="${RANK:-0}"
-MASTER_ADDR="${MASTER_ADDR:?MASTER_ADDR is empty}"
+MASTER_ADDR="${MASTER_ADDR:?MASTER_ADDR is empty}"  #多机
+#MASTER_ADDR=127.0.0.1 #单机
 MASTER_PORT="${MASTER_PORT:-63670}"
 GPUS_PER_NODE="${GPUS:-8}"
 
@@ -39,7 +43,7 @@ echo "Cache path: $CACHE_PATH"
     experiment_name=recogdrive_agent_cache_opd \
     agent.cam_type='single' \
     agent.cache_hidden_state=False \
-    agent.cache_mode=False \
+    agent.cache_mode=True \
     train_test_split=$TRAIN_TEST_SPLIT \
     agent.vlm_path="" \
     cache_path=$CACHE_PATH \
