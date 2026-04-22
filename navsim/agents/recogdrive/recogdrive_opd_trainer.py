@@ -83,7 +83,8 @@ def compute_pdm_rewards(
     scorer: PDMScorer,
 ) -> torch.Tensor:
     """Return PDM scores as a (B,) float tensor."""
-    pred_np = pred_traj.detach().cpu().numpy()
+    # bf16 tensors cannot be converted to NumPy directly; PDM stack expects float64/float32.
+    pred_np = pred_traj.detach().float().cpu().numpy()
     unique_tokens = set(tokens_list)
     cache_dict = {}
     for token in unique_tokens:
@@ -103,7 +104,7 @@ def compute_pdm_rewards(
         )
         rewards.append(asdict(result)["score"])
 
-    return torch.tensor(rewards, device=pred_traj.device, dtype=pred_traj.dtype)
+    return torch.tensor(rewards, device=pred_traj.device, dtype=torch.float32)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
