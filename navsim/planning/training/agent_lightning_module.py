@@ -1,4 +1,5 @@
 import pytorch_lightning as pl
+import torch
 
 from torch import Tensor
 from typing import Dict, Tuple,Any
@@ -86,7 +87,7 @@ class AgentLightningDiT(pl.LightningModule):
 
         self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
-        if isinstance(predictions, dict) or hasattr(predictions, "data"):
+        if not isinstance(predictions, torch.Tensor):
             for key in ("reward", "policy_loss", "bc_loss", "opd_loss", "reward_mean", "reward_weight", "distill_loss"):
                 if key in predictions:
                     self.log(f"{logging_prefix}/{key}", predictions[key],
