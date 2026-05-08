@@ -25,6 +25,11 @@ dit_distill: True
 teacher_dit_checkpoint: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
 dit_distill_reward_weight_mode: 'normalize'
 dit_distill_use_reward_weighting: True
+dit_distill_lambda_out: 1.0
+dit_distill_lambda_feat: 0.2
+dit_distill_lambda_traj: 0.1
+dit_distill_feat_layers: 6
+dit_distill_out_loss_type: 'huber'
 
 # PDM metric cache for reward weighting
 metric_cache_path: '/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache_train'

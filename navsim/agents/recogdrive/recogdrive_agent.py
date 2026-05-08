@@ -54,6 +54,11 @@ class ReCogDriveAgent(AbstractAgent):
         teacher_dit_checkpoint: Optional[str] = None,
         dit_distill_reward_weight_mode: str = 'normalize',
         dit_distill_use_reward_weighting: bool = True,
+        dit_distill_lambda_out: float = 1.0,
+        dit_distill_lambda_feat: float = 0.2,
+        dit_distill_lambda_traj: float = 0.1,
+        dit_distill_feat_layers: int = 6,
+        dit_distill_out_loss_type: str = 'huber',
         opd_norm_to_one: bool = True,
         opd_reward_weight_mode: str = 'normalize',
         opd_use_reward_weighting: bool = True,
@@ -195,6 +200,11 @@ class ReCogDriveAgent(AbstractAgent):
                 metric_cache_path=metric_cache_path,
                 reward_weight_mode=dit_distill_reward_weight_mode,
                 use_reward_weighting=dit_distill_use_reward_weighting,
+                lambda_out=dit_distill_lambda_out,
+                lambda_feat=dit_distill_lambda_feat,
+                lambda_traj=dit_distill_lambda_traj,
+                feat_layers=dit_distill_feat_layers,
+                out_loss_type=dit_distill_out_loss_type,
             )
 
     def name(self) -> str:
