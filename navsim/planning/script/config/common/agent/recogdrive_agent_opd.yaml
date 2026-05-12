@@ -14,20 +14,15 @@ vlm_size: 'small'
 dit_type: 'small'
 sampling_method: 'ddim'
 
-# DiT checkpoint (Stage 3 RL, frozen)
+# DiT checkpoint (Stage 3 RL, frozen in OPD mode)
 checkpoint_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
 
-# OPD mode
+# OPD mode — Teacher-TopK Local Support Matching (arXiv:2603.25562)
 opd: True
 teacher_vlm_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-8B'
 opd_topk: 32
-opd_norm_to_one: True
-opd_reward_weight_mode: 'normalize'
-opd_use_reward_weighting: True
+opd_group_size: 6
 opd_max_new_tokens: 256
-
-# PDM metric cache for reward
-metric_cache_path: '/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache_train'
 
 # Disable grpo and cache modes
 grpo: False

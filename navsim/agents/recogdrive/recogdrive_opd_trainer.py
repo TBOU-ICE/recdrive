@@ -1,252 +1,68 @@
-# OPD (On-Policy Distillation) trainer for ReCogDrive VLA.
-#
-# Loss = w(PDM_score) * L_vlm_opd
-#
-# L_vlm_opd: Teacher-TopK truncated reverse-KL between 8B teacher VLM and 2B student VLM,
-#             computed on the student's own on-policy generated token sequences.
-# w(PDM_score): reward-weighted coefficient — samples with higher PDM scores
-#               contribute more to the distillation loss.
+# OPD (On-Policy Distillation) trainer — Teacher-TopK Local Support Matching
+# arXiv:2603.25562 §3.2  L_LSM = KL(π̂_student || q̂_teacher) on top-K teacher support
+# No reward weighting; pure distillation loss averaged over valid response tokens.
 
-import logging
-import lzma
-import pickle
-from dataclasses import asdict
-from pathlib import Path
-from typing import List, Optional
-
-import numpy as np
 import torch
 import torch.nn.functional as F
 from transformers.feature_extraction_utils import BatchFeature
 
-from navsim.common.dataclasses import Trajectory
-from navsim.common.dataloader import MetricCacheLoader
-from navsim.evaluate.pdm_score import pdm_score
-from navsim.planning.simulation.planner.pdm_planner.scoring.pdm_scorer import (
-    PDMScorer,
-    PDMScorerConfig,
-)
-from navsim.planning.simulation.planner.pdm_planner.simulation.pdm_simulator import (
-    PDMSimulator,
-)
-from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
-
-logger = logging.getLogger(__name__)
-
-
-def _sanitize_pred_trajectory_np(poses: np.ndarray) -> np.ndarray:
-    """
-    PDM / nuplan heading interpolation requires finite angles. DiT outputs in bf16
-    can still produce NaNs/Infs after float() cast; clean before Trajectory / pdm_score.
-    """
-    out = np.asarray(poses, dtype=np.float64)
-    out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
-    if out.shape[-1] >= 3:
-        out[..., 2] = np.arctan2(np.sin(out[..., 2]), np.cos(out[..., 2]))
-    return out.astype(np.float32)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Teacher-TopK truncated reverse-KL
-# ──────────────────────────────────────────────────────────────────────────────
 
 def compute_topk_kl_loss(
     student_logits: torch.Tensor,   # (B, T, V)
     teacher_logits: torch.Tensor,   # (B, T, V)
     response_mask: torch.Tensor,    # (B, T)  1 = valid response token
     topk: int = 32,
-    norm_to_one: bool = True,
 ) -> torch.Tensor:
     """
-    Teacher-TopK truncated reverse-KL: KL(student_norm || teacher_norm)
-    restricted to the teacher's top-K token support at each position.
-    Returns scalar loss averaged over valid tokens.
+    Teacher-TopK Local Support Matching (LSM) loss.
+
+    At each token position t, restrict both distributions to the teacher's
+    top-K vocabulary support S = TopK_q(c_t), renormalize both within that
+    support via softmax, then compute KL(π̂_student || q̂_teacher).
+
+    Returns scalar loss averaged over valid (non-PAD, non-EOS) response tokens.
     """
-    # teacher top-K indices
-    _, ref_topk_indices = teacher_logits.topk(topk, dim=-1)           # (B, T, K)
+    # teacher top-K indices at every position
+    _, ref_topk_idx = teacher_logits.topk(topk, dim=-1)           # (B, T, K)
 
-    # gather logits at teacher top-K positions
-    ref_logits_k   = teacher_logits.gather(-1, ref_topk_indices)       # (B, T, K)
-    actor_logits_k = student_logits.gather(-1, ref_topk_indices)       # (B, T, K)
+    # gather logits restricted to teacher support
+    ref_logits_k   = teacher_logits.gather(-1, ref_topk_idx)       # (B, T, K)
+    actor_logits_k = student_logits.gather(-1, ref_topk_idx)       # (B, T, K)
 
-    if norm_to_one:
-        teacher_log_norm  = F.log_softmax(ref_logits_k,   dim=-1)
-        student_log_norm  = F.log_softmax(actor_logits_k, dim=-1)
-        student_prob_norm = student_log_norm.exp()
-        kl_per_token = (student_prob_norm * (student_log_norm - teacher_log_norm)).sum(dim=-1)
-    else:
-        ref_logsumexp   = teacher_logits.logsumexp(dim=-1, keepdim=True)
-        actor_logsumexp = student_logits.logsumexp(dim=-1, keepdim=True)
-        log_p_k = actor_logits_k - actor_logsumexp
-        log_q_k = ref_logits_k   - ref_logsumexp
-        p_k = log_p_k.exp()
-        kl_per_token = (p_k * (log_p_k - log_q_k)).sum(dim=-1)
+    # renormalize within support → π̂ and q̂
+    teacher_log_norm  = F.log_softmax(ref_logits_k,   dim=-1)      # log q̂
+    student_log_norm  = F.log_softmax(actor_logits_k, dim=-1)      # log π̂
+    student_prob_norm = student_log_norm.exp()                      # π̂
 
+    # KL(π̂ || q̂) per token
+    kl_per_token = (student_prob_norm * (student_log_norm - teacher_log_norm)).sum(dim=-1)
+
+    # mask out padding / EOS and average
     kl_per_token = kl_per_token * response_mask
     n_valid = response_mask.sum().clamp(min=1)
     return kl_per_token.sum() / n_valid
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# PDM reward computation
-# ──────────────────────────────────────────────────────────────────────────────
-
-def compute_pdm_rewards(
-    pred_traj: torch.Tensor,
-    tokens_list: List[str],
-    metric_cache_loader: MetricCacheLoader,
-    simulator: PDMSimulator,
-    scorer: PDMScorer,
-) -> torch.Tensor:
-    """Return PDM scores as a (B,) float tensor."""
-    # bf16 tensors cannot be converted to NumPy directly; PDM stack expects float64/float32.
-    pred_np = pred_traj.detach().float().cpu().numpy()
-    pred_np = np.stack([_sanitize_pred_trajectory_np(p) for p in pred_np], axis=0)
-    unique_tokens = set(tokens_list)
-    cache_dict = {}
-    for token in unique_tokens:
-        path = metric_cache_loader.metric_cache_paths[token]
-        with lzma.open(path, "rb") as f:
-            cache_dict[token] = pickle.load(f)
-
-    rewards = []
-    for i, token in enumerate(tokens_list):
-        traj = Trajectory(pred_np[i])
-        try:
-            result = pdm_score(
-                metric_cache=cache_dict[token],
-                model_trajectory=traj,
-                future_sampling=simulator.proposal_sampling,
-                simulator=simulator,
-                scorer=scorer,
-            )
-            rewards.append(asdict(result)["score"])
-        except (AssertionError, ValueError, RuntimeError) as e:
-            logger.warning(
-                "PDM scoring failed for sample %s (token=%s); using reward 0.0: %s",
-                i,
-                token,
-                e,
-            )
-            rewards.append(0.0)
-
-    return torch.tensor(rewards, device=pred_traj.device, dtype=torch.float32)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Reward weighting
-# ──────────────────────────────────────────────────────────────────────────────
-
-def reward_weighted_opd_loss(
-    kl_loss: torch.Tensor,
-    rewards: torch.Tensor,          # (B,)
-    reward_weight_mode: str = "normalize",
-) -> tuple:
-    """
-    Scale the OPD loss by a reward-derived weight.
-
-    Modes:
-      "normalize" : shift-normalize rewards to [0,1], use mean as scalar weight
-      "raw"       : use PDM score directly (already in [0,1])
-      "threshold" : 1 if score > median else 0
-    """
-    if reward_weight_mode == "normalize":
-        # B=1: std is 0 → w is all zeros → scalar_w=0 and no gradient signal; treat as uniform weight.
-        if rewards.numel() < 2:
-            w = torch.ones_like(rewards)
-        else:
-            rw_std = rewards.std(unbiased=False)
-            w = (rewards - rewards.mean()) / (rw_std + 1e-8)
-            w = w - w.min()
-            w = w / (w.max() + 1e-8)
-    elif reward_weight_mode == "raw":
-        w = rewards.clamp(0.0, 1.0)
-    elif reward_weight_mode == "threshold":
-        w = (rewards >= rewards.median()).float()
-    else:
-        raise ValueError(f"Unknown reward_weight_mode: {reward_weight_mode}")
-
-    scalar_w = w.mean()
-    scalar_w = torch.nan_to_num(scalar_w, nan=1.0, posinf=1.0, neginf=1.0)
-    loss = kl_loss * scalar_w
-    loss = torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0)
-    return loss, scalar_w
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Main OPD trainer
-# ──────────────────────────────────────────────────────────────────────────────
-
 class ReCogDriveOPDTrainer:
-    """
-    Encapsulates reward-weighted OPD training logic.
+    """Computes Teacher-TopK LSM distillation loss (paper: arXiv:2603.25562)."""
 
-    Called from ReCogDriveAgent.forward_opd().
-    """
-
-    def __init__(
-        self,
-        metric_cache_path: str,
-        topk: int = 32,
-        norm_to_one: bool = True,
-        reward_weight_mode: str = "normalize",
-        use_reward_weighting: bool = True,
-        scorer_config: Optional[PDMScorerConfig] = None,
-    ):
+    def __init__(self, topk: int = 32):
         self.topk = topk
-        self.norm_to_one = norm_to_one
-        self.reward_weight_mode = reward_weight_mode
-        self.use_reward_weighting = use_reward_weighting
-
-        self.metric_cache_loader = MetricCacheLoader(Path(metric_cache_path))
-        proposal_sampling = TrajectorySampling(time_horizon=4, interval_length=0.1)
-        self.simulator = PDMSimulator(proposal_sampling)
-        if scorer_config is None:
-            scorer_config = PDMScorerConfig(
-                progress_weight=10.0, ttc_weight=5.0, comfortable_weight=2.0
-            )
-        self.scorer = PDMScorer(proposal_sampling, scorer_config)
 
     def compute_loss(
         self,
-        student_logits: torch.Tensor,   # (B, T, V)
-        teacher_logits: torch.Tensor,   # (B, T, V)
-        response_mask: torch.Tensor,    # (B, T)
-        pred_traj: torch.Tensor,        # (B, H, 3) denormalized
-        tokens_list: List[str],
+        student_logits: torch.Tensor,   # (B*G, T, V)
+        teacher_logits: torch.Tensor,   # (B*G, T, V)
+        response_mask: torch.Tensor,    # (B*G, T)  float
     ) -> BatchFeature:
-        """
-        Returns BatchFeature with keys: loss, opd_loss, reward_mean, reward_weight
-        """
         opd_loss = compute_topk_kl_loss(
             student_logits=student_logits,
             teacher_logits=teacher_logits,
             response_mask=response_mask,
             topk=self.topk,
-            norm_to_one=self.norm_to_one,
         )
-
-        with torch.no_grad():
-            rewards = compute_pdm_rewards(
-                pred_traj=pred_traj,
-                tokens_list=tokens_list,
-                metric_cache_loader=self.metric_cache_loader,
-                simulator=self.simulator,
-                scorer=self.scorer,
-            )
-
-        if self.use_reward_weighting:
-            loss, scalar_w = reward_weighted_opd_loss(opd_loss, rewards, self.reward_weight_mode)
-        else:
-            loss = opd_loss
-            scalar_w = torch.ones(1, device=opd_loss.device)
-
-        loss = torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0)
-        opd_loss_for_log = torch.nan_to_num(opd_loss, nan=0.0, posinf=0.0, neginf=0.0)
-
+        opd_loss = torch.nan_to_num(opd_loss, nan=0.0, posinf=0.0, neginf=0.0)
         return BatchFeature(data={
-            "loss":          loss,
-            "opd_loss":      opd_loss_for_log.detach(),
-            "reward_mean":   rewards.mean().detach(),
-            "reward_weight": scalar_w.detach() if isinstance(scalar_w, torch.Tensor) else scalar_w,
+            "loss":     opd_loss,
+            "opd_loss": opd_loss.detach(),
         })

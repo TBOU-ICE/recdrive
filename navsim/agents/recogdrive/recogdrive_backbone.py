@@ -201,11 +201,22 @@ class RecogDriveBackbone(nn.Module):
                     output_hidden_states=True,
                     return_dict=True,
                 )
-            # response_mask: only the generated part (last T_gen tokens)
+            # response_mask: generated tokens only, excluding PAD and EOS positions
             T_gen = generated_input_ids.size(1)
-            response_mask = gen_mask.bool()                              # (B, T_gen)
+            special_ids: set = set()
+            if self.tokenizer.pad_token_id is not None:
+                special_ids.add(self.tokenizer.pad_token_id)
+            eos = self.tokenizer.eos_token_id
+            if eos is not None:
+                if isinstance(eos, (list, tuple)):
+                    special_ids.update(eos)
+                else:
+                    special_ids.add(eos)
+            special_token_mask = torch.ones_like(generated_input_ids, dtype=torch.bool)
+            for sid in special_ids:
+                special_token_mask &= (generated_input_ids != sid)
+            response_mask = gen_mask.bool() & special_token_mask           # (B, T_gen)
             # logits aligned to generated tokens: shift by 1 (predict next token)
-            # logits[:, prompt_len-1 : prompt_len-1+T_gen, :] predicts generated tokens
             prompt_len = input_ids.size(1)
             logits = output.logits[:, prompt_len - 1 : prompt_len - 1 + T_gen, :]
         else:

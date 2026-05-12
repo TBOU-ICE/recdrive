@@ -7,6 +7,7 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
+from pytorch_lightning.loggers import TensorBoardLogger
 import torch.distributed as dist
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.common.dataclasses import SceneFilter
@@ -187,7 +188,21 @@ def main(cfg: DictConfig) -> None:
     logger.info("Num validation samples: %d", len(val_data))
 
     logger.info("Building Trainer")
-    trainer = pl.Trainer(**cfg.trainer.params, callbacks=[pl.callbacks.ModelCheckpoint(monitor="val/loss_epoch",mode='min', save_top_k=8,every_n_epochs=1)])
+    tb_logger = TensorBoardLogger(save_dir=cfg.output_dir, name="tensorboard", version="")
+    trainer = pl.Trainer(
+        **cfg.trainer.params,
+        logger=tb_logger,
+        callbacks=[
+            pl.callbacks.ModelCheckpoint(
+                monitor="val/loss_epoch",
+                mode='min',
+                save_top_k=5,
+                every_n_epochs=1,
+                filename="epoch{epoch:02d}-val_loss{val/loss_epoch:.4f}",
+                auto_insert_metric_name=False,
+            )
+        ],
+    )
 
     logger.info("Starting Training")
     trainer.fit(
