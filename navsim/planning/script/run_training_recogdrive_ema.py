@@ -202,7 +202,7 @@ def main(cfg: DictConfig) -> None:
     logger.info("Num validation samples: %d", len(val_data))
 
     logger.info("Building Trainer")
-    trainer = pl.Trainer(**cfg.trainer.params, callbacks=load_callbacks())
+    trainer = pl.Trainer(**cfg.trainer.params, logger=False, callbacks=load_callbacks())
 
     logger.info("Starting Training")
     trainer.fit(

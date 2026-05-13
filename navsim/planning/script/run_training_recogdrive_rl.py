@@ -7,7 +7,6 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger
 import torch.distributed as dist
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.common.dataclasses import SceneFilter
@@ -68,6 +67,34 @@ def custom_collate_fn(
     }
 
     return features, targets, tokens_list
+
+
+
+
+def build_pl_logger(cfg: DictConfig):
+    logger_type = str(cfg.get("logger", {}).get("type", "none")).lower()
+    if logger_type in {"none", "false", "off"}:
+        return False
+
+    if logger_type == "swanlab":
+        try:
+            from swanlab.integration.pytorch_lightning import SwanLabLogger
+        except ImportError as exc:
+            raise ImportError(
+                "SwanLab is not installed. Install with `pip install swanlab`."
+            ) from exc
+
+        logger_cfg = cfg.get("logger", {})
+        project = logger_cfg.get("project", "recdrive")
+        experiment_name = logger_cfg.get("experiment_name", cfg.get("experiment_name", None))
+        kwargs = {"project": project}
+        if experiment_name:
+            kwargs["experiment_name"] = experiment_name
+        if logger_cfg.get("description", None):
+            kwargs["description"] = logger_cfg.description
+        return SwanLabLogger(**kwargs)
+
+    raise ValueError(f"Unsupported logger.type={logger_type}. Use 'none' or 'swanlab'.")
 
 
 def build_datasets(cfg: DictConfig, agent: AbstractAgent) -> Tuple[Dataset, Dataset]:
@@ -188,10 +215,11 @@ def main(cfg: DictConfig) -> None:
     logger.info("Num validation samples: %d", len(val_data))
 
     logger.info("Building Trainer")
-    tb_logger = TensorBoardLogger(save_dir=cfg.output_dir, name="tensorboard", version="")
+    pl_logger = build_pl_logger(cfg)
+    logger.info(f"Using trainer logger: {type(pl_logger).__name__ if pl_logger else 'disabled'}")
     trainer = pl.Trainer(
         **cfg.trainer.params,
-        logger=tb_logger,
+        logger=pl_logger,
         callbacks=[
             pl.callbacks.ModelCheckpoint(
                 monitor="val/loss_epoch",
