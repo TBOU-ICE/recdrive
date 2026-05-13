@@ -10,7 +10,7 @@ export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/code}"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
-# Optional: enable SwanLab online logging
+# SwanLab online logging (required)
 # export SWANLAB_API_KEY="<your_swanlab_api_key>"
 
 TRAIN_TEST_SPLIT=navtrain
@@ -25,6 +25,11 @@ MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS="${GPUS:-8}"
 
 echo "GPUS: ${GPUS}  NNODES: ${NNODES}  RANK: ${RANK}  MASTER_ADDR: ${MASTER_ADDR}  NAVSIM_DEVKIT_ROOT: ${NAVSIM_DEVKIT_ROOT}"
+
+if [ -z "${SWANLAB_API_KEY:-}" ]; then
+  echo "[ERROR] SWANLAB_API_KEY is not set. Export it before running training."
+  exit 1
+fi
 
 /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
     --nnodes=${NNODES} \
@@ -60,6 +65,6 @@ echo "GPUS: ${GPUS}  NNODES: ${NNODES}  RANK: ${RANK}  MASTER_ADDR: ${MASTER_ADD
     force_cache_computation=False \
     hydra/job_logging=stdout \
     hydra.output_subdir=null \
-    # logger.type=swanlab \
-    # logger.project=recdrive \
-    # logger.experiment_name=training_recogdrive_8b_teacher_opd_2b
+    logger.type=swanlab \
+    logger.project=recdrive \
+    logger.experiment_name=training_recogdrive_8b_teacher_opd_2b
