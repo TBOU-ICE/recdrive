@@ -10,6 +10,8 @@ export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/code}"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
+# Optional: enable SwanLab online logging
+# export SWANLAB_API_KEY="<your_swanlab_api_key>"
 
 TRAIN_TEST_SPLIT=navtrain
 export NCCL_IB_DISABLE=0
@@ -57,4 +59,7 @@ echo "GPUS: ${GPUS}  NNODES: ${NNODES}  RANK: ${RANK}  MASTER_ADDR: ${MASTER_ADD
     use_cache_without_dataset=True \
     force_cache_computation=False \
     hydra/job_logging=stdout \
-    hydra.output_subdir=null
+    hydra.output_subdir=null \
+    # logger.type=swanlab \
+    # logger.project=recdrive \
+    # logger.experiment_name=training_recogdrive_8b_teacher_opd_2b
