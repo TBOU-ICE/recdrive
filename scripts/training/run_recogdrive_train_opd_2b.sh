@@ -39,8 +39,8 @@ echo "GPUS: ${GPUS}  NNODES: ${NNODES}  RANK: ${RANK}  MASTER_ADDR: ${MASTER_ADD
     agent.teacher_vlm_path='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-8B' \
     agent.checkpoint_path='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt' \
     agent.opd_topk=32 \
-    agent.opd_group_size=6 \
-    agent.opd_max_new_tokens=256 \
+    agent.opd_group_size=4 \
+    agent.opd_max_new_tokens=192 \
     agent.vlm_type='internvl' \
     agent.dit_type='small' \
     agent.vlm_size='small' \
@@ -50,7 +50,7 @@ echo "GPUS: ${GPUS}  NNODES: ${NNODES}  RANK: ${RANK}  MASTER_ADDR: ${MASTER_ADD
     trainer.params.precision=bf16-true \
     trainer.params.num_nodes=${NNODES} \
     trainer.params.devices=${GPUS} \
-    dataloader.params.batch_size=4 \
+    dataloader.params.batch_size=1 \
     experiment_name=training_recogdrive_8b_teacher_opd_2b \
     train_test_split=$TRAIN_TEST_SPLIT \
     cache_path="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_opd" \
