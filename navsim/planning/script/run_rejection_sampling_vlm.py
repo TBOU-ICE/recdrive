@@ -40,7 +40,7 @@ import hydra
 import numpy as np
 import torch
 from hydra.utils import instantiate
-from internvl.conversation import get_conv_template
+from navsim.agents.recogdrive.utils.conversation import get_conv_template
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
