@@ -39,7 +39,7 @@ echo "GPUS_PER_NODE: ${GPUS_PER_NODE}"
     agent.cache_hidden_state=True \
     agent.cache_mode=True \
     train_test_split=$TRAIN_TEST_SPLIT \
-    agent.vlm_path="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B" \
+    agent.vlm_path="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B" \
     cache_path=$CACHE_PATH \
     worker=sequential \
     > /mnt/volumes/ad-e2e-al-sh01/nby/log/caching_dataset_rank${NODE_RANK}.txt 2>&1

@@ -16,6 +16,12 @@ defaults:
 
 split: trainval
 cache_path: ${oc.env:NAVSIM_EXP_ROOT}/training_cache_transfuser
+# When set (path to recogdrive_pretrain.json), train_logs / val_logs are replaced by NuPlan log
+# names found under Navsim + Navsim_QA annotations (see internvl_chat/shell/data_info/).
+# Requires cache subdirs for those log names; rebuild cache if needed.
+pretrain_meta_json: null
+# Optional json/yaml file: replace train_logs only. Runs first; pretrain_meta_json overwrites train/val logs when set.
+train_logs_path: null
 use_cache_without_dataset: false # load the training samples from the cache. scene-filter will be ignored
 force_cache_computation: true
 seed: 0

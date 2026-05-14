@@ -31,7 +31,7 @@ export CUDA_LAUNCH_BLOCKING=1
 
 # ========== 评估任务列表 ==========
 EVAL_TASKS=(
-    "recdrive_rl_nby|/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt|/workspace/output/recogdrive_rl"
+    "recdrive_rl_nby|/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt|/workspace/output/recogdrive_rl"
 )
 
 # ========== 循环执行 ==========
@@ -57,7 +57,7 @@ for task in "${EVAL_TASKS[@]}"; do
         train_test_split=$TRAIN_TEST_SPLIT \
         agent=recogdrive_agent \
         "agent.checkpoint_path='$ckpt_path'" \
-        "agent.vlm_path='/workspace/volumes/ad-e2e-al-sh01/hym/recdrive/ReCogDrive-VLM-2B'" \
+        "agent.vlm_path='/mnt/volumes/ad-e2e-al-sh01/hym/recdrive/ReCogDrive-VLM-2B'" \
         agent.cam_type=single \
         agent.grpo=False \
         agent.cache_hidden_state=False \

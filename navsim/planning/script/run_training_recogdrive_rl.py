@@ -2,9 +2,11 @@ from typing import Tuple
 from pathlib import Path
 import logging
 import os
+import json
+
 import hydra
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import DictConfig, ListConfig, OmegaConf, open_dict
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 import torch.distributed as dist
@@ -69,6 +71,47 @@ def custom_collate_fn(
     return features, targets, tokens_list
 
 
+
+
+def maybe_override_train_logs_from_file(cfg: DictConfig) -> None:
+    """
+    Optional train_logs_override: YAML (root list or {train_logs: [...] }) or JSON
+    with the same shape, replaces cfg.train_logs (e.g. align cache-only training with an SFT scene list).
+    """
+    tpl = cfg.get("train_logs_path", None)
+    if tpl is None:
+        return
+    s = str(tpl).strip()
+    if s in {"", "null", "~"}:
+        return
+    path = Path(s).expanduser()
+    if not path.is_file():
+        raise FileNotFoundError(f"train_logs_path is not an existing file: {path}")
+
+    logs: List
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        data = json.loads(path.read_text())
+        logs = data if isinstance(data, list) else data.get("train_logs")
+        if not isinstance(logs, list):
+            raise ValueError("train_logs JSON must be a bare list or an object with key 'train_logs'.")
+    elif suffix in (".yaml", ".yml"):
+        loaded = OmegaConf.load(path)
+        if OmegaConf.is_list(loaded):
+            logs = OmegaConf.to_object(loaded)
+        elif isinstance(loaded, dict) or OmegaConf.is_config(loaded):
+            entry = OmegaConf.select(loaded, "train_logs", default=None)
+            if entry is None:
+                raise ValueError("train_logs YAML must be a bare list root or contain key 'train_logs'.")
+            logs = OmegaConf.to_object(entry)
+        else:
+            raise ValueError(f"Unsupported train_logs YAML shape: {type(loaded).__name__}")
+    else:
+        raise ValueError("train_logs_path must be .json, .yaml, or .yml")
+
+    with open_dict(cfg):
+        cfg.train_logs = ListConfig(logs)
+    logger.info("Overriding train_logs from %s (%d entries)", path, len(logs))
 
 
 def build_pl_logger(cfg: DictConfig):
@@ -173,7 +216,26 @@ def main(cfg: DictConfig) -> None:
     pl.seed_everything(cfg.seed, workers=True)
     logger.info(f"Global Seed set to {cfg.seed}")
 
+    maybe_override_train_logs_from_file(cfg)
+
     logger.info(f"Path where all results are stored: {cfg.output_dir}")
+
+    meta_json = cfg.get("pretrain_meta_json")
+    if meta_json not in (None, False, ""):
+        ms = str(meta_json).strip()
+        if ms and ms.lower() not in ("null", "~", "false"):
+            from navsim.planning.script.utils.pretrain_navsim_logs import logs_from_pretrain_meta_json
+
+            train_logs, val_logs = logs_from_pretrain_meta_json(ms)
+            with open_dict(cfg):
+                cfg.train_logs = ListConfig(train_logs)
+                cfg.val_logs = ListConfig(val_logs)
+            logger.info(
+                "pretrain_meta_json=%s: %d train logs, %d val logs (from Navsim+Navsim_QA)",
+                ms,
+                len(train_logs),
+                len(val_logs),
+            )
 
     logger.info("Building Agent")
     agent: AbstractAgent = instantiate(cfg.agent)
@@ -217,19 +279,27 @@ def main(cfg: DictConfig) -> None:
     logger.info("Building Trainer")
     pl_logger = build_pl_logger(cfg)
     logger.info(f"Using trainer logger: {type(pl_logger).__name__ if pl_logger else 'disabled'}")
+    ckpt_root = Path(cfg.output_dir).expanduser() / "checkpoints"
+    if rank == 0:
+        ckpt_root.mkdir(parents=True, exist_ok=True)
+    dist.barrier()
+
+    ckpt_every_1k = pl.callbacks.ModelCheckpoint(
+        dirpath=str(ckpt_root),
+        monitor=None,
+        save_top_k=-1,
+        every_n_train_steps=1000,
+        filename="epoch{epoch:03d}-step{step:08d}",
+        save_weights_only=False,
+        save_last=True,
+        enable_version_counter=False,
+    )
+    callbacks = [ckpt_every_1k]
+
     trainer = pl.Trainer(
         **cfg.trainer.params,
         logger=pl_logger,
-        callbacks=[
-            pl.callbacks.ModelCheckpoint(
-                monitor="val/loss_epoch",
-                mode='min',
-                save_top_k=5,
-                every_n_epochs=1,
-                filename="epoch{epoch:02d}-val_loss{val/loss_epoch:.4f}",
-                auto_insert_metric_name=False,
-            )
-        ],
+        callbacks=callbacks,
     )
 
     logger.info("Starting Training")

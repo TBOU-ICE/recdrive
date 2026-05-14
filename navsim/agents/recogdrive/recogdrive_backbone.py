@@ -127,7 +127,8 @@ class RecogDriveBackbone(nn.Module):
 
         self.tokenizer.padding_side = 'left'
         model_inputs = self.tokenizer(
-            queries, return_tensors='pt', padding='max_length', max_length=max_length
+            queries, return_tensors='pt', padding='max_length',
+            truncation=True, max_length=max_length
         )
         device = pixel_values.device
         input_ids      = model_inputs['input_ids'].to(device)
@@ -183,10 +184,16 @@ class RecogDriveBackbone(nn.Module):
             self._build_model_inputs(pixel_values, questions, num_patches_list)
 
         if generated_input_ids is not None:
+            generated_input_ids, effective_gen_mask = self._normalize_generated_ids(
+                prompt_input_ids=input_ids,
+                prompt_attention_mask=attention_mask,
+                generated_input_ids=generated_input_ids,
+                generated_attention_mask=generated_attention_mask,
+            )
             # Teacher-forcing: run forward on the student's generated sequence.
             # Concatenate prompt input_ids with generated response ids.
             full_ids  = torch.cat([input_ids,  generated_input_ids],  dim=1)
-            gen_mask  = torch.ones_like(generated_input_ids)
+            gen_mask  = effective_gen_mask
             full_mask = torch.cat([attention_mask, gen_mask], dim=1)
             full_pos  = full_mask.long().cumsum(-1) - 1
             full_pos.masked_fill_(full_mask == 0, 1)
@@ -235,5 +242,64 @@ class RecogDriveBackbone(nn.Module):
             response_mask = attention_mask.bool()
 
         return output, logits, response_mask
+
+    def _normalize_generated_ids(
+        self,
+        prompt_input_ids: torch.Tensor,
+        prompt_attention_mask: torch.Tensor,
+        generated_input_ids: torch.Tensor,
+        generated_attention_mask: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Normalize generation output to completion-only tokens.
+
+        Some backends return `prompt + completion`, while others return only
+        `completion`. This function strips the prompt prefix when present and
+        returns a right-padded completion tensor plus its valid-token mask.
+        """
+        device = generated_input_ids.device
+        dtype = generated_input_ids.dtype
+        bsz = generated_input_ids.size(0)
+        pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+
+        completion_rows = []
+        completion_masks = []
+        max_len = 0
+
+        for i in range(bsz):
+            prompt_ids = prompt_input_ids[i][prompt_attention_mask[i].bool()]
+            gen_row = generated_input_ids[i]
+
+            prefix_len = 0
+            if gen_row.numel() >= prompt_ids.numel() and prompt_ids.numel() > 0:
+                if torch.equal(gen_row[: prompt_ids.numel()], prompt_ids):
+                    prefix_len = prompt_ids.numel()
+
+            comp_row = gen_row[prefix_len:]
+            if generated_attention_mask is not None:
+                comp_mask = generated_attention_mask[i][prefix_len:].bool()
+            else:
+                comp_mask = torch.ones(comp_row.shape[0], device=device, dtype=torch.bool)
+
+            completion_rows.append(comp_row)
+            completion_masks.append(comp_mask)
+            if comp_row.shape[0] > max_len:
+                max_len = comp_row.shape[0]
+
+        if max_len == 0:
+            empty_ids = torch.empty((bsz, 0), dtype=dtype, device=device)
+            empty_mask = torch.empty((bsz, 0), dtype=torch.long, device=device)
+            return empty_ids, empty_mask
+
+        out_ids = torch.full((bsz, max_len), fill_value=pad_id, dtype=dtype, device=device)
+        out_mask = torch.zeros((bsz, max_len), dtype=torch.long, device=device)
+        for i in range(bsz):
+            n = completion_rows[i].shape[0]
+            if n == 0:
+                continue
+            out_ids[i, :n] = completion_rows[i]
+            out_mask[i, :n] = completion_masks[i].to(torch.long)
+
+        return out_ids, out_mask
 
     

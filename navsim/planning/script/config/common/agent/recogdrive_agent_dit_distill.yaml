@@ -17,12 +17,12 @@ cache_mode: False
 cache_hidden_state: True   # use pre-cached hidden states, no VLM needed
 
 # Student DiT: initialized from 2B IL checkpoint
-checkpoint_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
+checkpoint_path: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
 
 # DiT distillation mode
 dit_distill: True
 # Teacher DiT: 2B RL checkpoint (frozen)
-teacher_dit_checkpoint: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+teacher_dit_checkpoint: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
 dit_distill_reward_weight_mode: 'normalize'
 dit_distill_use_reward_weighting: True
 dit_distill_lambda_out: 1.0

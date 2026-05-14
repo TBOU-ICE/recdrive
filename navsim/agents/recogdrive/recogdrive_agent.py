@@ -468,6 +468,22 @@ class ReCogDriveAgent(AbstractAgent):
                 eos_token_id=self.backbone.tokenizer.eos_token_id,
             )  # (B*G, T_gen)
 
+            sample_response_text = ""
+            decode_sample = bool(getattr(self, "_opd_decode_sample_this_step", False))
+            if decode_sample and generated_ids.numel() > 0:
+                prompt_len = prompt_input_ids.shape[1]
+                completion_ids = generated_ids[0]
+                if generated_ids.shape[1] >= prompt_len and torch.equal(
+                    generated_ids[0, :prompt_len], prompt_input_ids[0]
+                ):
+                    completion_ids = generated_ids[0, prompt_len:]
+                sample_response_text = self.backbone.tokenizer.decode(
+                    completion_ids,
+                    skip_special_tokens=True,
+                ).replace("\n", " ").strip()
+                if len(sample_response_text) > 300:
+                    sample_response_text = sample_response_text[:300] + " ..."
+
         # ── Step 3: Student teacher-forcing → logits with gradients ──────────
         _, student_logits, response_mask = self.backbone.forward_with_logits(
             pixel_values=pv_expanded,
@@ -486,11 +502,13 @@ class ReCogDriveAgent(AbstractAgent):
             )  # teacher_logits: (B*G, T_gen, V)
 
         # ── Step 5: Teacher-TopK LSM KL loss ──────────────────────────────────
-        return self.opd_trainer.compute_loss(
+        out = self.opd_trainer.compute_loss(
             student_logits=student_logits.float(),
             teacher_logits=teacher_logits.float(),
             response_mask=response_mask.float(),
         )
+        out["sample_response_text"] = sample_response_text
+        return out
 
     def compute_loss(self, features: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor], predictions: Dict[str, torch.Tensor]) -> torch.Tensor:
         if self.training and self.grpo:

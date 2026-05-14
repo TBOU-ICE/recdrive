@@ -12,7 +12,7 @@ def compute_topk_kl_loss(
     teacher_logits: torch.Tensor,   # (B, T, V)
     response_mask: torch.Tensor,    # (B, T)  1 = valid response token
     topk: int = 32,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Teacher-TopK Local Support Matching (LSM) loss.
 
@@ -36,11 +36,17 @@ def compute_topk_kl_loss(
 
     # KL(π̂ || q̂) per token
     kl_per_token = (student_prob_norm * (student_log_norm - teacher_log_norm)).sum(dim=-1)
+    # Policy entropy on the same local support: H(π̂) = -Σ π̂ log π̂
+    entropy_per_token = -(student_prob_norm * student_log_norm).sum(dim=-1)
 
     # mask out padding / EOS and average
     kl_per_token = kl_per_token * response_mask
+    entropy_per_token = entropy_per_token * response_mask
     n_valid = response_mask.sum().clamp(min=1)
-    return kl_per_token.sum() / n_valid
+    loss = kl_per_token.sum() / n_valid
+    policy_entropy = entropy_per_token.sum() / n_valid
+    response_length_mean = response_mask.sum(dim=-1).float().mean()
+    return loss, policy_entropy, response_length_mean
 
 
 class ReCogDriveOPDTrainer:
@@ -55,14 +61,18 @@ class ReCogDriveOPDTrainer:
         teacher_logits: torch.Tensor,   # (B*G, T, V)
         response_mask: torch.Tensor,    # (B*G, T)  float
     ) -> BatchFeature:
-        opd_loss = compute_topk_kl_loss(
+        opd_loss, policy_entropy, response_length_mean = compute_topk_kl_loss(
             student_logits=student_logits,
             teacher_logits=teacher_logits,
             response_mask=response_mask,
             topk=self.topk,
         )
         opd_loss = torch.nan_to_num(opd_loss, nan=0.0, posinf=0.0, neginf=0.0)
+        policy_entropy = torch.nan_to_num(policy_entropy, nan=0.0, posinf=0.0, neginf=0.0)
+        response_length_mean = torch.nan_to_num(response_length_mean, nan=0.0, posinf=0.0, neginf=0.0)
         return BatchFeature(data={
             "loss":     opd_loss,
             "opd_loss": opd_loss.detach(),
+            "policy_entropy": policy_entropy.detach(),
+            "response_length_mean": response_length_mean.detach(),
         })
