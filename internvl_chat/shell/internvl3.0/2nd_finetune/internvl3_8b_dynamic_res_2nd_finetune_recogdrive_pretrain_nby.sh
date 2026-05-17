@@ -1,12 +1,29 @@
 #!/bin/bash
 
+set -euo pipefail
 set -x
 
+# Run from repo: bash shell/internvl3.0/2nd_finetune/internvl3_8b_dynamic_res_2nd_finetune_recogdrive_pretrain_nby.sh
+# Or from any cwd: this file cd's to internvl_chat root below.
+#
+# Single-node 8 GPU (default): no extra env needed.
+# Multi-node: set NNODES, NODE_RANK (or RANK), MASTER_ADDR, MASTER_PORT before launch
+#   (do NOT use PyTorch WORLD_SIZE here—it is total processes, not node count).
+#
+# Default paths (nby / recdrive); override with env if needed:
+#   TORCHRUN, RECDRIVE_CONDA_BIN, MODEL_PATH, OUTPUT_DIR
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INTERNVL_CHAT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+cd "${INTERNVL_CHAT_ROOT}"
+
+# 固定 torchrun / Python 前缀（与 recdrive conda 一致）
+_DEFAULT_RECDRIVE_BIN="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin"
+_DEFAULT_TORCHRUN="${_DEFAULT_RECDRIVE_BIN}/torchrun"
+
 # 强制使用指定 conda 环境（不依赖 activate，兼容所有机器）
-# 部分调度器/误配会把 URL（如 http://IP:PORT）写进 PATH；按 ":" 切分后会变成 //IP、tcp、80 等假路径，
-# Accelerate 等库校验 PATH 时会报错。这里先去掉这些片段再 prepend conda。
 internvl_sanitize_path() {
-  local _p="$1" _d _out="" 
+  local _p="$1" _d _out=""
   _p="${_p}:"
   while [ -n "$_p" ]; do
     _d="${_p%%:*}"
@@ -22,12 +39,21 @@ internvl_sanitize_path() {
   done
   printf '%s' "$_out"
 }
-_REC_DRIVE_BIN="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin"
-export PATH="${_REC_DRIVE_BIN}:$(internvl_sanitize_path "$PATH")"
 
-# 验证（可选，调试用）
+RECDRIVE_CONDA_BIN="${RECDRIVE_CONDA_BIN:-${_DEFAULT_RECDRIVE_BIN}}"
+export PATH="${RECDRIVE_CONDA_BIN}:$(internvl_sanitize_path "${PATH:-}")"
+
+TORCHRUN="${TORCHRUN:-${_DEFAULT_TORCHRUN}}"
+MODEL_PATH="${MODEL_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/InternVL3-2B}"
+OUTPUT_DIR="${OUTPUT_DIR:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_nby}"
+
 echo "Using python: $(which python)"
 echo "Python version: $(python --version)"
+echo "INTERNVL_CHAT_ROOT=${INTERNVL_CHAT_ROOT}"
+echo "TORCHRUN=${TORCHRUN}"
+echo "MODEL_PATH=${MODEL_PATH}"
+echo "OUTPUT_DIR=${OUTPUT_DIR}"
+
 PARTITION=${PARTITION:-"Intern5"}
 GPUS=${GPUS:-8}
 BATCH_SIZE=${BATCH_SIZE:-128}
@@ -36,18 +62,16 @@ GRADIENT_ACC=$((BATCH_SIZE / PER_DEVICE_BATCH_SIZE / GPUS))
 if [ "${GRADIENT_ACC}" -lt 1 ]; then
   GRADIENT_ACC=1
 fi
-# Start from 0 for stability, then tune up (1/2/4) if resources allow.
 DATALOADER_NUM_WORKERS=${DATALOADER_NUM_WORKERS:-4}
 
-NNODES="${WORLD_SIZE:?WORLD_SIZE is empty}"
-RANK="${RANK:?RANK is empty}"
-MASTER_ADDR="${MASTER_ADDR:?MASTER_ADDR is empty}"
-MASTER_PORT="${MASTER_PORT:?MASTER_PORT is empty}"
-GPUS="${GPUS:-8}"  
+# torchrun: --nnodes = machine count; --nproc_per_node = GPUs per machine.
+NNODES="${NNODES:-1}"
+NODE_RANK="${NODE_RANK:-${RANK:-0}}"
+RANK="${NODE_RANK}"
+MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
+MASTER_PORT="${MASTER_PORT:-34229}"
 
-
-export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-export MASTER_PORT=34229
+export PYTHONPATH="${PYTHONPATH:+"${PYTHONPATH}:"}$(pwd)"
 export TF_CPP_MIN_LOG_LEVEL=3
 export LAUNCHER=pytorch
 export NCCL_IB_DISABLE=0
@@ -61,11 +85,7 @@ if command -v x86_64-conda-linux-gnu-gcc >/dev/null 2>&1 && command -v x86_64-co
   export CUDAHOSTCXX="${CUDAHOSTCXX:-x86_64-conda-linux-gnu-g++}"
 fi
 
-OUTPUT_DIR='/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/outputs/ReCogDrive_pretrain/all_data'
-
-if [ ! -d "$OUTPUT_DIR" ]; then
-  mkdir -p "$OUTPUT_DIR"
-fi
+mkdir -p "$OUTPUT_DIR"
 
 if ! python - <<'PY'
 from deepspeed.ops.op_builder import FusedAdamBuilder
@@ -77,27 +97,20 @@ then
   exit 1
 fi
 
-# number of gpus: 8
-# batch size per gpu: 4
-# gradient accumulation steps: 4
-# total batch size: 128
-# epoch: 1
+# Global batch = per_device_train_batch_size * GPUS * nnodes * gradient_accumulation_steps
+# Defaults: 1 * 8 * 1 * 16 = 128
 
-  # --nnodes=8 \
-  # --node_rank=$MLP_ROLE_INDEX \
-  # --master_addr=$MLP_WORKER_0_HOST \
-  # --master_port=$MLP_WORKER_0_PORT \
-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
-  --nnodes=${NNODES} \
-  --node_rank=${RANK} \
-  --master_addr=${MASTER_ADDR} \
-  --master_port=${MASTER_PORT} \
-  --nproc_per_node=${GPUS} \
+"${TORCHRUN}" \
+  --nnodes="${NNODES}" \
+  --node_rank="${NODE_RANK}" \
+  --master_addr="${MASTER_ADDR}" \
+  --master_port="${MASTER_PORT}" \
+  --nproc_per_node="${GPUS}" \
   internvl/train/internvl_chat_finetune.py \
-  --model_name_or_path "/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/InternVL3-2B" \
+  --model_name_or_path "${MODEL_PATH}" \
   --conv_style "internvl2_5" \
   --use_fast_tokenizer False \
-  --output_dir ${OUTPUT_DIR} \
+  --output_dir "${OUTPUT_DIR}" \
   --meta_path "./shell/data_info/recogdrive_pretrain.json" \
   --overwrite_output_dir True \
   --force_image_size 448 \
@@ -108,11 +121,11 @@ fi
   --freeze_mlp False \
   --freeze_backbone False \
   --vision_select_layer -1 \
-  --dataloader_num_workers ${DATALOADER_NUM_WORKERS} \
+  --dataloader_num_workers "${DATALOADER_NUM_WORKERS}" \
   --bf16 True \
   --num_train_epochs 3 \
-  --per_device_train_batch_size ${PER_DEVICE_BATCH_SIZE} \
-  --gradient_accumulation_steps ${GRADIENT_ACC} \
+  --per_device_train_batch_size "${PER_DEVICE_BATCH_SIZE}" \
+  --gradient_accumulation_steps "${GRADIENT_ACC}" \
   --evaluation_strategy "no" \
   --save_strategy "steps" \
   --save_steps 200 \
