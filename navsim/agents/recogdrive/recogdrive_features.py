@@ -21,6 +21,7 @@ class ReCogDriveFeatureBuilder(AbstractFeatureBuilder):
                  cache_hidden_state: bool = True,
                  model_type: Optional[str] = None,
                  checkpoint_path: Optional[str] = None,
+                 weight_path: Optional[str] = None,
                  device: str = "cuda",
                  cache_mode: bool = False, ):
         """
@@ -34,6 +35,7 @@ class ReCogDriveFeatureBuilder(AbstractFeatureBuilder):
                                        of the image file path.
             model_type (str, optional): The type of model to load ('internvl' or 'qwen'). Required if cache_hidden_state is True.
             checkpoint_path (str, optional): Path to the model checkpoint. Required if cache_hidden_state is True.
+            weight_path (str, optional): Finetuned weights dir (safetensors) if different from checkpoint_path.
             device (str): The device to load the model onto.
         """
         super().__init__()
@@ -47,6 +49,7 @@ class ReCogDriveFeatureBuilder(AbstractFeatureBuilder):
             self.backbone = RecogDriveBackbone(
                 model_type=model_type,
                 checkpoint_path=checkpoint_path,
+                weight_path=weight_path,
                 device=device
             )
 

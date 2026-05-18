@@ -27,9 +27,11 @@ echo "GPUS: ${GPUS}"
 
 
 # DiT / diffusion planner (Lightning ckpt with state_dict)
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt"
-# Finetuned VLM (HuggingFace snapshot: model.safetensors + config)
-VLM_PATH="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_nby/checkpoint-200"
+CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt"
+# Base InternVL (must include configuration_internvl_chat.py et al.)
+VLM_PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/InternVL3-2B"
+# Finetuned weights only (model.safetensors from accelerate save_pretrained)
+VLM_WEIGHTS_PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_nby/checkpoint-400"
 # PDMS on navtest: use metric_cache (eval); metric_cache_train is for training and won't match navtest tokens.
 METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
 
@@ -45,6 +47,7 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
     agent=recogdrive_agent \
     agent.checkpoint_path="'$CHECKPOINT'" \
     agent.vlm_path="'$VLM_PATH'" \
+    agent.vlm_weights_path="'$VLM_WEIGHTS_PATH'" \
     agent.cam_type='single' \
     agent.grpo=False \
     agent.cache_hidden_state=False \
@@ -54,6 +57,6 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
     agent.sampling_method="ddim" \
     metric_cache_path="${METRIC_CACHE_PATH}" \
     agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-    experiment_name=recogdrive_agent_eval_vlm_ckpt200_2b_rl_dit \
+    experiment_name=recogdrive_agent_eval_vlm_ckpt400_2b_rl_dit \
     worker=sequential
 

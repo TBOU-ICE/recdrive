@@ -30,34 +30,41 @@ class RecogDriveBackbone(nn.Module):
     def __init__(self,
                  model_type: str,
                  checkpoint_path: str,
+                 weight_path: Optional[str] = None,
                  device: str = "cuda"):
         """
         Initializes and loads the specified model and its preprocessor/tokenizer.
 
         Args:
             model_type (str): The type of model to load. Supported: 'internvl', 'qwen'.
-            checkpoint_path (str): The path to the model checkpoint.
+            checkpoint_path (str): Path to the base model (config + weights).
+            weight_path (str, optional): Path to a finetuned HuggingFace checkpoint
+                (must contain config.json + model.safetensors). When provided, the
+                model is loaded from weight_path instead of checkpoint_path, while
+                the tokenizer is still loaded from checkpoint_path.
             device (str): The device to load the model onto ('cuda', 'cpu').
         """
         super().__init__()
 
         self.model = None
-        self.tokenizer = None  
+        self.tokenizer = None
         self.model_type = model_type.lower()
         self.device = device
 
-        print(f"Initializing backbone of type: '{self.model_type}' from path: '{checkpoint_path}'")
+        load_path = weight_path if weight_path else checkpoint_path
+        print(f"Initializing backbone of type: '{self.model_type}' from path: '{load_path}'")
 
         if self.model_type == 'internvl':
             # --- Load InternVL Model and Tokenizer ---
             self.model = AutoModel.from_pretrained(
-                checkpoint_path,
+                load_path,
                 torch_dtype=torch.bfloat16,
                 low_cpu_mem_usage=True,
                 trust_remote_code=True,
                 use_flash_attn=True,
                 device_map=self.device
             ).eval()
+            # Always load tokenizer from the base model path so special tokens are correct
             self.tokenizer = AutoTokenizer.from_pretrained(
                 checkpoint_path,
                 trust_remote_code=True,
@@ -69,7 +76,7 @@ class RecogDriveBackbone(nn.Module):
 
         elif self.model_type == 'qwen':
             self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                checkpoint_path,
+                load_path,
                 torch_dtype=torch.bfloat16,
                 device_map=self.device,
                 trust_remote_code=True
