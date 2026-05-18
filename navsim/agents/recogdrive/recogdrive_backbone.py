@@ -1,4 +1,5 @@
 from typing import List, Optional, Tuple, Union
+import os
 import torch
 from torch import nn
 from transformers import AutoModel, AutoTokenizer
@@ -51,20 +52,22 @@ class RecogDriveBackbone(nn.Module):
         self.model_type = model_type.lower()
         self.device = device
 
-        load_path = weight_path if weight_path else checkpoint_path
-        print(f"Initializing backbone of type: '{self.model_type}' from path: '{load_path}'")
+        print(f"Initializing backbone of type: '{self.model_type}' from base path: '{checkpoint_path}'"
+              + (f", overlaying finetuned weights from: '{weight_path}'" if weight_path else ""))
 
         if self.model_type == 'internvl':
-            # --- Load InternVL Model and Tokenizer ---
+            # Load architecture + custom code from base path (has configuration_internvl_chat.py etc.)
             self.model = AutoModel.from_pretrained(
-                load_path,
+                checkpoint_path,
                 torch_dtype=torch.bfloat16,
                 low_cpu_mem_usage=True,
                 trust_remote_code=True,
                 use_flash_attn=True,
                 device_map=self.device
             ).eval()
-            # Always load tokenizer from the base model path so special tokens are correct
+            # Overlay finetuned weights on top of the base model
+            if weight_path:
+                self._load_finetuned_weights(weight_path)
             self.tokenizer = AutoTokenizer.from_pretrained(
                 checkpoint_path,
                 trust_remote_code=True,
@@ -76,11 +79,13 @@ class RecogDriveBackbone(nn.Module):
 
         elif self.model_type == 'qwen':
             self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                load_path,
+                checkpoint_path,
                 torch_dtype=torch.bfloat16,
                 device_map=self.device,
                 trust_remote_code=True
             )
+            if weight_path:
+                self._load_finetuned_weights(weight_path)
             self.tokenizer = AutoProcessor.from_pretrained(
                 checkpoint_path,
                 trust_remote_code=True
@@ -91,6 +96,28 @@ class RecogDriveBackbone(nn.Module):
 
 
         print(f"Backbone '{self.model_type}' loaded successfully on device '{self.device}'.")
+
+    def _load_finetuned_weights(self, weight_path: str) -> None:
+        """Load model.safetensors from weight_path and apply to self.model (strict=False)."""
+        safetensors_file = os.path.join(weight_path, "model.safetensors")
+        bin_file = os.path.join(weight_path, "pytorch_model.bin")
+        if os.path.exists(safetensors_file):
+            from safetensors.torch import load_file
+            state_dict = load_file(safetensors_file, device="cpu")
+            print(f"Loading finetuned weights from: {safetensors_file}")
+        elif os.path.exists(bin_file):
+            state_dict = torch.load(bin_file, map_location="cpu", weights_only=False)
+            print(f"Loading finetuned weights from: {bin_file}")
+        else:
+            raise FileNotFoundError(
+                f"No model.safetensors or pytorch_model.bin found under {weight_path}"
+            )
+        missing, unexpected = self.model.load_state_dict(state_dict, strict=False)
+        if missing:
+            print(f"[weight_path] Missing keys ({len(missing)}): {missing[:5]} ...")
+        if unexpected:
+            print(f"[weight_path] Unexpected keys ({len(unexpected)}): {unexpected[:5]} ...")
+        print(f"Finetuned weights loaded successfully from: {weight_path}")
 
     def _configure_internvl(self):
         """Applies specific configurations required for the InternVL model."""

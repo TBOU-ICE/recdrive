@@ -20,6 +20,7 @@ import json
 import os
 import shutil
 import sys
+import time
 from pathlib import Path
 from typing import Iterable
 
@@ -124,30 +125,44 @@ def main(argv: Iterable[str]) -> int:
     else:
         output.mkdir(parents=True)
 
-    print(f"Copying base: {base} -> {output}")
+    print(f"[1/3] Copying base model files: {base} -> {output}")
     _copytree_merge(base, output)
+    print(f"[1/3] Done.")
 
-    print(f"Overlaying checkpoint artifacts from: {checkpoint}")
-    # Weights
+    print(f"[2/3] Overlaying finetuned weights from: {checkpoint}")
+    # Weights (single file or sharded)
     w_single = checkpoint / "model.safetensors"
-    if w_single.is_file():
-        shutil.copy2(w_single, output / "model.safetensors")
     w_index = checkpoint / "model.safetensors.index.json"
+    if w_single.is_file():
+        size_gb = w_single.stat().st_size / 1024 ** 3
+        print(f"      Copying model.safetensors ({size_gb:.2f} GB) ...")
+        t0 = time.time()
+        shutil.copy2(w_single, output / "model.safetensors")
+        print(f"      Done in {time.time() - t0:.1f}s.")
     if w_index.is_file():
         shutil.copy2(w_index, output / "model.safetensors.index.json")
         for shard in _shard_files_from_index(checkpoint):
             if shard.is_file():
+                size_gb = shard.stat().st_size / 1024 ** 3
+                print(f"      Copying {shard.name} ({size_gb:.2f} GB) ...")
+                t0 = time.time()
                 shutil.copy2(shard, output / shard.name)
+                print(f"      Done in {time.time() - t0:.1f}s.")
+    print(f"[2/3] Done.")
 
-    # Config / tokenizer (optional but recommended from checkpoint)
+    print(f"[3/3] Overlaying config / tokenizer files from checkpoint ...")
     for name in CHECKPOINT_OPTIONAL_FILES:
         src = checkpoint / name
         if src.is_file():
             shutil.copy2(src, output / name)
+            print(f"      {name}")
+    print(f"[3/3] Done.")
 
-    print("Done.")
-    print(f"Use agent.vlm_path={output}")
-    print("agent.vlm_weights_path can be omitted (weights already merged).")
+    print()
+    print("Merge complete.")
+    print(f"  Merged model  : {output}")
+    print(f"  Use in script : agent.vlm_path='{output}'")
+    print(f"  agent.vlm_weights_path can be left empty (weights already merged).")
     return 0
 
 
