@@ -22,7 +22,7 @@ MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 META_PATH="${META_PATH:-${REPO_ROOT}/internvl_chat/shell/data_info/recogdrive_pretrain.json}"
 OUT_DIR="${OUT_DIR:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/debug_opd_sft_1gpu}"
 
-STUDENT_PATH="${STUDENT_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
+STUDENT_PATH="${STUDENT_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/InternVL3-2B-ckpt400-merged}"
 TEACHER_PATH="${TEACHER_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-8B}"
 
 # ---- torchrun resolution (same priority as other debug scripts) ----
@@ -59,8 +59,9 @@ echo "[debug] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}  META_PATH=${META_PAT
   --max_steps 50 \
   --warmup_steps 5 \
   --opd_topk 32 \
-  --opd_group_size 2 \
-  --opd_max_new_tokens 64 \
+  --opd_group_size 1 \
+  --opd_max_new_tokens 32 \
+  --image_max_num 2 \
   --max_samples 200 \
   --seed 0 \
   --log_every 1 \

@@ -107,7 +107,7 @@ class RecogDriveBackbone(nn.Module):
         pixel_values: torch.Tensor,
         questions: List[str],
         num_patches_list: List[int],
-        max_length: int = 2800,
+        max_length: int = 6144,
     ):
         """Shared tokenization logic for forward and forward_with_logits."""
         model_dtype = next(self.model.parameters()).dtype

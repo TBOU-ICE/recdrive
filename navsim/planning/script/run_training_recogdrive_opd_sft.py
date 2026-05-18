@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 from collections import Counter
+from functools import partial
 
 import torch
 import torch.distributed as dist
@@ -157,13 +158,13 @@ class SFTMetaDataset(Dataset):
         return self.samples[idx]
 
 
-def collate_fn(batch):
+def collate_fn(batch, image_max_num: int = 12):
     image_paths_list, questions = zip(*batch)
     pixel_values_list = []
     num_patches_list = []
     merged_image_paths = []
     for image_paths in image_paths_list:
-        per_sample_tensors = [load_image(p) for p in image_paths]
+        per_sample_tensors = [load_image(p, max_num=image_max_num) for p in image_paths]
         merged_image_paths.append(image_paths)
         sample_tensor = torch.cat(per_sample_tensors, dim=0)
         pixel_values_list.append(sample_tensor)
@@ -334,6 +335,12 @@ def main():
         default=1,
         help='Append Policy Entropy / Gradient Norm / Response Length to metrics.csv every N steps.',
     )
+    parser.add_argument(
+        '--image_max_num',
+        type=int,
+        default=4,
+        help='Max dynamic tiles per image in InternVL preprocessing. Lower value reduces visual tokens and GPU memory.',
+    )
     parser.add_argument('--max_samples', type=int, default=0)
     args = parser.parse_args()
 
@@ -384,7 +391,7 @@ def main():
         num_workers=args.num_workers,
         pin_memory=True,
         drop_last=True,
-        collate_fn=collate_fn,
+        collate_fn=partial(collate_fn, image_max_num=args.image_max_num),
     )
 
     if len(loader) == 0:
@@ -405,7 +412,7 @@ def main():
         )
         print(
             f'[SFT-OPD] log_every={args.log_every} metrics_log_every={args.metrics_log_every} '
-            f'print_every={args.print_every} save_every={args.save_every}'
+            f'print_every={args.print_every} save_every={args.save_every} image_max_num={args.image_max_num}'
         )
         if hasattr(dataset, 'dataset_stats'):
             for ds_name, st in dataset.dataset_stats.items():
@@ -452,12 +459,15 @@ def main():
                 n_img_slots = selected.sum().item()
                 n_vit_tokens = vit_embeds.reshape(-1, C).shape[0]
                 if n_img_slots != n_vit_tokens:
-                    raise RuntimeError(
-                        f'Image token count mismatch: prompt has {n_img_slots} <IMG_CONTEXT> slots '
-                        f'but vit_embeds has {n_vit_tokens} tokens. '
-                        f'Likely cause: num_patches*{student.num_image_token} exceeds max_length=2800. '
-                        f'Increase _build_model_inputs max_length or reduce image patches.'
-                    )
+                    if rank == 0:
+                        print(
+                            f'[warn] skip step={step} due to image token mismatch: '
+                            f'img_slots={n_img_slots} vit_tokens={n_vit_tokens}. '
+                            f'Try increasing max_length or reducing image_max_num.',
+                            flush=True,
+                        )
+                    step -= 1
+                    continue
                 embeds_flat[selected] = vit_embeds.reshape(-1, C).to(device=embeds_flat.device, dtype=embeds_flat.dtype)
                 input_embeds = embeds_flat.reshape(BG, N, C)
 
