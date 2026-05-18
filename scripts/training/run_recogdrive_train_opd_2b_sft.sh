@@ -13,6 +13,12 @@ GPUS="${GPUS:-8}"
 META_PATH="${META_PATH:-/workspace/code/internvl_chat/shell/data_info/recogdrive_pretrain.json}"
 OUT_DIR="${OUT_DIR:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_8b_teacher_opd_2b_sft}"
 
+# Logs under ${OUT_DIR}:
+#   metrics.csv          — every step: loss, policy_entropy, grad_norm, response_length_mean, lr
+#   training_log.txt     — human-readable metrics every --log_every (20)
+#   sample_outputs.log   — decoded completion every --print_every (100)
+# Checkpoints: step00001000.pt, ... every --save_every (1000); final.pt at end
+
 /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
   --nnodes=${NNODES} \
   --node_rank=${RANK} \
@@ -20,7 +26,7 @@ OUT_DIR="${OUT_DIR:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogd
   --master_port=${MASTER_PORT} \
   --nproc_per_node=${GPUS} \
   $NAVSIM_DEVKIT_ROOT/navsim/planning/script/run_training_recogdrive_opd_sft.py \
-  --student_model_path /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B \
+  --student_model_path /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/InternVL3-2B-ckpt400-merged \
   --teacher_model_path /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-8B \
   --meta_path "${META_PATH}" \
   --output_dir "${OUT_DIR}" \
@@ -32,5 +38,6 @@ OUT_DIR="${OUT_DIR:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogd
   --opd_max_new_tokens 512 \
   --max_steps 20000 \
   --log_every 20 \
+  --metrics_log_every 1 \
   --print_every 100 \
   --save_every 1000

@@ -1,8 +1,10 @@
 import argparse
 import ast
+import csv
 import json
 import os
 import random
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 from collections import Counter
@@ -194,6 +196,104 @@ def maybe_all_reduce_mean(x: torch.Tensor, world_size: int) -> float:
     return float(x.item())
 
 
+class SFTOPDMetricsLogger:
+    """Persist OPD training metrics and sample outputs under output_dir (rank 0 only)."""
+
+    METRIC_FIELDS = (
+        'step',
+        'loss',
+        'policy_entropy',
+        'grad_norm',
+        'response_length_mean',
+        'lr',
+    )
+
+    def __init__(self, output_dir: str, rank: int):
+        self.enabled = rank == 0
+        if not self.enabled:
+            return
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        self.metrics_csv = out / 'metrics.csv'
+        self.training_log = out / 'training_log.txt'
+        self.sample_log = out / 'sample_outputs.log'
+        self._csv_initialized = self.metrics_csv.is_file() and self.metrics_csv.stat().st_size > 0
+        with self.training_log.open('a', encoding='utf-8') as f:
+            f.write(f'\n=== SFT-OPD run started {datetime.now().isoformat()} ===\n')
+
+    def log_step_metrics(
+        self,
+        step: int,
+        loss: float,
+        policy_entropy: float,
+        grad_norm: float,
+        response_length_mean: float,
+        lr: float,
+    ) -> None:
+        if not self.enabled:
+            return
+        row = {
+            'step': step,
+            'loss': loss,
+            'policy_entropy': policy_entropy,
+            'grad_norm': grad_norm,
+            'response_length_mean': response_length_mean,
+            'lr': lr,
+        }
+        with self.metrics_csv.open('a', encoding='utf-8', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=self.METRIC_FIELDS)
+            if not self._csv_initialized:
+                writer.writeheader()
+                self._csv_initialized = True
+            writer.writerow(row)
+
+    def log_training_line(
+        self,
+        step: int,
+        loss: float,
+        policy_entropy: float,
+        grad_norm: float,
+        response_length_mean: float,
+        lr: float,
+    ) -> None:
+        if not self.enabled:
+            return
+        line = (
+            f'[train] step={step} loss={loss:.6f} '
+            f'Policy Entropy={policy_entropy:.6f} '
+            f'Gradient Norm={grad_norm:.6f} '
+            f'Response Length(mean)={response_length_mean:.2f} '
+            f'lr={lr:.3e}\n'
+        )
+        with self.training_log.open('a', encoding='utf-8') as f:
+            f.write(line)
+
+    def log_sample(self, step: int, sample_text: str) -> None:
+        if not self.enabled:
+            return
+        with self.sample_log.open('a', encoding='utf-8') as f:
+            f.write(f'[sample][step={step}] {sample_text}\n')
+
+
+def decode_first_completion(
+    student: RecogDriveBackbone,
+    prompt_input_ids: torch.Tensor,
+    generated_ids: torch.Tensor,
+    max_chars: int = 300,
+) -> str:
+    prompt_len = prompt_input_ids.shape[1]
+    sample_ids = generated_ids[0]
+    if (
+        generated_ids.shape[1] >= prompt_len
+        and torch.equal(generated_ids[0, :prompt_len], prompt_input_ids[0])
+    ):
+        sample_ids = generated_ids[0, prompt_len:]
+    sample_text = student.tokenizer.decode(sample_ids, skip_special_tokens=True).replace('\n', ' ').strip()
+    if len(sample_text) > max_chars:
+        sample_text = sample_text[:max_chars] + ' ...'
+    return sample_text
+
+
 def main():
     parser = argparse.ArgumentParser(description='SFT JSONL OPD training for ReCogDrive VLM')
     parser.add_argument('--student_model_path', required=True)
@@ -210,9 +310,30 @@ def main():
     parser.add_argument('--opd_group_size', type=int, default=4)
     parser.add_argument('--opd_max_new_tokens', type=int, default=320)
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--log_every', type=int, default=20)
-    parser.add_argument('--print_every', type=int, default=100)
-    parser.add_argument('--save_every', type=int, default=1000)
+    parser.add_argument(
+        '--log_every',
+        type=int,
+        default=20,
+        help='Print metrics to stdout and append training_log.txt every N steps.',
+    )
+    parser.add_argument(
+        '--print_every',
+        type=int,
+        default=100,
+        help='Decode and log model completion to stdout/sample_outputs.log every N steps.',
+    )
+    parser.add_argument(
+        '--save_every',
+        type=int,
+        default=1000,
+        help='Save student checkpoint step{N:08d}.pt every N steps (rank 0).',
+    )
+    parser.add_argument(
+        '--metrics_log_every',
+        type=int,
+        default=1,
+        help='Append Policy Entropy / Gradient Norm / Response Length to metrics.csv every N steps.',
+    )
     parser.add_argument('--max_samples', type=int, default=0)
     args = parser.parse_args()
 
@@ -229,6 +350,7 @@ def main():
         p.requires_grad = False
     teacher.eval()
 
+    student.train()
     for name, p in student.model.named_parameters():
         if 'vision_model' in name or 'mlp1' in name:
             p.requires_grad = False
@@ -271,8 +393,20 @@ def main():
             'DDP with drop_last=True. Increase data/max_samples or reduce world_size.'
         )
 
+    metrics_logger = SFTOPDMetricsLogger(args.output_dir, rank)
+
     if rank == 0:
         print(f'[SFT-OPD] dataset_size={len(dataset)} world_size={world_size}')
+        print(
+            f'[SFT-OPD] output_dir={args.output_dir} '
+            f'metrics_csv={args.output_dir}/metrics.csv '
+            f'training_log={args.output_dir}/training_log.txt '
+            f'sample_log={args.output_dir}/sample_outputs.log'
+        )
+        print(
+            f'[SFT-OPD] log_every={args.log_every} metrics_log_every={args.metrics_log_every} '
+            f'print_every={args.print_every} save_every={args.save_every}'
+        )
         if hasattr(dataset, 'dataset_stats'):
             for ds_name, st in dataset.dataset_stats.items():
                 print(
@@ -363,37 +497,59 @@ def main():
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
 
-            total_norm_sq = torch.zeros(1, device=device)
-            for p in trainable:
-                if p.grad is not None:
-                    g = p.grad.detach().data.norm(2)
-                    total_norm_sq += g * g
-            grad_norm = torch.sqrt(total_norm_sq)
+            # Synchronize gradients across GPUs. forward_with_logits is called directly
+            # rather than through nn.Module.__call__, so DDP hooks don't fire; we
+            # all-reduce and average manually instead.
+            if world_size > 1:
+                for p in trainable:
+                    if p.grad is not None:
+                        dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+                        p.grad.div_(world_size)
+
+            grad_norm = torch.nn.utils.clip_grad_norm_(trainable, max_norm=1.0)
 
             optimizer.step()
             scheduler.step()
 
+            loss_m = maybe_all_reduce_mean(loss, world_size)
+            ent_m = maybe_all_reduce_mean(out['policy_entropy'], world_size)
+            rlen_m = maybe_all_reduce_mean(out['response_length_mean'], world_size)
+            gnorm_m = maybe_all_reduce_mean(grad_norm, world_size)
+            lr_m = scheduler.get_last_lr()[0]
+
+            if step % args.metrics_log_every == 0:
+                metrics_logger.log_step_metrics(
+                    step=step,
+                    loss=loss_m,
+                    policy_entropy=ent_m,
+                    grad_norm=gnorm_m,
+                    response_length_mean=rlen_m,
+                    lr=lr_m,
+                )
+
             if step % args.log_every == 0:
-                loss_m = maybe_all_reduce_mean(loss, world_size)
-                ent_m = maybe_all_reduce_mean(out['policy_entropy'], world_size)
-                rlen_m = maybe_all_reduce_mean(out['response_length_mean'], world_size)
-                gnorm_m = maybe_all_reduce_mean(grad_norm, world_size)
+                metrics_logger.log_training_line(
+                    step=step,
+                    loss=loss_m,
+                    policy_entropy=ent_m,
+                    grad_norm=gnorm_m,
+                    response_length_mean=rlen_m,
+                    lr=lr_m,
+                )
                 if rank == 0:
                     print(
-                        f'[train] step={step} loss={loss_m:.6f} policy_entropy={ent_m:.6f} '
-                        f'response_length_mean={rlen_m:.2f} grad_norm={gnorm_m:.6f} '
-                        f'lr={scheduler.get_last_lr()[0]:.3e}'
+                        f'[train] step={step} loss={loss_m:.6f} '
+                        f'Policy Entropy={ent_m:.6f} '
+                        f'Gradient Norm={gnorm_m:.6f} '
+                        f'Response Length(mean)={rlen_m:.2f} '
+                        f'lr={lr_m:.3e}',
+                        flush=True,
                     )
 
             if step % args.print_every == 0 and rank == 0:
-                prompt_len = prompt_input_ids.shape[1]
-                sample_ids = generated_ids[0]
-                if generated_ids.shape[1] >= prompt_len and torch.equal(generated_ids[0, :prompt_len], prompt_input_ids[0]):
-                    sample_ids = generated_ids[0, prompt_len:]
-                sample_text = student.tokenizer.decode(sample_ids, skip_special_tokens=True).replace('\n', ' ').strip()
-                if len(sample_text) > 300:
-                    sample_text = sample_text[:300] + ' ...'
-                print(f'[sample][step={step}] {sample_text}')
+                sample_text = decode_first_completion(student, prompt_input_ids, generated_ids)
+                print(f'[sample][step={step}] {sample_text}', flush=True)
+                metrics_logger.log_sample(step, sample_text)
 
             if step % args.save_every == 0 and rank == 0:
                 ckpt_path = os.path.join(args.output_dir, f'step{step:08d}.pt')
