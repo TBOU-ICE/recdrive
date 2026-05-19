@@ -1,6 +1,5 @@
 import pytorch_lightning as pl
 import torch
-from pytorch_lightning.utilities.rank_zero import rank_zero_only
 
 from torch import Tensor
 from typing import Dict, Tuple,Any
@@ -77,12 +76,6 @@ class AgentLightningDiT(pl.LightningModule):
 
     def _step(self, batch: Tuple[Dict[str, Tensor], Dict[str, Tensor]], logging_prefix: str) -> Tensor:
         features, targets, tokens_list = batch
-        rk = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-        if logging_prefix == "train" and getattr(self.agent, "opd", False):
-            self.agent._opd_decode_sample_this_step = rk == 0 and self.global_step % 100 == 0
-        else:
-            setattr(self.agent, "_opd_decode_sample_this_step", False)
-
         prediction = self.agent.forward(features, targets, tokens_list)
         predictions = self.agent.compute_loss(features, targets, prediction)
 
@@ -95,34 +88,11 @@ class AgentLightningDiT(pl.LightningModule):
         self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
         if not isinstance(predictions, torch.Tensor):
-            for key in (
-                "reward", "policy_loss", "bc_loss", "opd_loss", "reward_mean", "reward_weight",
-                "distill_loss", "policy_entropy", "response_length_mean"
-            ):
+            for key in ("reward", "policy_loss", "bc_loss", "opd_loss", "reward_mean", "reward_weight", "distill_loss", "kl_mean"):
                 if key in predictions:
-                    prog = key in ("policy_entropy", "response_length_mean")
                     self.log(f"{logging_prefix}/{key}", predictions[key],
-                             on_step=True, on_epoch=True, prog_bar=prog, sync_dist=True)
-
-            if logging_prefix == "train" and self.global_step % 100 == 0:
-                if "sample_response_text" in predictions and predictions["sample_response_text"]:
-                    self._print_sample_response(str(predictions["sample_response_text"]))
+                             on_step=True, on_epoch=True, prog_bar=False, sync_dist=True)
         return loss
-
-    @rank_zero_only
-    def _print_sample_response(self, sample_text: str) -> None:
-        print(f"[train][step={self.global_step}] sample_response: {sample_text}")
-
-    def on_after_backward(self) -> None:
-        if not self.training:
-            return
-        total_norm_sq = torch.zeros(1, device=self.device)
-        for p in self.agent.parameters():
-            if p.grad is not None:
-                grad_norm = p.grad.detach().data.norm(2)
-                total_norm_sq += grad_norm * grad_norm
-        total_norm = torch.sqrt(total_norm_sq)
-        self.log("train/gradient_norm", total_norm, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
     
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         """
