@@ -90,6 +90,6 @@ torchrun \
   "cache_path='${CACHE_PATH}'" \
   use_cache_without_dataset=True \
   force_cache_computation=False \
-  dit_opd_debug_log_interval=${DIT_OPD_DEBUG_LOG_INTERVAL} \
+  +dit_opd_debug_log_interval=${DIT_OPD_DEBUG_LOG_INTERVAL} \
   hydra/job_logging=stdout \
   hydra.output_subdir=null
