@@ -25,6 +25,7 @@ STUDENT_CKPT="${STUDENT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp
 TEACHER_CKPT="${TEACHER_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
 
 MASTER_PORT="${MASTER_PORT:-23457}"
+VAL_CHECK_INTERVAL="${VAL_CHECK_INTERVAL:-50}"
 
 if ! command -v torchrun >/dev/null 2>&1; then
   echo "[ERROR] torchrun not found in PATH. Check RECDRIVE_CONDA_BIN/PATH."
@@ -50,6 +51,7 @@ echo "  CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 echo "  CACHE_PATH=$CACHE_PATH"
 echo "  STUDENT_CKPT=$STUDENT_CKPT"
 echo "  TEACHER_CKPT=$TEACHER_CKPT"
+echo "  VAL_CHECK_INTERVAL=$VAL_CHECK_INTERVAL"
 
 torchrun \
   --nnodes=1 \
@@ -75,7 +77,7 @@ torchrun \
   trainer.params.num_nodes=1 \
   trainer.params.devices=1 \
   trainer.params.precision=16-mixed \
-  trainer.params.val_check_interval=50 \
+  trainer.params.val_check_interval=${VAL_CHECK_INTERVAL} \
   dataloader.params.batch_size=4 \
   experiment_name=training_recogdrive_dit_opd_gpt_1gpu_debug \
   "train_test_split=${TRAIN_TEST_SPLIT}" \

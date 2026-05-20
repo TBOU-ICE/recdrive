@@ -19,6 +19,7 @@ TRAIN_TEST_SPLIT="${TRAIN_TEST_SPLIT:-navtrain}"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
 OUTPUT_DIR="${OUTPUT_DIR:-/workspace/volumes/ad-e2e-al-sh01/nby/training_recogdrive_dit_opd_gpt_v1}"
 DIT_OPD_DEBUG_LOG_INTERVAL="${DIT_OPD_DEBUG_LOG_INTERVAL:-50}"
+VAL_CHECK_INTERVAL="${VAL_CHECK_INTERVAL:-500}"
 
 STUDENT_CKPT="${STUDENT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
 TEACHER_CKPT="${TEACHER_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
@@ -58,6 +59,7 @@ echo "  STUDENT_CKPT=$STUDENT_CKPT"
 echo "  TEACHER_CKPT=$TEACHER_CKPT"
 echo "  GPUS=$GPUS NNODES=$NNODES RANK=$RANK MASTER_ADDR=$MASTER_ADDR MASTER_PORT=$MASTER_PORT"
 echo "  DIT_OPD_DEBUG_LOG_INTERVAL=$DIT_OPD_DEBUG_LOG_INTERVAL"
+echo "  VAL_CHECK_INTERVAL=$VAL_CHECK_INTERVAL"
 
 torchrun \
   --nnodes=${NNODES} \
@@ -83,7 +85,7 @@ torchrun \
   trainer.params.num_nodes=${NNODES} \
   trainer.params.devices=${GPUS} \
   trainer.params.precision=16-mixed \
-  trainer.params.val_check_interval=1000 \
+  trainer.params.val_check_interval=${VAL_CHECK_INTERVAL} \
   dataloader.params.batch_size=16 \
   experiment_name=training_recogdrive_dit_opd_gpt_v1 \
   "train_test_split=${TRAIN_TEST_SPLIT}" \
