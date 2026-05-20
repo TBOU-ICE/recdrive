@@ -119,6 +119,13 @@ def build_pl_logger(cfg: DictConfig):
     if logger_type in {"none", "false", "off"}:
         return False
 
+    if logger_type == "tensorboard":
+        from pytorch_lightning.loggers import TensorBoardLogger
+        logger_cfg = cfg.get("logger", {})
+        save_dir = str(logger_cfg.get("save_dir", "/workspace/output/tensorboard"))
+        name = str(logger_cfg.get("name", cfg.get("experiment_name", "recdrive")))
+        return TensorBoardLogger(save_dir=save_dir, name=name, version="")
+
     if logger_type == "swanlab":
         try:
             from swanlab.integration.pytorch_lightning import SwanLabLogger
@@ -137,7 +144,7 @@ def build_pl_logger(cfg: DictConfig):
             kwargs["description"] = logger_cfg.description
         return SwanLabLogger(**kwargs)
 
-    raise ValueError(f"Unsupported logger.type={logger_type}. Use 'none' or 'swanlab'.")
+    raise ValueError(f"Unsupported logger.type={logger_type}. Use 'none', 'tensorboard', or 'swanlab'.")
 
 
 def build_datasets(cfg: DictConfig, agent: AbstractAgent) -> Tuple[Dataset, Dataset]:

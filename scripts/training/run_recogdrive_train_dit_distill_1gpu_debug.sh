@@ -90,7 +90,7 @@ fi
   dataloader.params.batch_size=2 \
   dataloader.params.num_workers=2 \
   logger.type=tensorboard \
-  experiment_name=training_recogdrive_dit_opd_1gpu_debug \
+  experiment_name=training_recogdrive_dit_opd_1gpu_debug-c3 \
   train_test_split="${TRAIN_TEST_SPLIT}" \
   cache_path="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train" \
   use_cache_without_dataset=True \

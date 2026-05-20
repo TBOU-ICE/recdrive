@@ -101,21 +101,28 @@ class AgentLightningDiT(pl.LightningModule):
         self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
         if not isinstance(predictions, torch.Tensor):
-            for key in (
+            scalar_keys = (
                 "reward", "policy_loss", "bc_loss", "opd_loss", "reward_mean", "reward_weight",
-                "distill_loss", "policy_entropy", "response_length_mean",
-                "transition_kl", "step_kl_mean", "step_kl_max", "pred_traj_l1_to_teacher", "denoising_steps"
-            ):
+                "distill_loss", "kl_mean", "sigma_mean", "chain_abs_max",
+                "policy_entropy", "response_length_mean",
+                "transition_kl", "step_kl_mean", "step_kl_max", "pred_traj_l1_to_teacher",
+            )
+            for key in scalar_keys:
                 if key in predictions:
                     prog = key in ("policy_entropy", "response_length_mean")
                     self.log(f"{logging_prefix}/{key}", predictions[key],
                              on_step=True, on_epoch=True, prog_bar=prog, sync_dist=True)
+            # Per-step distillation diagnostics (kl_step_i, kl_raw_step_i, sigma_step_i)
+            for key in list(predictions.keys()):
+                if any(key.startswith(pfx) for pfx in ("kl_step_", "kl_raw_step_", "sigma_step_")):
+                    self.log(f"{logging_prefix}/{key}", predictions[key],
+                             on_step=True, on_epoch=True, prog_bar=False, sync_dist=True)
 
             if logging_prefix == "train" and self.global_step % 100 == 0:
                 if "sample_response_text" in predictions and predictions["sample_response_text"]:
                     self._print_sample_response(str(predictions["sample_response_text"]))
 
-            if logging_prefix == "train" and getattr(self.agent, "dit_opd", False):
+            if logging_prefix == "train" and getattr(self.agent, "dit_distill", False):
                 self._maybe_log_dit_opd_debug(predictions=predictions, loss=loss)
 
         return loss

@@ -1,415 +1,365 @@
-# DiT Distillation trainer for ReCogDrive.
-#
-# Loss = w(PDM_score) * (lambda_out * L_out + lambda_feat * L_feat + lambda_traj * L_traj)
-#
-# L_out:  student/teacher prediction matching on student on-policy denoising chain
-# L_feat: student/teacher intermediate DiT token feature matching on the same chain
-# L_traj: student/teacher final denoised trajectory matching
+"""
+DiT OPD (On-Policy Distillation) trainer for ReCogDrive.
 
-import logging
-import lzma
-import pickle
-from dataclasses import asdict
-from pathlib import Path
-from typing import List, Optional, Tuple, Union
+Implements Flow-OPD (arXiv:2605.08063) adapted to the DDIM denoising setting.
 
-import numpy as np
+Core algorithm (Flow-OPD Eq. 8-10):
+  For each denoising step i, evaluate both student and teacher at the SAME
+  state z_t drawn from the student's OWN stochastic chain.  The loss is the
+  σ-weighted forward KL between student and teacher denoising distributions:
+
+      KL_i = ‖μ_θ(z_t, t) − μ_φ(z_t, t)‖² / (2 σ_i²)
+
+  σ_i is the DDIM step noise (schedule-determined).  This w(t) weighting
+  (Flow-OPD Eq. 10) down-weights noisy steps (large σ) and up-weights clean
+  steps (small σ, close to the final trajectory).
+
+  Total loss = (1/K) Σ_i mean_batch(KL_i)
+
+Why no PPO-clip:
+  PPO requires a frozen π_θ_old held fixed across MULTIPLE gradient updates so
+  that the importance ratio ρ = π_θ/π_θ_old deviates from 1.  When the chain
+  is re-sampled every step (old policy ≡ current policy), ρ ≡ 1 always, the
+  PPO surrogate collapses to mean(-adv)=0 with a zero-mean normalised advantage
+  — confirmed by TensorBoard showing loss≡0, ratio≡1, clip_frac≡0 throughout
+  training.  Direct on-policy KL avoids this degenerate case.
+
+Diagnostic logging (every log_interval calls, rank-0 only):
+  Writes a human-readable table to <log_dir>/distill_diagnostic.log showing
+  per-step σ, ‖μ_θ−μ_φ‖, KL, weight, and one example denormalized trajectory
+  comparison (teacher vs student at the final DDIM step).
+"""
+
+import os
+import datetime
 import torch
-import torch.nn.functional as F
 from transformers.feature_extraction_utils import BatchFeature
-
-from navsim.common.dataclasses import Trajectory
-from navsim.common.dataloader import MetricCacheLoader
-from navsim.evaluate.pdm_score import pdm_score
-from navsim.planning.simulation.planner.pdm_planner.scoring.pdm_scorer import (
-    PDMScorer,
-    PDMScorerConfig,
-)
-from navsim.planning.simulation.planner.pdm_planner.simulation.pdm_simulator import (
-    PDMSimulator,
-)
-from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
-
-logger = logging.getLogger(__name__)
-
-
-def _sanitize_pred_trajectory_np(poses: np.ndarray) -> np.ndarray:
-    out = np.asarray(poses, dtype=np.float64)
-    out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
-    if out.shape[-1] >= 3:
-        out[..., 2] = np.arctan2(np.sin(out[..., 2]), np.cos(out[..., 2]))
-    return out.astype(np.float32)
-
-
-def compute_pdm_rewards(
-    pred_traj: torch.Tensor,
-    tokens_list: List[str],
-    metric_cache_loader: MetricCacheLoader,
-    simulator: PDMSimulator,
-    scorer: PDMScorer,
-) -> torch.Tensor:
-    pred_np = pred_traj.detach().float().cpu().numpy()
-    pred_np = np.stack([_sanitize_pred_trajectory_np(p) for p in pred_np], axis=0)
-    unique_tokens = set(tokens_list)
-    cache_dict = {}
-    for token in unique_tokens:
-        path = metric_cache_loader.metric_cache_paths[token]
-        with lzma.open(path, "rb") as f:
-            cache_dict[token] = pickle.load(f)
-
-    rewards = []
-    for i, token in enumerate(tokens_list):
-        traj = Trajectory(pred_np[i])
-        try:
-            result = pdm_score(
-                metric_cache=cache_dict[token],
-                model_trajectory=traj,
-                future_sampling=simulator.proposal_sampling,
-                simulator=simulator,
-                scorer=scorer,
-            )
-            rewards.append(asdict(result)["score"])
-        except (AssertionError, ValueError, RuntimeError) as e:
-            logger.warning("PDM scoring failed for sample %s (token=%s): %s", i, token, e)
-            rewards.append(0.0)
-
-    return torch.tensor(rewards, device=pred_traj.device, dtype=torch.float32)
-
-
-def reward_weighted_loss(
-    loss: torch.Tensor,
-    rewards: torch.Tensor,
-    reward_weight_mode: str = "normalize",
-) -> tuple:
-    if reward_weight_mode == "normalize":
-        if rewards.numel() < 2:
-            w = torch.ones_like(rewards)
-        else:
-            rw_std = rewards.std(unbiased=False)
-            w = (rewards - rewards.mean()) / (rw_std + 1e-8)
-            w = w - w.min()
-            w_max = w.max()
-            w = w / (w_max + 1e-8) if w_max > 1e-8 else torch.ones_like(w)
-    elif reward_weight_mode == "raw":
-        w = rewards.clamp(0.0, 1.0)
-    elif reward_weight_mode == "threshold":
-        w = (rewards >= rewards.median()).float()
-    else:
-        raise ValueError(f"Unknown reward_weight_mode: {reward_weight_mode}")
-
-    scalar_w = w.mean()
-    scalar_w = torch.nan_to_num(scalar_w, nan=1.0, posinf=1.0, neginf=1.0)
-    weighted = loss * scalar_w
-    weighted = torch.nan_to_num(weighted, nan=0.0, posinf=0.0, neginf=0.0)
-    return weighted, scalar_w
 
 
 class ReCogDriveDiTDistillTrainer:
     """
-    Reward-weighted DiT distillation with OPD-style chain supervision.
+    Flow-OPD-style on-policy KL distillation between two DiT planners.
 
-    For DDPM/DDIM:
-      - Build student denoising chain (deterministic update for stability)
-      - At each step, run teacher on student x_t and match outputs/features
-
-    For flow:
-      - Fallback to one-step random-t distillation (current training style)
+    Directly minimises KL(student ‖ teacher) at states sampled from the
+    student's own stochastic DDIM chain.
     """
 
     def __init__(
         self,
-        metric_cache_path: str,
-        reward_weight_mode: str = "normalize",
-        use_reward_weighting: bool = True,
-        lambda_out: float = 1.0,
-        lambda_feat: float = 0.2,
-        lambda_traj: float = 0.1,
-        feat_layers: int = 6,
-        out_loss_type: str = "huber",
-        scorer_config: Optional[PDMScorerConfig] = None,
+        eps_clip: float = 0.2,            # kept for API compatibility, unused
+        min_sigma: float = 0.04,
+        normalize_advantage: bool = True, # kept for API compatibility, unused
+        log_dir: str = None,
+        log_interval: int = 50,
     ):
-        self.reward_weight_mode = reward_weight_mode
-        self.use_reward_weighting = use_reward_weighting
-        self.lambda_out = float(lambda_out)
-        self.lambda_feat = float(lambda_feat)
-        self.lambda_traj = float(lambda_traj)
-        self.feat_layers = int(feat_layers)
-        self.out_loss_type = out_loss_type
+        self.min_sigma  = min_sigma
+        self.log_dir    = log_dir
+        self.log_interval = log_interval
+        self._call_count  = 0
+        self._local_rank  = int(os.getenv("LOCAL_RANK", "0"))
 
-        self.metric_cache_loader = MetricCacheLoader(Path(metric_cache_path))
-        proposal_sampling = TrajectorySampling(time_horizon=4, interval_length=0.1)
-        self.simulator = PDMSimulator(proposal_sampling)
-        if scorer_config is None:
-            scorer_config = PDMScorerConfig(
-                progress_weight=10.0, ttc_weight=5.0, comfortable_weight=2.0
+    # ─────────────────────────────────────────────────────────────────────────
+    # Internal helpers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _encode(planner, vl_features, his_traj, ego_status, dtype):
+        """Encode raw conditioning tensors through the planner's projections."""
+        vl_embeds  = planner.feature_encoder(vl_features.to(dtype))
+        his_embeds = (
+            planner.his_traj_encoder(his_traj.to(dtype).unsqueeze(1))
+            .repeat(1, planner.config.action_horizon, 1)
+        )
+        ego_embeds = planner.ego_status_encoder(ego_status.to(dtype))
+        return vl_embeds, his_embeds, ego_embeds
+
+    @staticmethod
+    def _safe_sigma(logvar: torch.Tensor, min_sigma: float, dtype: torch.dtype) -> torch.Tensor:
+        """Numerically-safe sigma: clamp logvar before exp to prevent overflow."""
+        return (0.5 * logvar.float().clamp(-20.0, 20.0)).exp().clamp(min=min_sigma).to(dtype)
+
+    def _sample_chain(self, planner, vl_embeds, his_embeds, ego_embeds, B, device, dtype):
+        """
+        Student on-policy stochastic DDIM chain (no_grad).
+
+        Uses EtaFixed ≈ 1.0 for exploration (SDE sampling in Flow-OPD).
+
+        Returns:
+            chain (B, K+1, H, D) — all detached
+        """
+        H, D = planner.config.action_horizon, planner.config.action_dim
+        z = torch.randn((B, H, D), device=device, dtype=dtype)
+        chain = [z.clone()]
+
+        for i in range(planner.ddim_steps):
+            t_batch   = planner.make_timesteps(B, int(planner.ddim_t[i].item()), device)
+            idx_batch = planner.make_timesteps(B, i, device)
+
+            mu, logvar, _ = planner.p_mean_variance(
+                z, t_batch, idx_batch, vl_embeds, his_embeds, ego_embeds,
+                deterministic=False,
             )
-        self.scorer = PDMScorer(proposal_sampling, scorer_config)
+            sigma = self._safe_sigma(logvar, self.min_sigma, dtype)
+            noise = torch.randn_like(z).clamp_(-5.0, 5.0)
+            z = (mu + sigma * noise).detach()
+            chain.append(z.clone())
+
+        return torch.stack(chain, dim=1)  # (B, K+1, H, D)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Diagnostic logging
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _write_text_log(
+        self,
+        step: int,
+        K: int,
+        ddim_t_list,
+        kl_weighted_per_step,   # list[float] — KL_i averaged over batch
+        kl_raw_per_step,        # list[float] — ||mu_s-mu_t||^2 / dim, averaged over batch
+        sigma_per_step,         # list[float]
+        mu_diff_l2_per_step,    # list[float] — ||mu_s-mu_t||_F / sqrt(H*D)
+        mu_s_last: torch.Tensor,  # (B, H, D) student mean at final DDIM step
+        mu_t_last: torch.Tensor,  # (B, H, D) teacher mean at final DDIM step
+        student_planner,
+        total_loss: float,
+    ):
+        os.makedirs(self.log_dir, exist_ok=True)
+        log_path = os.path.join(self.log_dir, "distill_diagnostic.log")
+
+        # Denormalize example trajectories (sample 0)
+        with torch.no_grad():
+            mu_s_denorm = student_planner.denorm_odo(mu_s_last[:1].float().cpu())  # (1, H, 3)
+            mu_t_denorm = student_planner.denorm_odo(mu_t_last[:1].float().cpu())  # (1, H, 3)
+
+        ts = [0.5 * (i + 1) for i in range(mu_s_denorm.shape[1])]  # 0.5..4.0s
+
+        lines = []
+        sep = "=" * 78
+        lines.append(f"\n{sep}")
+        lines.append(
+            f"[DiT-OPD step={step:>6d}]  {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        lines.append(f"  K={K} DDIM steps | total_loss={total_loss:.4f}")
+        lines.append("-" * 78)
+        lines.append(
+            f"{'idx':>3} {'t':>4} {'σ_i':>7} {'‖μ_θ-μ_φ‖/dim':>14} "
+            f"{'1/(2σ²)':>10} {'KL_i':>10} {'share%':>7}"
+        )
+        lines.append("-" * 78)
+        total_kl = sum(kl_weighted_per_step)
+        for i in range(K):
+            weight = 1.0 / (2.0 * sigma_per_step[i] ** 2 + 1e-12)
+            share = 100.0 * kl_weighted_per_step[i] / (total_kl + 1e-12)
+            lines.append(
+                f"  {i:>1}  {ddim_t_list[i]:>3}  {sigma_per_step[i]:>7.4f}  "
+                f"{kl_raw_per_step[i]:>14.4f}  "
+                f"{weight:>10.2f}  {kl_weighted_per_step[i]:>10.3f}  {share:>6.1f}%"
+            )
+        lines.append("-" * 78)
+        lines.append(f"  mean KL over {K} steps = {total_loss:.4f}")
+        lines.append("-" * 78)
+
+        # Example trajectory at final DDIM step
+        lines.append("  Sample-0 final step (t→0) predictions [denormalized x/y/heading(rad)]:")
+        lines.append(f"  {'time':>6}  {'Teacher μ_φ':>32}  {'Student μ_θ':>32}")
+        for j, t_sec in enumerate(ts):
+            tx, ty, th = (
+                mu_t_denorm[0, j, 0].item(),
+                mu_t_denorm[0, j, 1].item(),
+                mu_t_denorm[0, j, 2].item(),
+            )
+            sx, sy, sh = (
+                mu_s_denorm[0, j, 0].item(),
+                mu_s_denorm[0, j, 1].item(),
+                mu_s_denorm[0, j, 2].item(),
+            )
+            lines.append(
+                f"  {t_sec:>5.1f}s  "
+                f"({tx:>7.3f}, {ty:>7.3f}, {th:>7.4f})   "
+                f"({sx:>7.3f}, {sy:>7.3f}, {sh:>7.4f})"
+            )
+        lines.append(sep)
+
+        with open(log_path, "a") as f:
+            f.write("\n".join(lines) + "\n")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Main training entry point
+    # ─────────────────────────────────────────────────────────────────────────
 
     def compute_loss(
         self,
         student_planner,
         teacher_planner,
         vl_features: torch.Tensor,
-        action_input: "BatchFeature",
-        tokens_list: List[str],
+        action_input,
     ) -> BatchFeature:
-        if student_planner.config.sampling_method in ["ddpm", "ddim"]:
-            out_loss, feat_loss, pred_traj = _chainwise_dit_distill_loss(
-                student_planner=student_planner,
-                teacher_planner=teacher_planner,
-                vl_features=vl_features,
-                action_input=action_input,
-                out_loss_type=self.out_loss_type,
-                feat_layers=self.feat_layers,
-            )
-        else:
-            out_loss, feat_loss, pred_traj = _single_step_dit_distill_loss(
-                student_planner=student_planner,
-                teacher_planner=teacher_planner,
-                vl_features=vl_features,
-                action_input=action_input,
-                out_loss_type=self.out_loss_type,
-                feat_layers=self.feat_layers,
-            )
+        """
+        Compute the on-policy KL distillation loss for one training step.
 
+        Args:
+            student_planner: Trainable ReCogDriveDiffusionPlanner (IL-init).
+            teacher_planner: Frozen  ReCogDriveDiffusionPlanner (RL-trained).
+            vl_features:     Cached VLM last_hidden_state, shape (B, N, 1536).
+            action_input:    BatchFeature with 'his_traj' (B,12) and
+                             'status_feature' (B,8).
+
+        Returns:
+            BatchFeature with scalar 'loss' and diagnostic keys for TensorBoard.
+        """
+        self._call_count += 1
+
+        B       = vl_features.shape[0]
+        device  = vl_features.device
+        s_dtype = next(student_planner.parameters()).dtype
+
+        his_traj   = action_input.his_traj
+        ego_status = action_input.status_feature
+
+        # ── Phase 1: student on-policy chain (no grad) ────────────────────────
         with torch.no_grad():
-            teacher_traj_output = teacher_planner.get_action(vl_features, action_input, deterministic=True)
-            teacher_pred_traj = teacher_traj_output["pred_traj"]
-            rewards = compute_pdm_rewards(
-                pred_traj=pred_traj,
-                tokens_list=tokens_list,
-                metric_cache_loader=self.metric_cache_loader,
-                simulator=self.simulator,
-                scorer=self.scorer,
+            vl_s0, his_s0, ego_s0 = self._encode(
+                student_planner, vl_features, his_traj, ego_status, s_dtype
+            )
+            chain = self._sample_chain(
+                student_planner, vl_s0, his_s0, ego_s0, B, device, s_dtype
+            )  # (B, K+1, H, D) — fully detached
+        K = chain.shape[1] - 1
+
+        # ── Teacher encode (no grad, float32 for reference) ───────────────────
+        with torch.no_grad():
+            vl_t, his_t, ego_t = self._encode(
+                teacher_planner, vl_features, his_traj, ego_status, torch.float32
             )
 
-        traj_loss = F.l1_loss(pred_traj.float(), teacher_pred_traj.float())
-        distill_loss = (
-            self.lambda_out * out_loss
-            + self.lambda_feat * feat_loss
-            + self.lambda_traj * traj_loss
+        # ── Phase 2: student forward with grad + per-step KL ──────────────────
+        vl_s, his_s, ego_s = self._encode(
+            student_planner, vl_features, his_traj, ego_status, s_dtype
         )
 
-        if self.use_reward_weighting:
-            loss, scalar_w = reward_weighted_loss(distill_loss, rewards, self.reward_weight_mode)
-        else:
-            loss = distill_loss
-            scalar_w = torch.ones(1, device=distill_loss.device)
+        total_loss         = vl_features.new_zeros(())
+        kl_weighted_list:  list[torch.Tensor] = []   # after σ weighting, for loss
+        kl_raw_list:       list[torch.Tensor] = []   # ‖μ_s-μ_t‖²/dim, for diagnostics
+        mu_diff_l2_list:   list[torch.Tensor] = []   # ‖μ_s-μ_t‖_F / sqrt(H*D)
+        sigma_list:        list[torch.Tensor] = []
 
-        loss = torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0)
+        # Save last-step μ for text log
+        mu_s_last = mu_t_last = None
+
+        ddim_t_list = [int(student_planner.ddim_t[i].item()) for i in range(K)]
+
+        for i in range(K):
+            z_t = chain[:, i].to(s_dtype)
+
+            t_batch   = student_planner.make_timesteps(B, ddim_t_list[i], device)
+            idx_batch = student_planner.make_timesteps(B, i, device)
+
+            # Student forward — gradient flows through μ_θ.
+            mu_s, logvar_s, _ = student_planner.p_mean_variance(
+                z_t, t_batch, idx_batch, vl_s, his_s, ego_s, deterministic=False,
+            )
+            # σ_i: DDIM schedule noise (no learnable dependency, detach for safety).
+            sigma_s = self._safe_sigma(logvar_s, self.min_sigma, s_dtype).detach()
+
+            # Teacher mean — deterministic prediction, no gradient.
+            with torch.no_grad():
+                mu_t, _, _ = teacher_planner.p_mean_variance(
+                    z_t.float(), t_batch, idx_batch,
+                    vl_t, his_t, ego_t, deterministic=True,
+                )
+
+            # Forward KL (Gaussian, shared σ_i):
+            #   KL(N(μ_θ, σ_i²I) ‖ N(μ_φ, σ_i²I)) = ‖μ_θ − μ_φ‖² / (2σ_i²)
+            #
+            # σ-weighting (Flow-OPD Eq. 10):
+            #   noisy steps (large σ) → small weight  (coarse structural correction)
+            #   clean steps (small σ) → large weight  (fine trajectory matching)
+            diff = mu_s.float() - mu_t.detach()                            # (B, H, D)
+            sigma2 = sigma_s.float().pow(2).clamp(min=1e-6)                # scalar-ish
+            kl_i   = diff.pow(2).div(2.0 * sigma2).sum(dim=(1, 2))        # (B,)
+
+            step_loss  = kl_i.mean()
+            total_loss = total_loss + step_loss.to(total_loss.dtype)
+
+            H, D = diff.shape[1], diff.shape[2]
+            kl_weighted_list.append(kl_i.detach().mean())
+            kl_raw_list.append((diff.pow(2).sum(dim=(1, 2)) / (H * D)).detach().mean())
+            mu_diff_l2_list.append(
+                (diff.pow(2).sum(dim=(1, 2)).sqrt() / (H * D) ** 0.5).detach().mean()
+            )
+            sigma_list.append(sigma_s.detach().float().mean())
+
+            if i == K - 1:
+                mu_s_last = mu_s.detach()
+                mu_t_last = mu_t.detach()
+
+        loss    = total_loss / K
+        kl_mean = torch.stack(kl_weighted_list).mean()
+
+        if not torch.isfinite(loss):
+            loss = loss.new_zeros(())
+
+        # ── Trajectory comparison metrics ─────────────────────────────────────
+        kl_steps = torch.stack(kl_weighted_list)  # (K,)
+        with torch.no_grad():
+            pred_traj_s = student_planner.denorm_odo(mu_s_last.float().cpu()).to(device)  # (B, H, 3)
+            pred_traj_t = student_planner.denorm_odo(mu_t_last.float().cpu()).to(device)  # (B, H, 3)
+            pred_traj_l1 = torch.nn.functional.l1_loss(pred_traj_s, pred_traj_t)
+
+        # ── Diagnostic text log (rank-0, every log_interval calls) ────────────
+        if (
+            self.log_dir is not None
+            and self._call_count % self.log_interval == 0
+            and self._local_rank == 0
+            and mu_s_last is not None
+        ):
+            self._write_text_log(
+                step=self._call_count,
+                K=K,
+                ddim_t_list=ddim_t_list,
+                kl_weighted_per_step=[v.item() for v in kl_weighted_list],
+                kl_raw_per_step=[v.item() for v in kl_raw_list],
+                sigma_per_step=[v.item() for v in sigma_list],
+                mu_diff_l2_per_step=[v.item() for v in mu_diff_l2_list],
+                mu_s_last=mu_s_last,
+                mu_t_last=mu_t_last,
+                student_planner=student_planner,
+                total_loss=loss.item(),
+            )
+
+        # ── TensorBoard scalars ────────────────────────────────────────────────
+        # Per-step KL (weighted) for detailed analysis
+        per_step_kl = {
+            f"kl_step_{i}": kl_weighted_list[i] for i in range(K)
+        }
+        per_step_raw = {
+            f"kl_raw_step_{i}": kl_raw_list[i] for i in range(K)
+        }
+        per_step_sigma = {
+            f"sigma_step_{i}": sigma_list[i] for i in range(K)
+        }
 
         return BatchFeature(data={
-            "loss": loss,
-            "distill_loss": distill_loss.detach(),
-            "out_loss": out_loss.detach(),
-            "feat_loss": feat_loss.detach(),
-            "traj_loss": traj_loss.detach(),
-            "reward_mean": rewards.mean().detach(),
-            "reward_weight": scalar_w.detach(),
+            "loss":                           loss,
+            "kl_mean":                        kl_mean,
+            "distill_loss":                   kl_mean,
+            "transition_kl":                  kl_mean.detach(),
+            "step_kl_mean":                   kl_steps.mean().detach(),
+            "step_kl_max":                    kl_steps.max().detach(),
+            "step_kls":                       kl_steps.detach(),
+            "sigma_mean":                     torch.stack(sigma_list).mean(),
+            "chain_abs_max":                  chain.float().abs().max(),
+            "denoising_steps":                torch.tensor(float(K), device=device),
+            "pred_traj_l1_to_teacher":        pred_traj_l1.detach(),
+            "student_pred_traj_mean":         pred_traj_s.mean().detach(),
+            "student_pred_traj_std":          pred_traj_s.std(unbiased=False).detach(),
+            "teacher_pred_traj_mean":         pred_traj_t.mean().detach(),
+            "teacher_pred_traj_std":          pred_traj_t.std(unbiased=False).detach(),
+            "teacher_student_pred_traj_abs_mean": (pred_traj_s - pred_traj_t).abs().mean().detach(),
+            "student_pred_traj_first_point":  pred_traj_s[0, 0].detach(),
+            "teacher_pred_traj_first_point":  pred_traj_t[0, 0].detach(),
+            **per_step_kl,
+            **per_step_raw,
+            **per_step_sigma,
         })
-
-
-def _build_common_embeddings(planner, vl_features: torch.Tensor, action_input: "BatchFeature"):
-    vl_embeds = planner.feature_encoder(vl_features)
-    his_traj_features = planner.his_traj_encoder(
-        action_input.his_traj.unsqueeze(1)
-    ).repeat(1, planner.config.action_horizon, 1)
-    ego_status_features = planner.ego_status_encoder(action_input.status_feature)
-    return vl_embeds, his_traj_features, ego_status_features
-
-
-def _chainwise_dit_distill_loss(
-    student_planner,
-    teacher_planner,
-    vl_features: torch.Tensor,
-    action_input: "BatchFeature",
-    out_loss_type: str,
-    feat_layers: int,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Step-wise DiT distillation on student on-policy DDPM/DDIM denoising chain."""
-    vl_embeds_s, his_s, ego_s = _build_common_embeddings(student_planner, vl_features, action_input)
-    vl_embeds_t, his_t, ego_t = _build_common_embeddings(teacher_planner, vl_features, action_input)
-
-    B = vl_features.shape[0]
-    H = student_planner.config.action_horizon
-    D = student_planner.config.action_dim
-    device = vl_features.device
-    dtype = vl_features.dtype
-
-    current_actions = torch.randn((B, H, D), device=device, dtype=dtype)
-
-    if student_planner.config.sampling_method == "ddpm":
-        step_size = student_planner.config.ddpm_cfg.num_train_timesteps // student_planner.config.num_inference_steps
-        timesteps = list(reversed(range(0, student_planner.config.ddpm_cfg.num_train_timesteps, step_size)))
-    else:
-        timesteps = [int(t.item()) for t in student_planner.ddim_t]
-
-    out_losses = []
-    feat_losses = []
-
-    for i, t_int in enumerate(timesteps):
-        t_batch = student_planner.make_timesteps(B, t_int, device)
-        if student_planner.config.sampling_method == "ddim":
-            index_batch = student_planner.make_timesteps(B, i, device)
-        else:
-            index_batch = t_batch
-
-        # teacher/student forward on the same student x_t
-        with torch.no_grad():
-            teacher_pred, teacher_hiddens = _dit_single_step_forward(
-                teacher_planner,
-                vl_embeds_t,
-                his_t,
-                ego_t,
-                current_actions,
-                t_batch,
-                return_hidden_states=True,
-            )
-
-        student_pred, student_hiddens = _dit_single_step_forward(
-            student_planner,
-            vl_embeds_s,
-            his_s,
-            ego_s,
-            current_actions,
-            t_batch,
-            return_hidden_states=True,
-        )
-
-        if out_loss_type == "huber":
-            out_l = F.smooth_l1_loss(student_pred.float(), teacher_pred.float())
-        elif out_loss_type == "mse":
-            out_l = F.mse_loss(student_pred.float(), teacher_pred.float())
-        else:
-            raise ValueError(f"Unknown out_loss_type: {out_loss_type}")
-
-        feat_l = _feature_distill_loss(student_hiddens, teacher_hiddens, take_last_n=feat_layers)
-        out_losses.append(out_l)
-        feat_losses.append(feat_l)
-
-        # deterministic reverse update: keep gradients through mean prediction only
-        mean, _, _ = student_planner.p_mean_variance(
-            current_actions,
-            t_batch,
-            index_batch,
-            vl_embeds_s,
-            his_s,
-            ego_s,
-            deterministic=True,
-        )
-        current_actions = mean
-
-    final_action_clip_value = getattr(student_planner, "final_action_clip_value", 1.0)
-    if final_action_clip_value is not None:
-        current_actions = current_actions.clamp(-final_action_clip_value, final_action_clip_value)
-
-    pred_traj = student_planner.denorm_odo(current_actions)
-    out_loss = torch.stack(out_losses).mean() if out_losses else torch.tensor(0.0, device=device)
-    feat_loss = torch.stack(feat_losses).mean() if feat_losses else torch.tensor(0.0, device=device)
-    return out_loss, feat_loss, pred_traj
-
-
-def _single_step_dit_distill_loss(
-    student_planner,
-    teacher_planner,
-    vl_features: torch.Tensor,
-    action_input: "BatchFeature",
-    out_loss_type: str,
-    feat_layers: int,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Fallback for flow: random-t one-step distillation."""
-    gt_actions = student_planner.norm_odo(action_input.action)
-    noise = torch.randn_like(gt_actions)
-
-    t_cont = student_planner.sample_time(gt_actions.shape[0], device=gt_actions.device, dtype=gt_actions.dtype)
-    t_cont_reshaped = t_cont[:, None, None]
-    noisy_actions = (1 - t_cont_reshaped) * noise + t_cont_reshaped * gt_actions
-    t_discrete = (t_cont * student_planner.num_timestep_buckets).long()
-
-    vl_embeds_s, his_s, ego_s = _build_common_embeddings(student_planner, vl_features, action_input)
-    vl_embeds_t, his_t, ego_t = _build_common_embeddings(teacher_planner, vl_features, action_input)
-
-    with torch.no_grad():
-        teacher_pred, teacher_hiddens = _dit_single_step_forward(
-            teacher_planner, vl_embeds_t, his_t, ego_t, noisy_actions, t_discrete, return_hidden_states=True
-        )
-    student_pred, student_hiddens = _dit_single_step_forward(
-        student_planner, vl_embeds_s, his_s, ego_s, noisy_actions, t_discrete, return_hidden_states=True
-    )
-
-    if out_loss_type == "huber":
-        out_loss = F.smooth_l1_loss(student_pred.float(), teacher_pred.float())
-    elif out_loss_type == "mse":
-        out_loss = F.mse_loss(student_pred.float(), teacher_pred.float())
-    else:
-        raise ValueError(f"Unknown out_loss_type: {out_loss_type}")
-
-    feat_loss = _feature_distill_loss(student_hiddens, teacher_hiddens, take_last_n=feat_layers)
-    pred_traj = student_planner.get_action(vl_features, action_input, deterministic=True)["pred_traj"]
-    return out_loss, feat_loss, pred_traj
-
-
-def _dit_single_step_forward(
-    planner,
-    vl_embeds: torch.Tensor,
-    his_traj_features: torch.Tensor,
-    ego_status_features: torch.Tensor,
-    noisy_actions: torch.Tensor,
-    t: torch.Tensor,
-    return_hidden_states: bool = False,
-) -> Union[Tuple[torch.Tensor, Optional[List[torch.Tensor]]], torch.Tensor]:
-    action_features = planner.action_encoder(noisy_actions, t)
-    if hasattr(planner, "position_embedding"):
-        pos_ids = torch.arange(action_features.shape[1], device=noisy_actions.device)
-        action_features = action_features + planner.position_embedding(pos_ids)
-
-    vl_embeds_mean = vl_embeds.mean(1).unsqueeze(1).repeat(1, planner.config.action_horizon, 1)
-    fused_input = planner.fusion_projector(
-        torch.cat((his_traj_features, vl_embeds_mean, action_features), dim=2)
-    )
-
-    model_out = planner.model(
-        fused_input,
-        vl_embeds,
-        ego_status_features,
-        t,
-        return_hidden_states=return_hidden_states,
-    )
-    if return_hidden_states:
-        model_output, all_hidden_states = model_out
-    else:
-        model_output = model_out
-        all_hidden_states = None
-
-    pred = planner.action_decoder(model_output)
-    if planner.config.sampling_method == "flow" and planner.config.flow_cfg.mean_variance_net:
-        pred = pred.chunk(2, dim=-1)[0]
-
-    if return_hidden_states:
-        return pred, all_hidden_states
-    return pred
-
-
-def _feature_distill_loss(
-    student_hiddens: List[torch.Tensor],
-    teacher_hiddens: List[torch.Tensor],
-    take_last_n: int = 6,
-) -> torch.Tensor:
-    if not student_hiddens or not teacher_hiddens:
-        if student_hiddens:
-            return torch.zeros((), device=student_hiddens[0].device, dtype=torch.float32)
-        if teacher_hiddens:
-            return torch.zeros((), device=teacher_hiddens[0].device, dtype=torch.float32)
-        return torch.tensor(0.0, dtype=torch.float32)
-
-    n = max(1, min(take_last_n, len(student_hiddens), len(teacher_hiddens)))
-    s_list = student_hiddens[-n:]
-    t_list = teacher_hiddens[-n:]
-
-    losses = []
-    for s_h, t_h in zip(s_list, t_list):
-        s_n = F.layer_norm(s_h.float(), s_h.shape[-1:])
-        t_n = F.layer_norm(t_h.float(), t_h.shape[-1:])
-        losses.append(F.mse_loss(s_n, t_n))
-
-    return torch.stack(losses).mean() if losses else torch.tensor(0.0, device=s_list[0].device)

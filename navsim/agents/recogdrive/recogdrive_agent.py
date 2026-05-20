@@ -25,7 +25,6 @@ from .recogdrive_diffusion_planner import (
 )
 from .recogdrive_opd_trainer import ReCogDriveOPDTrainer
 from .recogdrive_dit_distill_trainer import ReCogDriveDiTDistillTrainer
-from .recogdrive_dit_opd_trainer import ReCogDriveDiTOPDTrainer
 
 
 def _resolve_checkpoint_path(path_like: Optional[str]) -> str:
@@ -128,22 +127,14 @@ class ReCogDriveAgent(AbstractAgent):
         opd_topk: int = 32,
         opd_group_size: int = 8,
         opd_max_new_tokens: int = 256,
-        # ── DiT distillation ──────────────────────────────────────────────────
+        # ── DiT distillation (Flow-OPD KL) ────────────────────────────────────
         dit_distill: bool = False,
         teacher_dit_checkpoint: Optional[str] = None,
-        dit_distill_reward_weight_mode: str = 'normalize',
-        dit_distill_use_reward_weighting: bool = True,
-        dit_distill_lambda_out: float = 1.0,
-        dit_distill_lambda_feat: float = 0.2,
-        dit_distill_lambda_traj: float = 0.1,
-        dit_distill_feat_layers: int = 6,
-        dit_distill_out_loss_type: str = 'huber',
-        # ── DiT continuous OPD / transition-KL distillation ───────────────────
-        dit_opd: bool = False,
-        dit_opd_sample_time: int = 1,
-        dit_opd_min_kl_variance: float = 1e-4,
-        dit_opd_max_kl_per_step: float = 100.0,
-        dit_opd_rollout_deterministic: bool = False,
+        dit_distill_eps_clip: float = 0.2,            # unused, kept for config compat
+        dit_distill_min_sigma: float = 0.04,
+        dit_distill_normalize_advantage: bool = True, # unused, kept for config compat
+        dit_distill_log_dir: str = "",
+        dit_distill_log_interval: int = 50,
     ):
         super().__init__()
         self._trajectory_sampling = trajectory_sampling
@@ -159,9 +150,6 @@ class ReCogDriveAgent(AbstractAgent):
         self.opd_max_new_tokens = opd_max_new_tokens
         self.opd_group_size = opd_group_size
         self.dit_distill = dit_distill
-        self.dit_opd = dit_opd
-        if self.dit_distill and self.dit_opd:
-            raise ValueError("dit_distill and dit_opd are mutually exclusive; choose one DiT teacher-student mode.")
         self.teacher_dit_checkpoint = teacher_dit_checkpoint
         self.backbone = None
         self.metric_cache_path = metric_cache_path
@@ -235,13 +223,12 @@ class ReCogDriveAgent(AbstractAgent):
         if opd:
             self.opd_trainer = ReCogDriveOPDTrainer(topk=opd_topk)
 
-        # ── DiT distillation: teacher DiT (frozen) + distill trainer ──────────
+        # ── DiT distillation: teacher DiT (frozen) + Flow-OPD KL trainer ────────
         self.teacher_action_head = None
         self.dit_distill_trainer = None
-        self.dit_opd_trainer = None
-        if dit_distill or dit_opd:
+        if dit_distill:
             if not teacher_dit_checkpoint:
-                raise ValueError("teacher_dit_checkpoint is required for dit_distill/dit_opd mode.")
+                raise ValueError("teacher_dit_checkpoint is required for dit_distill mode.")
             # Build teacher DiT with same architecture as student
             teacher_cfg = make_recogdrive_config(
                 self.dit_type, action_dim=3, action_horizon=8,
@@ -257,9 +244,8 @@ class ReCogDriveAgent(AbstractAgent):
                 load_kw["weights_only"] = False
             teacher_ckpt_path = _resolve_checkpoint_path(teacher_dit_checkpoint)
             teacher_ckpt = torch.load(teacher_ckpt_path, **load_kw)
-            print(f"[{'DiT-OPD' if self.dit_opd else 'DiT distill'}] Loading teacher checkpoint: {teacher_ckpt_path}")
+            print(f"[DiT distill] Loading teacher checkpoint: {teacher_ckpt_path}")
             state = teacher_ckpt.get("state_dict", teacher_ckpt)
-            # strip "agent.action_head." prefix if present
             stripped = {}
             for k, v in state.items():
                 if k.startswith("agent.action_head."):
@@ -269,8 +255,7 @@ class ReCogDriveAgent(AbstractAgent):
                 else:
                     stripped[k] = v
             missing, unexpected = self.teacher_action_head.load_state_dict(stripped, strict=False)
-            mode_name = "DiT-OPD" if self.dit_opd else "DiT distill"
-            print(f"[{mode_name}] Teacher loaded. Missing: {len(missing)}, Unexpected: {len(unexpected)}")
+            print(f"[DiT distill] Teacher loaded. Missing: {len(missing)}, Unexpected: {len(unexpected)}")
             for p in self.teacher_action_head.parameters():
                 p.requires_grad = False
             self.teacher_action_head.eval()
@@ -279,24 +264,13 @@ class ReCogDriveAgent(AbstractAgent):
             for p in self.action_head.parameters():
                 p.requires_grad = True
 
-            if self.dit_opd:
-                self.dit_opd_trainer = ReCogDriveDiTOPDTrainer(
-                    sample_time=dit_opd_sample_time,
-                    min_kl_variance=dit_opd_min_kl_variance,
-                    max_kl_per_step=dit_opd_max_kl_per_step,
-                    rollout_deterministic=dit_opd_rollout_deterministic,
-                )
-            else:
-                self.dit_distill_trainer = ReCogDriveDiTDistillTrainer(
-                    metric_cache_path=metric_cache_path,
-                    reward_weight_mode=dit_distill_reward_weight_mode,
-                    use_reward_weighting=dit_distill_use_reward_weighting,
-                    lambda_out=dit_distill_lambda_out,
-                    lambda_feat=dit_distill_lambda_feat,
-                    lambda_traj=dit_distill_lambda_traj,
-                    feat_layers=dit_distill_feat_layers,
-                    out_loss_type=dit_distill_out_loss_type,
-                )
+            self.dit_distill_trainer = ReCogDriveDiTDistillTrainer(
+                eps_clip=dit_distill_eps_clip,
+                min_sigma=dit_distill_min_sigma,
+                normalize_advantage=dit_distill_normalize_advantage,
+                log_dir=dit_distill_log_dir if dit_distill_log_dir else None,
+                log_interval=dit_distill_log_interval,
+            )
 
     def name(self) -> str:
         return self.__class__.__name__
@@ -458,14 +432,13 @@ class ReCogDriveAgent(AbstractAgent):
         history_trajectory_reshaped = history_trajectory.view(history_trajectory.size(0), -1)
         input_state = torch.cat([status_feature, history_trajectory_reshaped], dim=1)
 
-        if self.training and not self.grpo and not self.dit_distill and not self.dit_opd:
+        if self.training and not self.grpo and not self.dit_distill:
             action_inputs = BatchFeature(data={"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype), "action": targets["trajectory"].to(model_dtype)})
             return self.action_head(last_hidden_state, action_inputs)
         elif self.training and self.grpo:
             action_inputs = BatchFeature(data={"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype), "action": targets["trajectory"].to(model_dtype)})
             return self.action_head.forward_grpo(last_hidden_state, action_inputs, tokens_list)
         elif self.training and self.dit_distill:
-            # DiT distillation: student and teacher share the same vl_features
             action_inputs = BatchFeature(data={
                 "state": input_state.to(model_dtype),
                 "his_traj": history_trajectory_reshaped.to(model_dtype),
@@ -477,24 +450,8 @@ class ReCogDriveAgent(AbstractAgent):
                 teacher_planner=self.teacher_action_head,
                 vl_features=last_hidden_state,
                 action_input=action_inputs,
-                tokens_list=list(tokens_list),
             )
-        elif self.training and self.dit_opd:
-            # Pure continuous DiT-OPD: same cached VLM hidden state, frozen RL teacher DiT,
-            # trainable IL student DiT, diffusion reverse-transition KL on student chain.
-            action_inputs = BatchFeature(data={
-                "state": input_state.to(model_dtype),
-                "his_traj": history_trajectory_reshaped.to(model_dtype),
-                "status_feature": status_feature.to(model_dtype),
-                "action": targets["trajectory"].to(model_dtype),
-            })
-            return self.dit_opd_trainer.compute_loss(
-                student_planner=self.action_head,
-                teacher_planner=self.teacher_action_head,
-                vl_features=last_hidden_state,
-                action_input=action_inputs,
-            )
-        else: 
+        else:
             action_inputs = BatchFeature({"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype)})
             return self.action_head.get_action(last_hidden_state.to(model_dtype), action_inputs)
     def compute_trajectory(self, agent_input: AgentInput) -> Trajectory:
@@ -640,8 +597,6 @@ class ReCogDriveAgent(AbstractAgent):
             return predictions  # BatchFeature returned directly from forward_opd
         elif self.training and self.dit_distill:
             return predictions  # BatchFeature returned directly from dit_distill_trainer
-        elif self.training and self.dit_opd:
-            return predictions  # BatchFeature returned directly from dit_opd_trainer
         elif self.training:
             return predictions.loss
         else:
@@ -659,8 +614,7 @@ class ReCogDriveAgent(AbstractAgent):
         if self.opd:
             assert self.backbone is not None
             params = [p for p in self.backbone.parameters() if p.requires_grad]
-        elif self.dit_distill or self.dit_opd:
-            # only student DiT/action planner is trainable
+        elif self.dit_distill:
             params = [p for p in self.action_head.parameters() if p.requires_grad]
         else:
             params = list(self.action_head.parameters())

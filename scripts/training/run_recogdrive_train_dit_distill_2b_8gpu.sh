@@ -30,6 +30,7 @@ CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/tra
 TEACHER_CKPT="${TEACHER_CKPT:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recogdrive_dit_opd_claude_8gpu_v3}"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
+LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_recogdrive_dit_opd_claude_8gpu_v3}"
 
 echo "[8gpu] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
 echo "[8gpu] NAVSIM_DEVKIT_ROOT=${NAVSIM_DEVKIT_ROOT}"
@@ -51,6 +52,8 @@ echo "[8gpu] CHECKPOINT=${CHECKPOINT}"
   agent.dit_distill_eps_clip=0.2 \
   agent.dit_distill_min_sigma=0.04 \
   agent.dit_distill_normalize_advantage=True \
+  "agent.dit_distill_log_dir='${LOG_ROOT}'" \
+  agent.dit_distill_log_interval=50 \
   agent.vlm_type='internvl' \
   agent.dit_type='small' \
   agent.vlm_size='small' \
@@ -63,6 +66,7 @@ echo "[8gpu] CHECKPOINT=${CHECKPOINT}"
   trainer.params.devices="${GPUS}" \
   dataloader.params.batch_size=8 \
   logger.type=tensorboard \
+  "logger.save_dir='${LOG_ROOT}/tensorboard'" \
   experiment_name="${EXPERIMENT_NAME}" \
   train_test_split="${TRAIN_TEST_SPLIT}" \
   cache_path="${CACHE_PATH}" \
