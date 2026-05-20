@@ -214,12 +214,13 @@ def main(cfg: DictConfig) -> None:
     world_size = int(os.getenv('WORLD_SIZE', 1))
     rank = int(os.getenv('RANK', 0))
 
+    torch.cuda.set_device(local_rank)
     dist.init_process_group(
         backend='nccl',
         world_size=world_size,
         rank=rank,
+        device_id=torch.device(f'cuda:{local_rank}'),
     )
-    torch.cuda.set_device(local_rank)
     pl.seed_everything(cfg.seed, workers=True)
     logger.info(f"Global Seed set to {cfg.seed}")
 
