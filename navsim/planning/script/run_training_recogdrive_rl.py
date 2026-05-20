@@ -119,14 +119,6 @@ def build_pl_logger(cfg: DictConfig):
     if logger_type in {"none", "false", "off"}:
         return False
 
-    if logger_type == "tensorboard":
-        import os
-        from pytorch_lightning.loggers import TensorBoardLogger
-        save_dir = "/workspace/output/tensorboard"
-        os.makedirs(save_dir, exist_ok=True)
-        experiment_name = cfg.get("experiment_name", "training")
-        return TensorBoardLogger(save_dir=save_dir, name=experiment_name, version="")
-
     if logger_type == "swanlab":
         try:
             from swanlab.integration.pytorch_lightning import SwanLabLogger
@@ -145,7 +137,7 @@ def build_pl_logger(cfg: DictConfig):
             kwargs["description"] = logger_cfg.description
         return SwanLabLogger(**kwargs)
 
-    raise ValueError(f"Unsupported logger.type={logger_type}. Use 'none', 'tensorboard', or 'swanlab'.")
+    raise ValueError(f"Unsupported logger.type={logger_type}. Use 'none' or 'swanlab'.")
 
 
 def build_datasets(cfg: DictConfig, agent: AbstractAgent) -> Tuple[Dataset, Dataset]:
@@ -253,6 +245,9 @@ def main(cfg: DictConfig) -> None:
     lightning_module = AgentLightningDiT(
         agent=agent,
     )
+    # DiT-OPD debug log config: write JSONL summaries every N steps.
+    lightning_module.debug_log_root = str(Path(cfg.output_dir).expanduser())
+    lightning_module.debug_log_interval = int(cfg.get("dit_opd_debug_log_interval", 50))
 
     if cfg.use_cache_without_dataset:
         logger.info("Using cached data without building SceneLoader")

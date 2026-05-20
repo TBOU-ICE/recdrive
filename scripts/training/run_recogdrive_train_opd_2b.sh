@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
-# DiT OPD (On-Policy Distillation) training:
-#   student DiT  ← 2B IL checkpoint (trainable)
-#   teacher DiT  ← 2B RL checkpoint (frozen)
-#   VLM          ← not loaded; uses pre-cached hidden states
-#
-# Method: per-step denoising-transition KL between student and teacher DiT,
-#         optimised with PPO-clip policy gradient (no PDM reward needed).
+# OPD training: Teacher-TopK Local Support Matching (arXiv:2603.25562)
+# Loss = KL(π̂_student_2b || q̂_teacher_8b) averaged over G=8 rollouts × T valid tokens
 
 export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/code}"
+export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/recdrive-opd-vlm}"
+export PRETRAIN_META_JSON="${PRETRAIN_META_JSON:-${NAVSIM_DEVKIT_ROOT}/internvl_chat/shell/data_info/recogdrive_pretrain.json}"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
+# SwanLab online logging (required)
+# export SWANLAB_API_KEY="<your_swanlab_api_key>"
 
 TRAIN_TEST_SPLIT=navtrain
 export NCCL_IB_DISABLE=0
@@ -29,6 +27,13 @@ GPUS="${GPUS:-8}"
 
 echo "GPUS: ${GPUS}  NNODES: ${NNODES}  RANK: ${RANK}  MASTER_ADDR: ${MASTER_ADDR}  NAVSIM_DEVKIT_ROOT: ${NAVSIM_DEVKIT_ROOT}"
 
+if [ -z "${SWANLAB_API_KEY:-}" ]; then
+  echo "[ERROR] SWANLAB_API_KEY is not set. Export it before running training."
+  exit 1
+fi
+
+echo "PRETRAIN_META_JSON=${PRETRAIN_META_JSON} (Navsim+Navsim_QA log list; rebuild cache if logs missing)"
+
 /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
     --nnodes=${NNODES} \
     --node_rank=${RANK} \
@@ -36,30 +41,35 @@ echo "GPUS: ${GPUS}  NNODES: ${NNODES}  RANK: ${RANK}  MASTER_ADDR: ${MASTER_ADD
     --nproc_per_node=${GPUS} \
     --master_port=${MASTER_PORT} \
     $NAVSIM_DEVKIT_ROOT/navsim/planning/script/run_training_recogdrive_rl.py \
-    agent=recogdrive_agent_dit_distill \
-    agent.lr=1e-4 \
-    agent.dit_distill=True \
-    agent.cache_hidden_state=True \
-    "agent.checkpoint_path='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=0-step=665.ckpt'" \
-    agent.teacher_dit_checkpoint='/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt' \
-    agent.dit_distill_eps_clip=0.2 \
-    agent.dit_distill_min_sigma=0.04 \
-    agent.dit_distill_normalize_advantage=True \
+    agent=recogdrive_agent_opd \
+    agent.lr=2e-6 \
+    agent.opd=True \
+    agent.cache_hidden_state=False \
+    agent.vlm_path='/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B' \
+    agent.teacher_vlm_path='/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-8B' \
+    agent.checkpoint_path='/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt' \
+    agent.opd_topk=32 \
+    agent.opd_group_size=4 \
+    agent.opd_max_new_tokens=512 \
+    pretrain_meta_json="${PRETRAIN_META_JSON}" \
     agent.vlm_type='internvl' \
     agent.dit_type='small' \
     agent.vlm_size='small' \
     agent.sampling_method='ddim' \
     agent.grpo=False \
-    agent.opd=False \
-    trainer.params.max_epochs=10 \
+    trainer.params.max_epochs=20 \
     trainer.params.precision=bf16-true \
     trainer.params.num_nodes=${NNODES} \
     trainer.params.devices=${GPUS} \
-    dataloader.params.batch_size=8 \
-    experiment_name=training_recogdrive_dit_opd_claude \
+    trainer.params.val_check_interval=1000 \
+    dataloader.params.batch_size=1 \
+    experiment_name=training_recogdrive_8b_teacher_opd_2b \
     train_test_split=$TRAIN_TEST_SPLIT \
-    cache_path="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train" \
+    cache_path="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_opd" \
     use_cache_without_dataset=True \
     force_cache_computation=False \
     hydra/job_logging=stdout \
-    hydra.output_subdir=null
+    hydra.output_subdir=null \
+    logger.type=swanlab \
+    logger.project=recdrive \
+    logger.experiment_name=training_recogdrive_8b_teacher_opd_2b

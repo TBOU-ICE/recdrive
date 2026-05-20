@@ -24,7 +24,84 @@ from .recogdrive_diffusion_planner import (
     ReCogDriveDiffusionPlannerConfig,
 )
 from .recogdrive_opd_trainer import ReCogDriveOPDTrainer
-from .recogdrive_dit_distill_trainer import ReCogDriveDiTOPDTrainer
+from .recogdrive_dit_distill_trainer import ReCogDriveDiTDistillTrainer
+from .recogdrive_dit_opd_trainer import ReCogDriveDiTOPDTrainer
+
+
+def _resolve_checkpoint_path(path_like: Optional[str]) -> str:
+    """Resolve either a checkpoint file or a directory containing a .ckpt file."""
+    if not path_like:
+        return ""
+    path = os.path.expanduser(str(path_like))
+    if os.path.isfile(path):
+        return path
+    if os.path.isdir(path):
+        candidates = []
+        preferred_names = (
+            "ReCogDrive_Diffusion_Planner_2B_RL.ckpt",
+            "ReCogDrive_Diffusion_Planner_2B_IL.ckpt",
+            "last.ckpt",
+        )
+        for name in preferred_names:
+            p = os.path.join(path, name)
+            if os.path.isfile(p):
+                return p
+        for root, _, files in os.walk(path):
+            for fn in files:
+                if fn.endswith(".ckpt"):
+                    candidates.append(os.path.join(root, fn))
+        if candidates:
+            candidates = sorted(candidates)
+            diffusion = [c for c in candidates if "Diffusion_Planner" in os.path.basename(c)]
+            return diffusion[0] if diffusion else candidates[0]
+    return path
+
+
+def _candidate_state_keys(key: str) -> List[str]:
+    """Return likely module keys for full-agent and standalone action-head checkpoints."""
+    candidates = []
+    raw = key
+    if raw.startswith("module."):
+        raw = raw[len("module."):]
+    candidates.append(raw)
+    if raw.startswith("agent."):
+        candidates.append(raw[len("agent."):])
+    # Standalone DiT planner checkpoints often store raw keys such as
+    # ``model.*``/``feature_encoder.*``.  Inside ReCogDriveAgent the same
+    # parameters live under ``action_head.*``.
+    expanded = []
+    for k in candidates:
+        expanded.append(k)
+        if not k.startswith("action_head."):
+            expanded.append("action_head." + k)
+    # Deduplicate while preserving order.
+    out = []
+    seen = set()
+    for k in expanded:
+        if k not in seen:
+            out.append(k)
+            seen.add(k)
+    return out
+
+
+def _filter_checkpoint_for_agent(state: Dict[str, torch.Tensor], model_state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    """Load either a full ReCogDriveAgent checkpoint or a standalone DiT planner checkpoint.
+
+    The public ReCogDrive DiT files are commonly named
+    ``ReCogDrive_Diffusion_Planner_*.ckpt`` and may contain raw action-head
+    keys.  OPD checkpoints saved by Lightning instead contain
+    ``agent.action_head.*`` keys.  This helper accepts both formats and avoids
+    accidentally overwriting frozen teacher modules.
+    """
+    filtered = {}
+    for k, v in state.items():
+        for cand in _candidate_state_keys(k):
+            if cand.startswith("teacher_backbone.") or cand.startswith("teacher_action_head."):
+                continue
+            if cand in model_state and hasattr(v, "shape") and v.shape == model_state[cand].shape:
+                filtered[cand] = v
+                break
+    return filtered
 
 
 class ReCogDriveAgent(AbstractAgent):
@@ -49,16 +126,24 @@ class ReCogDriveAgent(AbstractAgent):
         opd: bool = False,
         teacher_vlm_path: Optional[str] = None,
         opd_topk: int = 32,
-        # ── DiT OPD distillation ──────────────────────────────────────────────
+        opd_group_size: int = 8,
+        opd_max_new_tokens: int = 256,
+        # ── DiT distillation ──────────────────────────────────────────────────
         dit_distill: bool = False,
         teacher_dit_checkpoint: Optional[str] = None,
-        dit_distill_eps_clip: float = 0.2,
-        dit_distill_min_sigma: float = 0.04,
-        dit_distill_normalize_advantage: bool = True,
-        opd_norm_to_one: bool = True,
-        opd_reward_weight_mode: str = 'normalize',
-        opd_use_reward_weighting: bool = True,
-        opd_max_new_tokens: int = 256,
+        dit_distill_reward_weight_mode: str = 'normalize',
+        dit_distill_use_reward_weighting: bool = True,
+        dit_distill_lambda_out: float = 1.0,
+        dit_distill_lambda_feat: float = 0.2,
+        dit_distill_lambda_traj: float = 0.1,
+        dit_distill_feat_layers: int = 6,
+        dit_distill_out_loss_type: str = 'huber',
+        # ── DiT continuous OPD / transition-KL distillation ───────────────────
+        dit_opd: bool = False,
+        dit_opd_sample_time: int = 1,
+        dit_opd_min_kl_variance: float = 1e-4,
+        dit_opd_max_kl_per_step: float = 100.0,
+        dit_opd_rollout_deterministic: bool = False,
     ):
         super().__init__()
         self._trajectory_sampling = trajectory_sampling
@@ -72,7 +157,11 @@ class ReCogDriveAgent(AbstractAgent):
         self.grpo = grpo
         self.opd = opd
         self.opd_max_new_tokens = opd_max_new_tokens
+        self.opd_group_size = opd_group_size
         self.dit_distill = dit_distill
+        self.dit_opd = dit_opd
+        if self.dit_distill and self.dit_opd:
+            raise ValueError("dit_distill and dit_opd are mutually exclusive; choose one DiT teacher-student mode.")
         self.teacher_dit_checkpoint = teacher_dit_checkpoint
         self.backbone = None
         self.metric_cache_path = metric_cache_path
@@ -144,20 +233,15 @@ class ReCogDriveAgent(AbstractAgent):
         # ── OPD trainer ───────────────────────────────────────────────────────
         self.opd_trainer = None
         if opd:
-            self.opd_trainer = ReCogDriveOPDTrainer(
-                metric_cache_path=metric_cache_path,
-                topk=opd_topk,
-                norm_to_one=opd_norm_to_one,
-                reward_weight_mode=opd_reward_weight_mode,
-                use_reward_weighting=opd_use_reward_weighting,
-            )
+            self.opd_trainer = ReCogDriveOPDTrainer(topk=opd_topk)
 
         # ── DiT distillation: teacher DiT (frozen) + distill trainer ──────────
         self.teacher_action_head = None
         self.dit_distill_trainer = None
-        if dit_distill:
+        self.dit_opd_trainer = None
+        if dit_distill or dit_opd:
             if not teacher_dit_checkpoint:
-                raise ValueError("teacher_dit_checkpoint is required for dit_distill mode.")
+                raise ValueError("teacher_dit_checkpoint is required for dit_distill/dit_opd mode.")
             # Build teacher DiT with same architecture as student
             teacher_cfg = make_recogdrive_config(
                 self.dit_type, action_dim=3, action_horizon=8,
@@ -171,7 +255,9 @@ class ReCogDriveAgent(AbstractAgent):
             load_kw: Dict[str, Any] = {"map_location": "cpu"}
             if "weights_only" in inspect.signature(torch.load).parameters:
                 load_kw["weights_only"] = False
-            teacher_ckpt = torch.load(teacher_dit_checkpoint, **load_kw)
+            teacher_ckpt_path = _resolve_checkpoint_path(teacher_dit_checkpoint)
+            teacher_ckpt = torch.load(teacher_ckpt_path, **load_kw)
+            print(f"[{'DiT-OPD' if self.dit_opd else 'DiT distill'}] Loading teacher checkpoint: {teacher_ckpt_path}")
             state = teacher_ckpt.get("state_dict", teacher_ckpt)
             # strip "agent.action_head." prefix if present
             stripped = {}
@@ -183,7 +269,8 @@ class ReCogDriveAgent(AbstractAgent):
                 else:
                     stripped[k] = v
             missing, unexpected = self.teacher_action_head.load_state_dict(stripped, strict=False)
-            print(f"[DiT distill] Teacher loaded. Missing: {len(missing)}, Unexpected: {len(unexpected)}")
+            mode_name = "DiT-OPD" if self.dit_opd else "DiT distill"
+            print(f"[{mode_name}] Teacher loaded. Missing: {len(missing)}, Unexpected: {len(unexpected)}")
             for p in self.teacher_action_head.parameters():
                 p.requires_grad = False
             self.teacher_action_head.eval()
@@ -192,11 +279,24 @@ class ReCogDriveAgent(AbstractAgent):
             for p in self.action_head.parameters():
                 p.requires_grad = True
 
-            self.dit_distill_trainer = ReCogDriveDiTOPDTrainer(
-                eps_clip=dit_distill_eps_clip,
-                min_sigma=dit_distill_min_sigma,
-                normalize_advantage=dit_distill_normalize_advantage,
-            )
+            if self.dit_opd:
+                self.dit_opd_trainer = ReCogDriveDiTOPDTrainer(
+                    sample_time=dit_opd_sample_time,
+                    min_kl_variance=dit_opd_min_kl_variance,
+                    max_kl_per_step=dit_opd_max_kl_per_step,
+                    rollout_deterministic=dit_opd_rollout_deterministic,
+                )
+            else:
+                self.dit_distill_trainer = ReCogDriveDiTDistillTrainer(
+                    metric_cache_path=metric_cache_path,
+                    reward_weight_mode=dit_distill_reward_weight_mode,
+                    use_reward_weighting=dit_distill_use_reward_weighting,
+                    lambda_out=dit_distill_lambda_out,
+                    lambda_feat=dit_distill_lambda_feat,
+                    lambda_traj=dit_distill_lambda_traj,
+                    feat_layers=dit_distill_feat_layers,
+                    out_loss_type=dit_distill_out_loss_type,
+                )
 
     def name(self) -> str:
         return self.__class__.__name__
@@ -206,14 +306,24 @@ class ReCogDriveAgent(AbstractAgent):
             load_kw: Dict[str, Any] = {"map_location": "cpu"}
             if "weights_only" in inspect.signature(torch.load).parameters:
                 load_kw["weights_only"] = False
-            ckpt = torch.load(self.checkpoint_path, **load_kw)["state_dict"]
+            ckpt_path = _resolve_checkpoint_path(self.checkpoint_path)
+            ckpt_obj = torch.load(ckpt_path, **load_kw)
+            print(f"[ReCogDriveAgent] Loading student checkpoint: {ckpt_path}")
+            ckpt = ckpt_obj.get("state_dict", ckpt_obj)
             model_dict = self.state_dict()
-            filtered_ckpt = {}
-            for k, v in ckpt.items():
-                k2 = k[len("agent."):] if k.startswith("agent.") else k
-                if k2 in model_dict and v.shape == model_dict[k2].shape:
-                    filtered_ckpt[k2] = v
-            self.load_state_dict(filtered_ckpt, strict=False)
+            filtered_ckpt = _filter_checkpoint_for_agent(ckpt, model_dict)
+            missing, unexpected = self.load_state_dict(filtered_ckpt, strict=False)
+            action_loaded = sum(1 for k in filtered_ckpt if k.startswith("action_head."))
+            print(
+                f"[ReCogDriveAgent] Loaded {len(filtered_ckpt)} tensors "
+                f"({action_loaded} action_head tensors) from student checkpoint. "
+                f"Missing after partial load: {len(missing)}, Unexpected: {len(unexpected)}"
+            )
+            if action_loaded == 0:
+                raise RuntimeError(
+                    "Student checkpoint did not load any action_head tensors. "
+                    "Check whether checkpoint_path points to the IL DiT planner or full ReCogDrive checkpoint."
+                )
 
     def get_sensor_config(self) -> SensorConfig:
         return SensorConfig.build_all_sensors(include=[0, 1, 2, 3])
@@ -286,17 +396,10 @@ class ReCogDriveAgent(AbstractAgent):
                 )
                 questions.append(f"{prompt}{output_requirements}")
 
-            status_feature = features["status_feature"].cuda()
-            if status_feature.ndim == 1:
-                status_feature = status_feature.unsqueeze(0)
-
             return self.forward_opd(
                 pixel_values=pixel_values_cat,
                 questions=questions,
                 num_patches_list=num_patches_list,
-                history_trajectory=history_trajectory,
-                status_feature=status_feature,
-                tokens_list=tokens_list,
             )
 
         # ── Non-OPD branches: need last_hidden_state ─────────────────────────
@@ -355,7 +458,7 @@ class ReCogDriveAgent(AbstractAgent):
         history_trajectory_reshaped = history_trajectory.view(history_trajectory.size(0), -1)
         input_state = torch.cat([status_feature, history_trajectory_reshaped], dim=1)
 
-        if self.training and not self.grpo and not self.dit_distill:
+        if self.training and not self.grpo and not self.dit_distill and not self.dit_opd:
             action_inputs = BatchFeature(data={"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype), "action": targets["trajectory"].to(model_dtype)})
             return self.action_head(last_hidden_state, action_inputs)
         elif self.training and self.grpo:
@@ -370,6 +473,22 @@ class ReCogDriveAgent(AbstractAgent):
                 "action": targets["trajectory"].to(model_dtype),
             })
             return self.dit_distill_trainer.compute_loss(
+                student_planner=self.action_head,
+                teacher_planner=self.teacher_action_head,
+                vl_features=last_hidden_state,
+                action_input=action_inputs,
+                tokens_list=list(tokens_list),
+            )
+        elif self.training and self.dit_opd:
+            # Pure continuous DiT-OPD: same cached VLM hidden state, frozen RL teacher DiT,
+            # trainable IL student DiT, diffusion reverse-transition KL on student chain.
+            action_inputs = BatchFeature(data={
+                "state": input_state.to(model_dtype),
+                "his_traj": history_trajectory_reshaped.to(model_dtype),
+                "status_feature": status_feature.to(model_dtype),
+                "action": targets["trajectory"].to(model_dtype),
+            })
+            return self.dit_opd_trainer.compute_loss(
                 student_planner=self.action_head,
                 teacher_planner=self.teacher_action_head,
                 vl_features=last_hidden_state,
@@ -413,45 +532,54 @@ class ReCogDriveAgent(AbstractAgent):
 
     def forward_opd(
         self,
-        pixel_values: torch.Tensor,
-        questions: List[str],
-        num_patches_list: List[int],
-        history_trajectory: torch.Tensor,
-        status_feature: torch.Tensor,
-        tokens_list: List[str],
+        pixel_values: torch.Tensor,   # (sum(num_patches), C, H, W)
+        questions: List[str],         # len = B
+        num_patches_list: List[int],  # len = B
     ):
         """
-        OPD forward pass:
-        1. Student VLM generates tokens on-policy (top-p sampling).
-        2. Both student and teacher VLM run teacher-forcing on those tokens → logits.
-        3. Compute Teacher-TopK KL loss.
-        4. DiT (frozen) converts student hidden states → trajectory → PDM score.
-        5. Return reward-weighted OPD loss.
+        Teacher-TopK Local Support Matching (arXiv:2603.25562 §3.2).
+
+        For each of B inputs, generate G=opd_group_size on-policy rollouts,
+        then compute KL(π̂_student || q̂_teacher) restricted to teacher Top-K
+        support at every response token.
         """
         assert self.opd_trainer is not None, "opd_trainer not initialized"
         assert self.teacher_backbone is not None, "teacher_backbone not initialized"
 
+        # Lightning.train() recursively flips all submodule training flags each step.
+        # Frozen components must stay in eval to disable any dropout they may have.
+        self.teacher_backbone.eval()
+        self.action_head.eval()
+
+        G = self.opd_group_size
         model_dtype = next(self.backbone.model.parameters()).dtype
-        device = pixel_values.device
 
-        # ── Step 1: Student VLM on-policy generation ──────────────────────────
-        # Reuse _build_model_inputs to avoid duplicating tokenization logic.
+        # ── Expand B inputs → B*G by repeating each sample G times ───────────
+        # pixel_values is packed (sum_patches, C, H, W); split by sample then repeat.
+        pv_chunks = list(torch.split(pixel_values, num_patches_list, dim=0))
+        pv_expanded        = torch.cat([chunk for chunk in pv_chunks for _ in range(G)], dim=0)
+        questions_expanded   = [q for q in questions   for _ in range(G)]
+        num_patches_expanded = [n for n in num_patches_list for _ in range(G)]
+
+        # ── Step 1: Build prompt embeddings and inject ViT features ───────────
         prompt_input_ids, prompt_attention_mask, _, _, _ = \
-            self.backbone._build_model_inputs(pixel_values, questions, num_patches_list)
-
-        # Generate student tokens (on-policy, top-p=0.9)
-        with torch.no_grad():
-            vit_embeds = self.backbone.model.extract_feature(pixel_values.to(model_dtype))
-            input_embeds = self.backbone.model.language_model.get_input_embeddings()(prompt_input_ids)
-            B, N, C = input_embeds.shape
-            input_embeds_flat = input_embeds.reshape(B * N, C)
-            ids_flat = prompt_input_ids.reshape(B * N)
-            selected = (ids_flat == self.backbone.img_context_token_id)
-            input_embeds_flat[selected] = vit_embeds.reshape(-1, C).to(
-                device=input_embeds_flat.device, dtype=input_embeds_flat.dtype
+            self.backbone._build_model_inputs(
+                pv_expanded, questions_expanded, num_patches_expanded
             )
-            input_embeds = input_embeds_flat.reshape(B, N, C)
 
+        with torch.no_grad():
+            vit_embeds = self.backbone.model.extract_feature(pv_expanded.to(model_dtype))
+            input_embeds = self.backbone.model.language_model.get_input_embeddings()(prompt_input_ids)
+            BG, N, C = input_embeds.shape
+            embeds_flat = input_embeds.reshape(BG * N, C)
+            ids_flat    = prompt_input_ids.reshape(BG * N)
+            selected    = (ids_flat == self.backbone.img_context_token_id)
+            embeds_flat[selected] = vit_embeds.reshape(-1, C).to(
+                device=embeds_flat.device, dtype=embeds_flat.dtype
+            )
+            input_embeds = embeds_flat.reshape(BG, N, C)
+
+            # ── Step 2: On-policy generation (top-p=0.9, temp=1.0) ────────────
             generated_ids = self.backbone.model.language_model.generate(
                 inputs_embeds=input_embeds,
                 attention_mask=prompt_attention_mask,
@@ -461,56 +589,49 @@ class ReCogDriveAgent(AbstractAgent):
                 temperature=1.0,
                 pad_token_id=self.backbone.tokenizer.pad_token_id,
                 eos_token_id=self.backbone.tokenizer.eos_token_id,
-            )  # (B, T_gen)
+            )  # (B*G, T_gen)
 
-        # ── Step 2: Student logits (teacher-forcing on generated tokens) ───────
-        # output also contains hidden_states, reused in Step 4 to avoid a 3rd VLM forward
-        student_output, student_logits, response_mask = self.backbone.forward_with_logits(
-            pixel_values=pixel_values,
-            questions=questions,
-            num_patches_list=num_patches_list,
+            sample_response_text = ""
+            decode_sample = bool(getattr(self, "_opd_decode_sample_this_step", False))
+            if decode_sample and generated_ids.numel() > 0:
+                prompt_len = prompt_input_ids.shape[1]
+                completion_ids = generated_ids[0]
+                if generated_ids.shape[1] >= prompt_len and torch.equal(
+                    generated_ids[0, :prompt_len], prompt_input_ids[0]
+                ):
+                    completion_ids = generated_ids[0, prompt_len:]
+                sample_response_text = self.backbone.tokenizer.decode(
+                    completion_ids,
+                    skip_special_tokens=True,
+                ).replace("\n", " ").strip()
+                if len(sample_response_text) > 300:
+                    sample_response_text = sample_response_text[:300] + " ..."
+
+        # ── Step 3: Student teacher-forcing → logits with gradients ──────────
+        _, student_logits, response_mask = self.backbone.forward_with_logits(
+            pixel_values=pv_expanded,
+            questions=questions_expanded,
+            num_patches_list=num_patches_expanded,
             generated_input_ids=generated_ids,
-        )  # student_logits: (B, T_gen, V)
-        # Detach hidden_states immediately to free the (2800+T_gen) activation graph;
-        # only student_logits needs gradients for the KL loss.
-        student_hidden = student_output.hidden_states[-1].detach()
+        )  # student_logits: (B*G, T_gen, V)
 
-        # ── Step 3: Teacher logits (frozen, same generated tokens) ────────────
+        # ── Step 4: Teacher teacher-forcing → logits (frozen) ─────────────────
         with torch.no_grad():
             _, teacher_logits, _ = self.teacher_backbone.forward_with_logits(
-                pixel_values=pixel_values,
-                questions=questions,
-                num_patches_list=num_patches_list,
+                pixel_values=pv_expanded,
+                questions=questions_expanded,
+                num_patches_list=num_patches_expanded,
                 generated_input_ids=generated_ids,
-            )  # teacher_logits: (B, T_gen, V)
+            )  # teacher_logits: (B*G, T_gen, V)
 
-        # ── Step 4: DiT trajectory (frozen, uses student hidden states from Step 2) ───────
-        # Reuse student_hidden (already detached) — no extra VLM forward needed.
-        # prompt_len is derived dynamically from generated_ids offset so it stays
-        # correct if _build_model_inputs max_length ever changes.
-        with torch.no_grad():
-            prompt_len = student_hidden.size(1) - generated_ids.size(1)
-            last_hidden_state = student_hidden[:, :prompt_len, :].to(model_dtype)
-
-            history_trajectory_reshaped = history_trajectory.view(history_trajectory.size(0), -1)
-            input_state = torch.cat([status_feature, history_trajectory_reshaped], dim=1)
-            action_inputs = BatchFeature(data={
-                "state": input_state.to(model_dtype),
-                "his_traj": history_trajectory_reshaped.to(model_dtype),
-                "status_feature": status_feature.to(model_dtype),
-            })
-            traj_output = self.action_head.get_action(last_hidden_state, action_inputs)
-            pred_traj = traj_output["pred_traj"]  # (B, H, 3) denormalized
-
-        # ── Step 5: Reward-weighted OPD loss ──────────────────────────────────
-        result = self.opd_trainer.compute_loss(
+        # ── Step 5: Teacher-TopK LSM KL loss ──────────────────────────────────
+        out = self.opd_trainer.compute_loss(
             student_logits=student_logits.float(),
             teacher_logits=teacher_logits.float(),
             response_mask=response_mask.float(),
-            pred_traj=pred_traj,
-            tokens_list=list(tokens_list),
         )
-        return result
+        out["sample_response_text"] = sample_response_text
+        return out
 
     def compute_loss(self, features: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor], predictions: Dict[str, torch.Tensor]) -> torch.Tensor:
         if self.training and self.grpo:
@@ -519,6 +640,8 @@ class ReCogDriveAgent(AbstractAgent):
             return predictions  # BatchFeature returned directly from forward_opd
         elif self.training and self.dit_distill:
             return predictions  # BatchFeature returned directly from dit_distill_trainer
+        elif self.training and self.dit_opd:
+            return predictions  # BatchFeature returned directly from dit_opd_trainer
         elif self.training:
             return predictions.loss
         else:
@@ -536,8 +659,8 @@ class ReCogDriveAgent(AbstractAgent):
         if self.opd:
             assert self.backbone is not None
             params = [p for p in self.backbone.parameters() if p.requires_grad]
-        elif self.dit_distill:
-            # only student DiT is trainable
+        elif self.dit_distill or self.dit_opd:
+            # only student DiT/action planner is trainable
             params = [p for p in self.action_head.parameters() if p.requires_grad]
         else:
             params = list(self.action_head.parameters())
@@ -548,6 +671,9 @@ class ReCogDriveAgent(AbstractAgent):
         
         if self.grpo:
             scheduler = WarmupCosLR(optimizer=optimizer, lr=self._lr, min_lr=0.0, epochs=10, warmup_epochs=0)
+        elif self.opd:
+            # OPD training: cosine decay over 20 epochs with 1-epoch warmup.
+            scheduler = WarmupCosLR(optimizer=optimizer, lr=self._lr, min_lr=1e-7, epochs=20, warmup_epochs=1)
         else:
             scheduler = WarmupCosLR(optimizer=optimizer, lr=self._lr, min_lr=1e-6, epochs=200, warmup_epochs=3)
             

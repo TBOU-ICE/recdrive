@@ -35,7 +35,7 @@ torchrun \
     agent.grpo=True \
     agent.cache_hidden_state=True \
     agent.vlm_type="internvl" \
-    "agent.checkpoint_path='$CHECKPOINT'" \
+    agent.checkpoint_path="'$CHECKPOINT'" \
     agent.dit_type="small" \
     agent.vlm_size="large" \
     agent.sampling_method="ddim" \

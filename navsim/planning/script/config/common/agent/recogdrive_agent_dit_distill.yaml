@@ -16,23 +16,27 @@ sampling_method: 'ddim'
 cache_mode: False
 cache_hidden_state: True   # use pre-cached hidden states, no VLM needed
 
-# Student DiT: initialized from IL checkpoint (epoch=2 for better logvar calibration)
-checkpoint_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt'
+# Student DiT: initialized from 2B IL checkpoint
+checkpoint_path: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
 
-# DiT OPD distillation mode
+# DiT distillation mode
 dit_distill: True
 # Teacher DiT: 2B RL checkpoint (frozen)
-teacher_dit_checkpoint: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+teacher_dit_checkpoint: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+dit_distill_reward_weight_mode: 'normalize'
+dit_distill_use_reward_weighting: True
+dit_distill_lambda_out: 1.0
+dit_distill_lambda_feat: 0.2
+dit_distill_lambda_traj: 0.1
+dit_distill_feat_layers: 6
+dit_distill_out_loss_type: 'huber'
 
-# OPD hyperparameters
-dit_distill_eps_clip: 0.2
-dit_distill_min_sigma: 0.04
-dit_distill_normalize_advantage: True
+# PDM metric cache for reward weighting
+metric_cache_path: '/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache_train'
 
 # Disable other modes
 grpo: False
 opd: False
 train_backbone: False
-metric_cache_path: ''
 reference_policy_checkpoint: ''
 lr: 1e-4
