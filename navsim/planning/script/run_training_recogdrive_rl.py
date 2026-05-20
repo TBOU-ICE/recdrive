@@ -120,10 +120,12 @@ def build_pl_logger(cfg: DictConfig):
         return False
 
     if logger_type == "tensorboard":
+        import os
         from pytorch_lightning.loggers import TensorBoardLogger
-        save_dir = str(cfg.get("output_dir", cfg.get("navsim_exp_root", ".")))
+        save_dir = "/workspace/output/tensorboard"
+        os.makedirs(save_dir, exist_ok=True)
         experiment_name = cfg.get("experiment_name", "training")
-        return TensorBoardLogger(save_dir=save_dir, name=experiment_name, version="tensorboard")
+        return TensorBoardLogger(save_dir=save_dir, name=experiment_name, version="")
 
     if logger_type == "swanlab":
         try:
