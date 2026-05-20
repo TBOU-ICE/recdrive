@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 8-GPU DiT distillation training (2B)
-# student DiT: trainable, initialized from IL checkpoint
+# student DiT: trainable, initialized from IL checkpoint (epoch=2 for better logvar calibration)
 # teacher DiT: frozen, from RL checkpoint
 set -euo pipefail
 
@@ -25,9 +25,10 @@ export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS="${GPUS:-8}"
 
-CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=0-step=665.ckpt}"
+# epoch=2 checkpoint: more IL training → better logvar calibration → stable distillation start
+CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
 TEACHER_CKPT="${TEACHER_CKPT:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recogdrive_dit_opd_claude_8gpu}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recogdrive_dit_opd_claude_8gpu_v2}"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
 
 echo "[8gpu] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
@@ -56,11 +57,12 @@ echo "[8gpu] CHECKPOINT=${CHECKPOINT}"
   agent.sampling_method='ddim' \
   agent.grpo=False \
   agent.opd=False \
-  trainer.params.max_epochs=10 \
-  trainer.params.precision=bf16-true \
+  trainer.params.max_epochs=200 \
+  trainer.params.precision=bf16-mixed \
   trainer.params.num_nodes="${NNODES}" \
   trainer.params.devices="${GPUS}" \
   dataloader.params.batch_size=8 \
+  logger.type=tensorboard \
   experiment_name="${EXPERIMENT_NAME}" \
   train_test_split="${TRAIN_TEST_SPLIT}" \
   cache_path="${CACHE_PATH}" \

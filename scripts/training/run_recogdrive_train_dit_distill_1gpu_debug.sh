@@ -72,7 +72,7 @@ fi
   agent.dit_distill=True \
   agent.cache_hidden_state=True \
   agent.lr=5e-5 \
-  "agent.checkpoint_path='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=0-step=665.ckpt'" \
+  "agent.checkpoint_path='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt'" \
   agent.teacher_dit_checkpoint='/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt' \
   agent.dit_distill_eps_clip=0.2 \
   agent.dit_distill_min_sigma=0.04 \
@@ -84,11 +84,12 @@ fi
   agent.grpo=False \
   agent.opd=False \
   trainer.params.max_epochs=3 \
-  trainer.params.precision=bf16-true \
+  trainer.params.precision=bf16-mixed \
   trainer.params.num_nodes=1 \
   trainer.params.devices=1 \
   dataloader.params.batch_size=2 \
   dataloader.params.num_workers=2 \
+  logger.type=tensorboard \
   experiment_name=training_recogdrive_dit_opd_1gpu_debug \
   train_test_split="${TRAIN_TEST_SPLIT}" \
   cache_path="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train" \

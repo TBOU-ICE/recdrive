@@ -88,10 +88,19 @@ class AgentLightningDiT(pl.LightningModule):
         self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
         if not isinstance(predictions, torch.Tensor):
-            for key in ("reward", "policy_loss", "bc_loss", "opd_loss", "reward_mean", "reward_weight", "distill_loss", "kl_mean"):
+            _progbar_keys = {"kl_mean", "ratio_mean", "ratio_clip_frac"}
+            _log_keys = (
+                "reward", "policy_loss", "bc_loss", "opd_loss",
+                "reward_mean", "reward_weight",
+                "distill_loss", "kl_mean",
+                "ratio_mean", "ratio_clip_frac",
+                "sigma_mean", "logvar_mean", "chain_abs_max",
+            )
+            for key in _log_keys:
                 if key in predictions:
                     self.log(f"{logging_prefix}/{key}", predictions[key],
-                             on_step=True, on_epoch=True, prog_bar=False, sync_dist=True)
+                             on_step=True, on_epoch=True,
+                             prog_bar=(key in _progbar_keys), sync_dist=True)
         return loss
     
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:

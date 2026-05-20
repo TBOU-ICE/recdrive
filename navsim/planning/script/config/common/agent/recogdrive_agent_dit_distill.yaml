@@ -16,8 +16,8 @@ sampling_method: 'ddim'
 cache_mode: False
 cache_hidden_state: True   # use pre-cached hidden states, no VLM needed
 
-# Student DiT: initialized from 2B IL checkpoint
-checkpoint_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=0-step=665.ckpt'
+# Student DiT: initialized from IL checkpoint (epoch=2 for better logvar calibration)
+checkpoint_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt'
 
 # DiT OPD distillation mode
 dit_distill: True
