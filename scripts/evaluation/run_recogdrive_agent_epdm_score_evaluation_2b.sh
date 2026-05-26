@@ -25,7 +25,7 @@ export PORT=${PORT}
 echo "GPUS: ${GPUS}"
 
 # DiT / diffusion planner checkpoint
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt"
+CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_dit_opd_claude_8gpu_v3/2026.05.20.16.18.05/checkpoints/epochepoch=003-stepstep=00005000.ckpt"
 # Merged VLM: InternVL3-2B base + finetuned weights
 VLM_PATH="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B"
 VLM_WEIGHTS_PATH=""
@@ -49,5 +49,5 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/exp/metric_cach
     agent.sampling_method="ddim" \
     metric_cache_path="${METRIC_CACHE_PATH}" \
     agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-    experiment_name=eval_recogdrive_hydramdpp_epdms_paper \
+    experiment_name=eval_recogdrive_hydramdpp_epdms_c3_5kstep \
     worker=sequential
