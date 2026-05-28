@@ -88,7 +88,7 @@ class GRPOConfig:
     metric_cache_path: str = "/path/to/metric_cache_train"
     reference_policy_checkpoint: str = "/path/to/IL_Model.ckpt"
     scorer_config: PDMScorerConfig = field(default_factory=lambda: PDMScorerConfig(
-        progress_weight=10.0, ttc_weight=5.0, comfortable_weight=2.0
+        progress_weight=10.0, ttc_weight=5.0, history_comfort_weight=2.0
     ))
 
 
