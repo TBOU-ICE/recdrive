@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# 8-GPU DiT distillation training (2B)
+# 8-GPU fixed-weight dual-teacher DiT OPD training (2B)
 # student DiT: trainable, initialized from IL checkpoint (epoch=2 for better logvar calibration)
-# teacher DiT: frozen, from RL checkpoint
+# teacher IL DiT: frozen, EC-oriented
+# teacher RL DiT: frozen, PDMS-oriented
 set -euo pipefail
 
 export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/code}"
+export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/recdrive-multi-opd-v1}"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
@@ -27,14 +28,17 @@ GPUS="${GPUS:-8}"
 
 # epoch=2 checkpoint: more IL training → better logvar calibration → stable distillation start
 CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
-TEACHER_CKPT="${TEACHER_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_il_dit_opd_claude_8gpu_v3}"
+TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
+TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_dual_teacher_dit_opd_2b_8gpu}"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
-LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_il_dit_opd_claude_8gpu_v3}"
+LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_dual_teacher_dit_opd_2b_8gpu}"
 
 echo "[8gpu] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
 echo "[8gpu] NAVSIM_DEVKIT_ROOT=${NAVSIM_DEVKIT_ROOT}"
 echo "[8gpu] CHECKPOINT=${CHECKPOINT}"
+echo "[8gpu] TEACHER_IL_CKPT=${TEACHER_IL_CKPT}"
+echo "[8gpu] TEACHER_RL_CKPT=${TEACHER_RL_CKPT}"
 
 /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
   --nnodes="${NNODES}" \
@@ -48,7 +52,11 @@ echo "[8gpu] CHECKPOINT=${CHECKPOINT}"
   agent.dit_distill=True \
   agent.cache_hidden_state=True \
   "agent.checkpoint_path='${CHECKPOINT}'" \
-  "agent.teacher_dit_checkpoint='${TEACHER_CKPT}'" \
+  "agent.teacher_dit_checkpoint_il='${TEACHER_IL_CKPT}'" \
+  "agent.teacher_dit_checkpoint_rl='${TEACHER_RL_CKPT}'" \
+  agent.dit_distill_il_weight=0.75 \
+  agent.dit_distill_rl_weight=0.25 \
+  agent.dit_distill_smooth_weight=0.02 \
   agent.dit_distill_eps_clip=0.2 \
   agent.dit_distill_min_sigma=0.04 \
   agent.dit_distill_normalize_advantage=True \

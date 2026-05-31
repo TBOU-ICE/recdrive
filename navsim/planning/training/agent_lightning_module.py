@@ -103,7 +103,9 @@ class AgentLightningDiT(pl.LightningModule):
         if not isinstance(predictions, torch.Tensor):
             scalar_keys = (
                 "reward", "policy_loss", "bc_loss", "opd_loss", "reward_mean", "reward_weight",
-                "distill_loss", "kl_mean", "sigma_mean", "chain_abs_max",
+                "distill_loss", "kl_mean", "kl_il_mean", "kl_rl_mean",
+                "smooth_loss", "weighted_smooth_loss",
+                "sigma_mean", "chain_abs_max",
                 "policy_entropy", "response_length_mean",
                 "transition_kl", "step_kl_mean", "step_kl_max", "pred_traj_l1_to_teacher",
             )
@@ -223,6 +225,8 @@ class AgentLightningDiT(pl.LightningModule):
             for k, v in checkpoint['state_dict'].items()
             if not k.startswith('agent.teacher_backbone.')
             and not k.startswith('agent.teacher_action_head.')
+            and not k.startswith('agent.teacher_il_action_head.')
+            and not k.startswith('agent.teacher_rl_action_head.')
         }
         checkpoint['state_dict'] = filtered_sd
 
