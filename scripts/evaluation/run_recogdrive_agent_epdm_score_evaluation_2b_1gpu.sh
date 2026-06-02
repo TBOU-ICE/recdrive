@@ -29,7 +29,7 @@ export PORT=${PORT}
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 # DiT / diffusion planner checkpoint
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_dit_opd_1gpu_debug-c3/2026.05.23.17.15.25/checkpoints/epochepoch=000-stepstep=00001000.ckpt"
+CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dual_teacher_dit_opd_v1/2026.05.31.15.59.08/checkpoints/epochepoch=003-stepstep=00005000.ckpt"
 # Merged VLM: InternVL3-2B base + finetuned weights
 VLM_PATH="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B"
 VLM_WEIGHTS_PATH=""
