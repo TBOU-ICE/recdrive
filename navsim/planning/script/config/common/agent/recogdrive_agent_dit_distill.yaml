@@ -1,0 +1,37 @@
+_target_: navsim.agents.recogdrive.recogdrive_agent.ReCogDriveAgent
+_convert_: 'all'
+
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+
+# VLM not loaded online — use cached hidden states
+vlm_path: ''
+vlm_type: 'internvl'
+vlm_size: 'small'
+dit_type: 'small'
+sampling_method: 'ddim'
+cache_mode: False
+cache_hidden_state: True   # use pre-cached hidden states, no VLM needed
+
+# Student DiT: initialized from 2B IL checkpoint
+checkpoint_path: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
+
+# DiT distillation mode (Flow-OPD KL)
+dit_distill: True
+# Teacher DiT: 2B RL checkpoint (frozen)
+teacher_dit_checkpoint: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+dit_distill_eps_clip: 0.2
+dit_distill_min_sigma: 0.04
+dit_distill_normalize_advantage: True
+dit_distill_log_dir: ''
+dit_distill_log_interval: 50
+
+# Disable other modes
+grpo: False
+opd: False
+train_backbone: False
+reference_policy_checkpoint: ''
+lr: 1e-4
