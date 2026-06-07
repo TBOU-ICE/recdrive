@@ -32,17 +32,17 @@ GPUS="${GPUS:-8}"
 
 # ── Paths (override via env vars) ────────────────────────────────────────────
 # Student checkpoint: IL or previous RL DiT.
-CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
+CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_temporal_rl_loss/2026.06.04.12.33.56/checkpoints/temporal-rl-epochepoch=009-stepstep=00022000.ckpt}"
 # Feature cache (same as regular RL training).
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
 # PDMS metric cache (same as regular RL training).
 METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache_train}"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_temporal_rl_loss}"
-LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_temporal_rl_loss}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_temporal_rl_loss_2w2_continue}"
+LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_temporal_rl_loss_2w2_continue}"
 
 # ── Hyper-parameters ──────────────────────────────────────────────────────────
-MAX_EPOCHS="${MAX_EPOCHS:-10}"
+MAX_EPOCHS="${MAX_EPOCHS:-30}"
 PAIR_BATCH_SIZE="${PAIR_BATCH_SIZE:-4}"          # pairs × 2 tokens each → effective batch = 8
 TEMPORAL_WEIGHT="${TEMPORAL_WEIGHT:-0.08}"       # λ for aux temporal loss
 TEMPORAL_MIN_DT_S="${TEMPORAL_MIN_DT_S:-0.1}"

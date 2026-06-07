@@ -32,15 +32,15 @@ MASTER_PORT="${MASTER_PORT:-23461}"
 GPUS="${GPUS:-8}"
 
 # ── Paths (override via env vars) ────────────────────────────────────────────
-CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
+CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_temporal_rl_reward/2026.06.04.12.42.54/checkpoints/temporal-rl-epochepoch=009-stepstep=00022000.ckpt}"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
 METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache_train}"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_temporal_rl_reward}"
-LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_temporal_rl_reward}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_temporal_rl_reward_2w2_continue}"
+LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_temporal_rl_reward_2w2_continue}"
 
 # ── Hyper-parameters ──────────────────────────────────────────────────────────
-MAX_EPOCHS="${MAX_EPOCHS:-10}"
+MAX_EPOCHS="${MAX_EPOCHS:-30}"
 PAIR_BATCH_SIZE="${PAIR_BATCH_SIZE:-4}"          # pairs × 2 tokens → effective batch = 8
 PDMS_WEIGHT="${PDMS_WEIGHT:-1.0}"
 TEMPORAL_REWARD_WEIGHT="${TEMPORAL_REWARD_WEIGHT:-0.5}"  # β for combined reward
