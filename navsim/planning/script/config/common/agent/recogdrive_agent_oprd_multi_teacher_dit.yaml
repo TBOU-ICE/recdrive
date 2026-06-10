@@ -1,0 +1,64 @@
+_target_: navsim.agents.recogdrive.recogdrive_oprd_multi_teacher_dit_agent.ReCogDriveOPRDMultiTeacherDiTAgent
+_convert_: 'all'
+
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+
+# VLM is not trained; use cached hidden states.
+vlm_path: ''
+vlm_type: 'internvl'
+vlm_size: 'small'
+dit_type: 'small'
+sampling_method: 'ddim'
+cache_mode: False
+cache_hidden_state: True
+
+# Student DiT checkpoint.
+checkpoint_path: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
+
+# Frozen IL / RL teacher DiTs.
+dit_distill: True
+teacher_dit_checkpoint_il: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
+teacher_dit_checkpoint_rl: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+teacher_dit_checkpoint: ''
+
+# Compatibility fields consumed by the base ReCogDriveAgent.
+dit_distill_il_weight: 0.75
+dit_distill_rl_weight: 0.25
+dit_distill_eps_clip: 0.2
+dit_distill_min_sigma: 0.04
+dit_distill_normalize_advantage: True
+dit_distill_log_dir: ''
+dit_distill_log_interval: 50
+
+# Pure OPRD hidden-state distillation.
+# Middle denoising steps + middle DiT layers: IL only.
+oprd_mid_il_weight: 1.0
+# Late denoising steps + last DiT layers/final repr: IL-heavy + RL-light.
+oprd_last_il_weight: 0.85
+oprd_last_rl_weight: 0.15
+oprd_use_final_repr: True
+oprd_final_repr_weight: 1.0
+oprd_normalize_hidden: True
+oprd_loss_type: 'mse'
+
+# Layer partition over DiT block outputs hidden_states[1:]:
+# middle = [1/3, 2/3), last = [2/3, 1].
+oprd_mid_layer_start_ratio: 0.3333333333
+oprd_mid_layer_end_ratio: 0.6666666667
+oprd_last_layer_start_ratio: 0.6666666667
+
+# Denoising step partition:
+# skip early [0, 1/3), middle = [1/3, 2/3), late = [2/3, 1].
+oprd_middle_step_start_ratio: 0.3333333333
+oprd_late_step_start_ratio: 0.6666666667
+
+# Disable other modes.
+grpo: False
+opd: False
+train_backbone: False
+reference_policy_checkpoint: ''
+lr: 1e-4
