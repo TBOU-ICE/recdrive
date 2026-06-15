@@ -31,6 +31,8 @@ class ReCogDriveOPRDMultiTeacherDiTAgent(ReCogDriveAgent):
         oprd_last_layer_start_ratio: float = 2.0 / 3.0,
         oprd_middle_step_start_ratio: float = 1.0 / 3.0,
         oprd_late_step_start_ratio: float = 2.0 / 3.0,
+        oprd_traj_il_weight: float = 0.0,
+        oprd_traj_rl_weight: float = 0.0,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -60,4 +62,6 @@ class ReCogDriveOPRDMultiTeacherDiTAgent(ReCogDriveAgent):
             last_layer_start_ratio=oprd_last_layer_start_ratio,
             middle_step_start_ratio=oprd_middle_step_start_ratio,
             late_step_start_ratio=oprd_late_step_start_ratio,
+            traj_il_weight=oprd_traj_il_weight,
+            traj_rl_weight=oprd_traj_rl_weight,
         )

@@ -44,6 +44,10 @@ oprd_use_final_repr: True
 oprd_final_repr_weight: 1.0
 oprd_normalize_hidden: True
 oprd_loss_type: 'mse'
+# Trajectory-level loss weights (give action_decoder gradient).
+# Set via shell script; default 0 preserves original behaviour.
+oprd_traj_il_weight: 0.0
+oprd_traj_rl_weight: 0.0
 
 # Layer partition over DiT block outputs hidden_states[1:]:
 # middle = [1/3, 2/3), last = [2/3, 1].

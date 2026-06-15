@@ -28,27 +28,32 @@ CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/tra
 TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
 TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_oprd_multi_teacher_dit_2b}"
-LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_oprd_multi_teacher_dit_2b}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_oprd_multi_teacher_dit_2b_v2}"
+LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_oprd_multi_teacher_dit_2b_v2}"
 
 # Pure OPRD weights.
 OPRD_MID_IL_WEIGHT="${OPRD_MID_IL_WEIGHT:-1.0}"
 OPRD_LAST_IL_WEIGHT="${OPRD_LAST_IL_WEIGHT:-0.85}"
 OPRD_LAST_RL_WEIGHT="${OPRD_LAST_RL_WEIGHT:-0.15}"
 OPRD_FINAL_REPR_WEIGHT="${OPRD_FINAL_REPR_WEIGHT:-1.0}"
+# Trajectory-level loss weights (fix action_decoder gradient).
+# Mirrors the IL/RL split used for hidden-state losses.
+OPRD_TRAJ_IL_WEIGHT="${OPRD_TRAJ_IL_WEIGHT:-0.85}"
+OPRD_TRAJ_RL_WEIGHT="${OPRD_TRAJ_RL_WEIGHT:-0.15}"
 
 PAIR_BATCH_SIZE="${PAIR_BATCH_SIZE:-4}"
 MAX_EPOCHS="${MAX_EPOCHS:-50}"
 TEMPORAL_MIN_DT_S="${TEMPORAL_MIN_DT_S:-0.1}"
 TEMPORAL_MAX_DT_S="${TEMPORAL_MAX_DT_S:-1.1}"
 
-# Reuse the temporal pair dataloader/run file, but the agent's trainer ignores
-# trajectory and temporal losses; it uses only hidden-state OPRD losses.
+# Reuse the temporal pair dataloader/run file. The agent's trainer uses
+# hidden-state OPRD losses plus an optional trajectory-level MSE loss
+# (OPRD_TRAJ_IL/RL_WEIGHT) that gives action_decoder a gradient path.
 echo "[oprd-mt-dit] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
 echo "[oprd-mt-dit] CHECKPOINT=${CHECKPOINT}"
 echo "[oprd-mt-dit] TEACHER_IL_CKPT=${TEACHER_IL_CKPT}"
 echo "[oprd-mt-dit] TEACHER_RL_CKPT=${TEACHER_RL_CKPT}"
-echo "[oprd-mt-dit] weights: MID_IL=${OPRD_MID_IL_WEIGHT} LAST_IL=${OPRD_LAST_IL_WEIGHT} LAST_RL=${OPRD_LAST_RL_WEIGHT} FINAL=${OPRD_FINAL_REPR_WEIGHT}"
+echo "[oprd-mt-dit] weights: MID_IL=${OPRD_MID_IL_WEIGHT} LAST_IL=${OPRD_LAST_IL_WEIGHT} LAST_RL=${OPRD_LAST_RL_WEIGHT} FINAL=${OPRD_FINAL_REPR_WEIGHT} TRAJ_IL=${OPRD_TRAJ_IL_WEIGHT} TRAJ_RL=${OPRD_TRAJ_RL_WEIGHT}"
 echo "[oprd-mt-dit] PAIR_BATCH_SIZE=${PAIR_BATCH_SIZE} (real batch = $((PAIR_BATCH_SIZE * 2)))"
 
 /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
@@ -75,6 +80,8 @@ echo "[oprd-mt-dit] PAIR_BATCH_SIZE=${PAIR_BATCH_SIZE} (real batch = $((PAIR_BAT
   agent.oprd_last_rl_weight="${OPRD_LAST_RL_WEIGHT}" \
   agent.oprd_use_final_repr=True \
   agent.oprd_final_repr_weight="${OPRD_FINAL_REPR_WEIGHT}" \
+  agent.oprd_traj_il_weight="${OPRD_TRAJ_IL_WEIGHT}" \
+  agent.oprd_traj_rl_weight="${OPRD_TRAJ_RL_WEIGHT}" \
   agent.oprd_normalize_hidden=True \
   agent.oprd_loss_type='mse' \
   agent.vlm_type='internvl' \

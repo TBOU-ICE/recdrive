@@ -51,6 +51,10 @@ class ReCogDriveDiTOPRDMultiTeacherTrainer:
         last_layer_start_ratio: float = 2.0 / 3.0,
         middle_step_start_ratio: float = 1.0 / 3.0,
         late_step_start_ratio: float = 2.0 / 3.0,
+        # Trajectory-level loss weights to give action_decoder gradient.
+        # Mirrors the IL/RL split used for hidden-state losses.
+        traj_il_weight: float = 0.0,
+        traj_rl_weight: float = 0.0,
     ) -> None:
         self.min_sigma = float(min_sigma)
         self.log_dir = log_dir
@@ -68,6 +72,8 @@ class ReCogDriveDiTOPRDMultiTeacherTrainer:
         self.last_layer_start_ratio = float(last_layer_start_ratio)
         self.middle_step_start_ratio = float(middle_step_start_ratio)
         self.late_step_start_ratio = float(late_step_start_ratio)
+        self.traj_il_weight = float(traj_il_weight)
+        self.traj_rl_weight = float(traj_rl_weight)
 
         self._call_count = 0
         self._local_rank = int(os.getenv("LOCAL_RANK", "0"))
@@ -328,7 +334,11 @@ class ReCogDriveDiTOPRDMultiTeacherTrainer:
         last_rl_losses: List[torch.Tensor] = []
         final_il_losses: List[torch.Tensor] = []
         final_rl_losses: List[torch.Tensor] = []
+        traj_il_losses: List[torch.Tensor] = []
+        traj_rl_losses: List[torch.Tensor] = []
         step_losses: List[torch.Tensor] = []
+
+        use_traj_loss = (self.traj_il_weight > 0.0 or self.traj_rl_weight > 0.0)
 
         for i in range(K):
             # Skip early steps by construction.  They are noisy and are not used
@@ -340,14 +350,15 @@ class ReCogDriveDiTOPRDMultiTeacherTrainer:
             t_batch = student_planner.make_timesteps(B, ddim_t_list[i], device)
             idx_batch = student_planner.make_timesteps(B, i, device)
 
-            _, _, _, out_s, hs_s = self._p_mean_variance_with_repr(
+            # Capture mu_s so that gradient flows through action_decoder.
+            mu_s, _, _, out_s, hs_s = self._p_mean_variance_with_repr(
                 student_planner, z_t, t_batch, idx_batch, vl_s, his_s, ego_s, deterministic=False
             )
             with torch.no_grad():
-                _, _, _, out_il, hs_il = self._p_mean_variance_with_repr(
+                mu_il, _, _, out_il, hs_il = self._p_mean_variance_with_repr(
                     teacher_il_planner, z_t.float(), t_batch, idx_batch, vl_il, his_il, ego_il, deterministic=True
                 )
-                _, _, _, out_rl, hs_rl = self._p_mean_variance_with_repr(
+                mu_rl, _, _, out_rl, hs_rl = self._p_mean_variance_with_repr(
                     teacher_rl_planner, z_t.float(), t_batch, idx_batch, vl_rl, his_rl, ego_rl, deterministic=True
                 )
 
@@ -374,6 +385,20 @@ class ReCogDriveDiTOPRDMultiTeacherTrainer:
                         * (self.last_il_weight * final_il + self.last_rl_weight * final_rl)
                     )
 
+            # Trajectory-level loss: gives action_decoder a gradient path.
+            # Applied to all selected steps (middle + late) so the full
+            # denoising chain benefits. Uses plain MSE in trajectory space
+            # (same coordinate system for both teachers, no geometry conflict).
+            if use_traj_loss:
+                if self.traj_il_weight > 0.0:
+                    traj_il = F.mse_loss(mu_s.float(), mu_il.detach().float())
+                    traj_il_losses.append(traj_il.detach())
+                    current_terms.append(self.traj_il_weight * traj_il.to(mu_s.dtype))
+                if self.traj_rl_weight > 0.0:
+                    traj_rl = F.mse_loss(mu_s.float(), mu_rl.detach().float())
+                    traj_rl_losses.append(traj_rl.detach())
+                    current_terms.append(self.traj_rl_weight * traj_rl.to(mu_s.dtype))
+
             if current_terms:
                 step_losses.append(torch.stack([term.to(out_s.dtype) for term in current_terms]).sum())
 
@@ -397,6 +422,8 @@ class ReCogDriveDiTOPRDMultiTeacherTrainer:
         last_rl_mean = _mean_or_zero(last_rl_losses)
         final_il_mean = _mean_or_zero(final_il_losses)
         final_rl_mean = _mean_or_zero(final_rl_losses)
+        traj_il_mean = _mean_or_zero(traj_il_losses)
+        traj_rl_mean = _mean_or_zero(traj_rl_losses)
         step_loss_tensor = torch.stack([v.detach().float() for v in step_losses]) if step_losses else torch.zeros(1, device=device)
 
         payload = {
@@ -406,6 +433,8 @@ class ReCogDriveDiTOPRDMultiTeacherTrainer:
             "oprd_last_rl_loss": float(last_rl_mean.item()),
             "oprd_final_il_loss": float(final_il_mean.item()),
             "oprd_final_rl_loss": float(final_rl_mean.item()),
+            "oprd_traj_il_loss": float(traj_il_mean.item()),
+            "oprd_traj_rl_loss": float(traj_rl_mean.item()),
             "oprd_step_loss_mean": float(step_loss_tensor.mean().item()),
             "oprd_step_loss_max": float(step_loss_tensor.max().item()),
         }
@@ -421,12 +450,16 @@ class ReCogDriveDiTOPRDMultiTeacherTrainer:
             "oprd_last_rl_loss": last_rl_mean.detach(),
             "oprd_final_il_loss": final_il_mean.detach(),
             "oprd_final_rl_loss": final_rl_mean.detach(),
+            "oprd_traj_il_loss": traj_il_mean.detach(),
+            "oprd_traj_rl_loss": traj_rl_mean.detach(),
             "oprd_step_loss_mean": step_loss_tensor.mean().detach(),
             "oprd_step_loss_max": step_loss_tensor.max().detach(),
             "oprd_mid_il_weight": torch.tensor(self.mid_il_weight, device=device),
             "oprd_last_il_weight": torch.tensor(self.last_il_weight, device=device),
             "oprd_last_rl_weight": torch.tensor(self.last_rl_weight, device=device),
             "oprd_final_repr_weight": torch.tensor(self.final_repr_weight, device=device),
+            "oprd_traj_il_weight": torch.tensor(self.traj_il_weight, device=device),
+            "oprd_traj_rl_weight": torch.tensor(self.traj_rl_weight, device=device),
             "oprd_middle_step_count": torch.tensor(float(len(indices["middle_steps"])), device=device),
             "oprd_late_step_count": torch.tensor(float(len(indices["late_steps"])), device=device),
             "oprd_mid_layer_count": torch.tensor(float(len(indices["mid_layers"])), device=device),
