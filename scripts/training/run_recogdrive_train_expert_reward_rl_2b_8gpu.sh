@@ -29,17 +29,17 @@ MASTER_PORT="${MASTER_PORT:-23471}"
 GPUS="${GPUS:-8}"
 
 # ── Paths (override via env vars) ─────────────────────────────────────────────
-CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
+CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
 METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache_train}"
 # Pseudo-expert pkl: Stage-1 pseudo-expert trajectory package from Clover
 EXPERT_DATA_PATH="${EXPERT_DATA_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/data/dataset_decoupled_v2_clean.pkl}"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_clovor_expert_rl}"
-LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_clovor_expert_rl}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_clovor_expert_rl_base_il}"
+LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_clovor_expert_rl_base_il}"
 
 # ── Hyper-parameters ──────────────────────────────────────────────────────────
-MAX_EPOCHS="${MAX_EPOCHS:-30}"
+MAX_EPOCHS="${MAX_EPOCHS:-50}"
 PAIR_BATCH_SIZE="${PAIR_BATCH_SIZE:-4}"         # pairs × 2 tokens → effective batch = 8
 PDMS_WEIGHT="${PDMS_WEIGHT:-1.0}"
 TEMPORAL_REWARD_WEIGHT="${TEMPORAL_REWARD_WEIGHT:-0.1}"
