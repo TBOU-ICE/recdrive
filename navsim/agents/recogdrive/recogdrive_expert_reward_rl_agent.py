@@ -1,5 +1,5 @@
 """
-Expert-Reward RL Agent: Plan A (EC-aware reward) + Plan B (expert IL anchor).
+Expert-Reward RL Agent: expert IL anchor (strong supervised signal).
 
 Problem context
 ---------------
@@ -10,26 +10,23 @@ set of trajectories pre-scored by the closed-loop PDMS simulator; the best
 one (PDMS=1.0 for ~72% of tokens) is simultaneously safe *and* physically
 natural.
 
-Plan A – EC-aware reward
+Reward
     combined_reward = pdms_weight  * PDMS
                     + temporal_weight * temporal_consistency   (inherited)
-                    + ec_reward_weight * exp(-L1(pred, expert) / ec_sigma)
 
-    The EC term directly rewards trajectories close to the oracle-optimal
-    pseudo-expert trajectory, aligning the RL objective with EPDMS = PDMS × EC.
-
-Plan B – expert IL anchor (replaces old-policy BC loss)
+Expert IL anchor
     expert_il_loss = planner.forward(vl, expert_action_input)["loss"]
     i.e. the DiT's standard DDPM/flow denoising loss with the best-PDMS
-    pseudo-expert trajectory as x_0 instead of the human ground-truth.
-    This prevents EC degradation without relying on the imperfect old policy.
+    pseudo-expert trajectory as x_0.  A high weight (0.5) makes this the
+    primary signal that prevents EC degradation, replacing both old-policy BC
+    and the earlier EC reward term.
 
 Total loss
-    L = GRPO_policy_loss(combined_reward)   ← Plans A + temporal
-      + expert_il_weight * expert_il_loss   ← Plan B
+    L = GRPO_policy_loss(combined_reward)
+      + expert_il_weight * expert_il_loss
 
 Tokens that are absent from the pseudo-expert lookup (no valid scores) are
-handled gracefully: EC reward = 0 and expert IL loss skips those items.
+handled gracefully: expert IL loss skips those items.
 """
 
 import lzma
@@ -60,20 +57,12 @@ class ReCogDriveExpertRewardRLAgent(ReCogDriveTemporalRewardRLAgent):
         *args: Any,
         # Path to the pseudo-expert pkl (dataset_decoupled_v2_clean.pkl)
         expert_data_path: str = "",
-        # Plan A – EC reward weight in combined reward
-        ec_reward_weight: float = 0.3,
-        # Plan A – bandwidth for the Gaussian EC reward:
-        #   ec_reward = exp(-L1(pred, expert) / ec_sigma)
-        #   ec_sigma ~ typical L1 gap you want to reward (metres × steps)
-        ec_sigma: float = 1.0,
-        # Plan B – weight on the expert denoising IL loss
-        expert_il_weight: float = 0.1,
+        # Weight on the expert denoising IL loss (primary EC-preservation signal)
+        expert_il_weight: float = 0.5,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._expert_data_path  = expert_data_path
-        self._ec_reward_weight  = float(ec_reward_weight)
-        self._ec_sigma          = float(ec_sigma)
         self._expert_il_weight  = float(expert_il_weight)
         self._expert_lookup: Optional[Dict[str, Any]] = None
 
@@ -119,39 +108,7 @@ class ReCogDriveExpertRewardRLAgent(ReCogDriveTemporalRewardRLAgent):
         return trajs, valid
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Plan A: EC reward
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def _compute_ec_reward(
-        self,
-        pred_trajs: torch.Tensor,     # (B*G, H, 3)  denorm, detached
-        expert_trajs: torch.Tensor,   # (B, H, 3)    ego-relative, raw metres
-        valid_mask: torch.Tensor,     # (B,)  bool
-        G: int,
-    ) -> torch.Tensor:
-        """
-        Per-rollout EC reward in [0, 1]:
-            ec_reward = exp(-mean_L1(pred_traj, expert_traj) / ec_sigma)
-        Tokens without expert data receive reward = 0.
-        Returns (B*G,) detached tensor.
-        """
-        # Expand expert to B*G keeping temporal-pair order (repeat_interleave
-        # matches the same layout used for PDMS reward in the parent class).
-        expert_rep = expert_trajs.repeat_interleave(G, dim=0)   # (B*G, H, 3)
-        valid_rep  = valid_mask.repeat_interleave(G)             # (B*G,)
-
-        # Mean L1 over all waypoints and dimensions  →  (B*G,)
-        l1_dist = (pred_trajs - expert_rep).abs().mean(dim=[1, 2])
-
-        # Gaussian reward: 1 when identical, decays to 1/e at ec_sigma metres
-        ec_reward = torch.exp(-l1_dist / max(self._ec_sigma, 1e-6))
-
-        # Zero out tokens without expert data
-        ec_reward = ec_reward * valid_rep.float()
-        return ec_reward.detach()
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Plan B: expert IL denoising loss
+    # Expert IL denoising loss
     # ─────────────────────────────────────────────────────────────────────────
 
     def _compute_expert_il_loss(
@@ -267,18 +224,10 @@ class ReCogDriveExpertRewardRLAgent(ReCogDriveTemporalRewardRLAgent):
         else:
             temporal_norm = temporal_rewards
 
-        # ── Plan A: EC reward  ────────────────────────────────────────────────
-        # trajs are denorm (metres/rad); expert_trajs are also raw ego-relative,
-        # so L1 is directly comparable in physical units.
-        ec_rewards = self._compute_ec_reward(
-            trajs, expert_trajs, expert_valid, G
-        )   # (B*G,)
-
         # ── Combined reward ───────────────────────────────────────────────────
         combined = (
-            self._pdms_weight          * pdms_rewards
+            self._pdms_weight              * pdms_rewards
             + self._temporal_reward_weight * temporal_norm
-            + self._ec_reward_weight   * ec_rewards
         )
 
         # ── GRPO advantage (per-token normalisation) ──────────────────────────
@@ -314,13 +263,12 @@ class ReCogDriveExpertRewardRLAgent(ReCogDriveTemporalRewardRLAgent):
         total_loss = total_loss + self._expert_il_weight * expert_il_loss
 
         return BatchFeature(data={
-            "loss":                    total_loss,
-            "reward":                  pdms_rewards.mean(),
-            "policy_loss":             policy_loss,
-            "expert_il_loss":          expert_il_loss.detach(),
-            "temporal_reward_mean":    temporal_rewards.mean(),
+            "loss":                      total_loss,
+            "reward":                    pdms_rewards.mean(),
+            "policy_loss":               policy_loss,
+            "expert_il_loss":            expert_il_loss.detach(),
+            "temporal_reward_mean":      temporal_rewards.mean(),
             "temporal_reward_norm_mean": temporal_norm.mean(),
-            "ec_reward_mean":          ec_rewards.mean(),
-            "combined_reward_mean":    combined.mean(),
-            "expert_valid_fraction":   expert_valid.float().mean(),
+            "combined_reward_mean":      combined.mean(),
+            "expert_valid_fraction":     expert_valid.float().mean(),
         })

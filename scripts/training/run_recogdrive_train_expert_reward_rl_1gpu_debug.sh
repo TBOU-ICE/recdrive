@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 1-GPU debug run for Expert-Reward RL (Plan A + Plan B).
+# 1-GPU debug run for Expert-Reward RL (strong expert IL anchor).
 # Use this to verify the new agent loads, reward/loss values look sane,
 # and no CUDA OOM before launching the full 8-GPU job.
 set -euo pipefail
@@ -49,9 +49,7 @@ torchrun \
   "agent.expert_data_path='${EXPERT_DATA_PATH}'" \
   agent.rl_pdms_weight=1.0 \
   agent.rl_temporal_reward_weight=0.1 \
-  agent.ec_reward_weight=0.3 \
-  agent.ec_sigma=1.0 \
-  agent.expert_il_weight=0.1 \
+  agent.expert_il_weight=0.5 \
   agent.rl_grpo_sample_time=4 \
   trainer.params.max_epochs=1 \
   trainer.params.precision=bf16-mixed \

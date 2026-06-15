@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 8-GPU (multi-node) Expert-Reward RL training: Plan A (EC-aware reward) + Plan B (expert IL anchor).
+# 8-GPU (multi-node) Expert-Reward RL training: strong expert IL anchor.
 #
-# Loss = GRPO_policy_loss(PDMS + temporal + EC_reward) + expert_il_weight * expert_IL_loss
+# Loss = GRPO_policy_loss(PDMS + temporal) + expert_il_weight * expert_IL_loss
 #
+# expert_il_weight=0.5 makes expert IL the primary EC-preservation signal.
 # Start from a temporal-RL checkpoint (or any BC/RL checkpoint).
-# Same temporal-pair dataset as the temporal-reward-RL script.
 set -euo pipefail
 
 export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH"
@@ -43,16 +43,13 @@ MAX_EPOCHS="${MAX_EPOCHS:-50}"
 PAIR_BATCH_SIZE="${PAIR_BATCH_SIZE:-4}"         # pairs × 2 tokens → effective batch = 8
 PDMS_WEIGHT="${PDMS_WEIGHT:-1.0}"
 TEMPORAL_REWARD_WEIGHT="${TEMPORAL_REWARD_WEIGHT:-0.1}"
-# Plan A: EC reward
-EC_REWARD_WEIGHT="${EC_REWARD_WEIGHT:-0.3}"     # weight relative to PDMS in combined reward
-EC_SIGMA="${EC_SIGMA:-1.0}"                     # L1 bandwidth (metres); 1.0 ≈ 1 m/waypoint
-# Plan B: expert IL anchor
-EXPERT_IL_WEIGHT="${EXPERT_IL_WEIGHT:-0.1}"     # weight on denoising IL loss
+# Expert IL anchor (primary EC-preservation signal)
+EXPERT_IL_WEIGHT="${EXPERT_IL_WEIGHT:-0.5}"     # weight on denoising IL loss
 
 echo "[expert-reward-rl] GPUS=${GPUS}  NNODES=${NNODES}  RANK=${RANK}"
 echo "[expert-reward-rl] CHECKPOINT=${CHECKPOINT}"
 echo "[expert-reward-rl] EXPERT_DATA_PATH=${EXPERT_DATA_PATH}"
-echo "[expert-reward-rl] EC_REWARD_WEIGHT=${EC_REWARD_WEIGHT}  EC_SIGMA=${EC_SIGMA}  EXPERT_IL_WEIGHT=${EXPERT_IL_WEIGHT}"
+echo "[expert-reward-rl] EXPERT_IL_WEIGHT=${EXPERT_IL_WEIGHT}"
 
 /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
   --nnodes="${NNODES}" \
@@ -75,8 +72,6 @@ echo "[expert-reward-rl] EC_REWARD_WEIGHT=${EC_REWARD_WEIGHT}  EC_SIGMA=${EC_SIG
   "agent.expert_data_path='${EXPERT_DATA_PATH}'" \
   "agent.rl_pdms_weight=${PDMS_WEIGHT}" \
   "agent.rl_temporal_reward_weight=${TEMPORAL_REWARD_WEIGHT}" \
-  "agent.ec_reward_weight=${EC_REWARD_WEIGHT}" \
-  "agent.ec_sigma=${EC_SIGMA}" \
   "agent.expert_il_weight=${EXPERT_IL_WEIGHT}" \
   agent.rl_temporal_shift_steps=1 \
   agent.rl_temporal_pos_weight=1.0 \

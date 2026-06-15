@@ -1,11 +1,9 @@
-# Expert-Reward RL Agent: Plan A (EC-aware reward) + Plan B (expert IL anchor)
+# Expert-Reward RL Agent: expert IL anchor (strong supervised signal)
 #
-# Plan A: combined_reward = pdms_weight * PDMS
-#                         + temporal_weight * temporal_consistency
-#                         + ec_reward_weight * exp(-L1(pred, expert) / ec_sigma)
+# Reward:  combined_reward = pdms_weight * PDMS
+#                          + temporal_weight * temporal_consistency
 #
-# Plan B: expert_il_loss  = DiT denoising loss with pseudo-expert traj as x_0
-#                           (replaces old-policy BC loss)
+# Expert IL anchor: expert_il_loss = DiT denoising loss with pseudo-expert traj as x_0
 #
 # Total loss = GRPO_policy_loss(combined_reward) + expert_il_weight * expert_il_loss
 #
@@ -56,18 +54,9 @@ rl_grpo_sample_time: 8
 # bc_coeff is kept for API compatibility but NOT used (expert IL replaces it).
 rl_bc_coeff: 0.0
 
-# ── Plan A: EC reward ─────────────────────────────────────────────────────────
-# ec_reward_weight: weight of the EC term in combined reward.
-#   Start at 0.3 (30% of PDMS scale after normalisation).
-# ec_sigma: L1 bandwidth in metres * steps.
-#   At 1.0 a mean per-waypoint error of 1 m gives reward ≈ 0.37.
-#   Decrease to sharpen (reward only very close trajectories).
-expert_data_path: ''   # override via CLI: agent.expert_data_path=<path>
-ec_reward_weight: 0.3
-ec_sigma: 1.0
-
-# ── Plan B: expert IL anchor ──────────────────────────────────────────────────
+# ── Expert IL anchor ──────────────────────────────────────────────────────────
 # expert_il_weight: weight on denoising IL loss relative to policy_loss.
-#   0.1 means the IL gradient is ~10% of the policy gradient scale.
-#   Increase to 0.2-0.5 if EC is still dropping.
-expert_il_weight: 0.1
+#   0.5 makes expert IL the primary EC-preservation signal.
+#   Increase to 1.0 if EC is still dropping; decrease toward 0.2 if PDMS stalls.
+expert_data_path: ''   # override via CLI: agent.expert_data_path=<path>
+expert_il_weight: 0.5
