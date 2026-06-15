@@ -35,8 +35,8 @@ METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdr
 # Pseudo-expert pkl: Stage-1 pseudo-expert trajectory package from Clover
 EXPERT_DATA_PATH="${EXPERT_DATA_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/data/dataset_decoupled_v2_clean.pkl}"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_clovor_expert_rl_base_il}"
-LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_clovor_expert_rl_base_il}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_clovor_expert_rl_base_il_clean_reward}"
+LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_clovor_expert_rl_base_il_clean_reward}"
 
 # ── Hyper-parameters ──────────────────────────────────────────────────────────
 MAX_EPOCHS="${MAX_EPOCHS:-50}"

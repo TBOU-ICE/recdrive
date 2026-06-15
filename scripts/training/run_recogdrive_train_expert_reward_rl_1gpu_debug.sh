@@ -17,7 +17,7 @@ export HYDRA_FULL_ERROR=1
 TRAIN_TEST_SPLIT="${TRAIN_TEST_SPLIT:-navtrain}"
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
+CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
 METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache_train}"
 EXPERT_DATA_PATH="${EXPERT_DATA_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/data/dataset_decoupled_v2_clean.pkl}"
