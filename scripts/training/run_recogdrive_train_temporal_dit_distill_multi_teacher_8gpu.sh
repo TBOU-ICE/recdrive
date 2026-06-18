@@ -28,11 +28,11 @@ GPUS="${GPUS:-8}"
 # Student: IL checkpoint (epoch=2 for better logvar calibration)
 CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
 # Teachers: IL (EC-oriented) + RL (PDMS-oriented), both frozen
-TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_temporal_rl_reward/2026.06.04.12.42.54/checkpoints/temporal-rl-epochepoch=008-stepstep=00020000.ckpt}"
-TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_temporal_il_opd_2b/2026.06.04.00.02.53/checkpoints/temporal-epochepoch=023-stepstep=00053000.ckpt}"
+TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_temporal_multi_teacher_dit_opd_2b/2026.06.08.15.56.15/checkpoints/temporal-mt-epochepoch=033-stepstep=00075000.ckpt}"
+TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_temporal_rl_loss_2w2_continue/2026.06.07.16.32.32/checkpoints/temporal-rl-epochepoch=017-stepstep=00040000.ckpt}"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_mini_difference_comparation3}"
-LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_mini_difference_comparation3}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_mini_difference_comparation4}"
+LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_mini_difference_comparation4}"
 
 # Dual-teacher KL weights
 IL_WEIGHT="${IL_WEIGHT:-0.5}"
