@@ -32,6 +32,7 @@ Diagnostic logging (every log_interval calls, rank-0 only):
 
 import os
 import datetime
+from typing import Optional
 import torch
 from transformers.feature_extraction_utils import BatchFeature
 
@@ -54,6 +55,10 @@ class ReCogDriveDiTDistillTrainer:
         il_weight: float = 0.75,
         rl_weight: float = 0.25,
         smooth_weight: float = 0.02,
+        process_weight: float = 0.5,
+        preference_weight: float = 0.5,
+        preference_num_samples: int = 8,
+        loss_ema_decay: float = 0.99,
     ):
         self.min_sigma  = min_sigma
         self.log_dir    = log_dir
@@ -61,8 +66,14 @@ class ReCogDriveDiTDistillTrainer:
         self.il_weight = float(il_weight)
         self.rl_weight = float(rl_weight)
         self.smooth_weight = float(smooth_weight)
+        self.process_weight = float(process_weight)
+        self.preference_weight = float(preference_weight)
+        self.preference_num_samples = int(preference_num_samples)
+        self.loss_ema_decay = float(loss_ema_decay)
         self._call_count  = 0
         self._local_rank  = int(os.getenv("LOCAL_RANK", "0"))
+        self._dit_loss_ema: Optional[float] = None
+        self._pref_loss_ema: Optional[float] = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Internal helpers
@@ -97,6 +108,20 @@ class ReCogDriveDiTDistillTrainer:
         xy = traj[..., :2]
         jerk = xy[:, 3:] - 3.0 * xy[:, 2:-1] + 3.0 * xy[:, 1:-2] - xy[:, :-3]
         return jerk.pow(2).mean()
+
+    def _update_ema(self, name: str, value: torch.Tensor) -> float:
+        current = float(value.detach().float().item())
+        if name == "dit":
+            if self._dit_loss_ema is None:
+                self._dit_loss_ema = current
+            else:
+                self._dit_loss_ema = self.loss_ema_decay * self._dit_loss_ema + (1.0 - self.loss_ema_decay) * current
+            return max(self._dit_loss_ema, 1e-6)
+        if self._pref_loss_ema is None:
+            self._pref_loss_ema = current
+        else:
+            self._pref_loss_ema = self.loss_ema_decay * self._pref_loss_ema + (1.0 - self.loss_ema_decay) * current
+        return max(self._pref_loss_ema, 1e-6)
 
     def _sample_chain(self, planner, vl_embeds, his_embeds, ego_embeds, B, device, dtype):
         """
@@ -143,6 +168,7 @@ class ReCogDriveDiTDistillTrainer:
         mu_t_last: torch.Tensor,  # (B, H, D) teacher mean at final DDIM step
         student_planner,
         total_loss: float,
+        drivevla_payload: Optional[dict] = None,
     ):
         os.makedirs(self.log_dir, exist_ok=True)
         log_path = os.path.join(self.log_dir, "distill_diagnostic.log")
@@ -201,6 +227,48 @@ class ReCogDriveDiTDistillTrainer:
             )
         lines.append(sep)
 
+        if drivevla_payload is not None:
+            teacher_scores = drivevla_payload["teacher_scores"][0].float().cpu()
+            teacher_pref = drivevla_payload["teacher_pref"][0].float().cpu()
+            student_scores = drivevla_payload["student_scores"][0].float().cpu()
+            student_pref = drivevla_payload["student_pref"][0].float().cpu()
+            teacher_top = int(teacher_pref.argmax().item())
+            student_top = int(student_pref.argmax().item())
+            score_order = torch.argsort(teacher_scores, descending=True)
+
+            lines.append("  DriveVLA preference branch:")
+            lines.append(
+                "    "
+                f"pref_loss={drivevla_payload['pref_loss']:.4f} | "
+                f"pref_loss_scaled={drivevla_payload['pref_loss_scaled']:.4f} | "
+                f"process_w={drivevla_payload['process_weight']:.2f} | "
+                f"pref_w={drivevla_payload['preference_weight']:.2f} | "
+                f"G={drivevla_payload['num_samples']}"
+            )
+            lines.append(
+                "    "
+                f"teacher_score_mean={drivevla_payload['teacher_score_mean']:.4f} | "
+                f"teacher_score_std={drivevla_payload['teacher_score_std']:.4f} | "
+                f"teacher_entropy={drivevla_payload['teacher_entropy']:.4f} | "
+                f"student_entropy={drivevla_payload['student_entropy']:.4f} | "
+                f"top1_match={drivevla_payload['top1_match']:.4f}"
+            )
+            lines.append(
+                f"    Sample-0 top1 teacher candidate={teacher_top}, student candidate={student_top}"
+            )
+            lines.append(
+                f"    {'rank':>4} {'cand':>4} {'teacher_score':>13} {'teacher_p':>10} {'student_score':>13} {'student_p':>10}"
+            )
+            for rank, cand_idx in enumerate(score_order.tolist(), start=1):
+                lines.append(
+                    f"    {rank:>4} {cand_idx:>4} "
+                    f"{teacher_scores[cand_idx].item():>13.4f} "
+                    f"{teacher_pref[cand_idx].item():>10.4f} "
+                    f"{student_scores[cand_idx].item():>13.4f} "
+                    f"{student_pref[cand_idx].item():>10.4f}"
+                )
+            lines.append(sep)
+
         with open(log_path, "a") as f:
             f.write("\n".join(lines) + "\n")
 
@@ -213,6 +281,7 @@ class ReCogDriveDiTDistillTrainer:
         student_planner,
         teacher_il_planner,
         teacher_rl_planner,
+        drivevla_teacher,
         vl_features: torch.Tensor,
         action_input,
     ) -> BatchFeature:
@@ -336,7 +405,79 @@ class ReCogDriveDiTDistillTrainer:
         # Teacher-free smoothness regularization on the student's final trajectory.
         pred_traj_s_for_loss = student_planner.denorm_odo(mu_s_last.float())
         smooth_loss = self._jerk_loss(pred_traj_s_for_loss)
-        loss = distill_loss + self.smooth_weight * smooth_loss
+        dit_branch_loss = distill_loss + self.smooth_weight * smooth_loss
+
+        drivevla_pref_loss = vl_features.new_zeros(())
+        drivevla_pref_scaled = vl_features.new_zeros(())
+        teacher_pref_entropy = vl_features.new_zeros(())
+        student_pref_entropy = vl_features.new_zeros(())
+        teacher_student_pref_match = vl_features.new_zeros(())
+        drivevla_teacher_score_mean = vl_features.new_zeros(())
+        drivevla_teacher_score_std = vl_features.new_zeros(())
+        drivevla_log_payload = None
+
+        if drivevla_teacher is not None and self.preference_weight > 0.0:
+            if not hasattr(student_planner, 'min_sampling_denoising_std'):
+                student_planner.min_sampling_denoising_std = self.min_sigma
+            if not hasattr(student_planner, 'min_logprob_denoising_std'):
+                student_planner.min_logprob_denoising_std = max(self.min_sigma, 0.1)
+            G = self.preference_num_samples
+            with torch.no_grad():
+                vl_rep = vl_features.repeat_interleave(G, 0)
+                his_rep = his_traj.repeat_interleave(G, 0)
+                status_rep = ego_status.repeat_interleave(G, 0)
+                chains_pref, trajs_pref = student_planner.sample_chain(
+                    vl_rep, his_rep, status_rep, deterministic=False
+                )
+                teacher_scores = drivevla_teacher.score_trajectories(
+                    last_hidden_state=vl_features,
+                    status_feature=ego_status,
+                    candidate_trajs=trajs_pref.view(B, G, trajs_pref.shape[1], trajs_pref.shape[2]),
+                )["pdm_score"]
+                teacher_pref = torch.softmax(teacher_scores, dim=1)
+
+            pref_log_probs = student_planner.get_logprobs(
+                vl_rep, his_rep, status_rep, chains_pref, deterministic=False
+            )
+            num_steps = chains_pref.shape[1] - 1
+            pref_log_probs = pref_log_probs.clamp(min=-5, max=2).view(
+                B * G, num_steps, chains_pref.shape[2], chains_pref.shape[3]
+            ).mean(dim=[1, 2, 3]).view(B, G)
+            student_log_pref = torch.log_softmax(pref_log_probs, dim=1)
+            student_pref = torch.softmax(pref_log_probs, dim=1)
+
+            drivevla_pref_loss = -(teacher_pref * student_log_pref).sum(dim=1).mean()
+            drivevla_teacher_score_mean = teacher_scores.mean().detach()
+            drivevla_teacher_score_std = teacher_scores.std(unbiased=False).detach()
+            teacher_pref_entropy = (-(teacher_pref * torch.log(teacher_pref.clamp(min=1e-8))).sum(dim=1).mean()).detach()
+            student_pref_entropy = (-(student_pref * student_log_pref).sum(dim=1).mean()).detach()
+            teacher_student_pref_match = (teacher_pref.argmax(dim=1) == student_pref.argmax(dim=1)).float().mean().detach()
+            pref_scale = self._update_ema("pref", drivevla_pref_loss)
+            drivevla_pref_scaled = drivevla_pref_loss / pref_scale
+            drivevla_log_payload = {
+                "pref_loss": float(drivevla_pref_loss.detach().float().item()),
+                "pref_loss_scaled": float(drivevla_pref_scaled.detach().float().item()),
+                "process_weight": float(self.process_weight),
+                "preference_weight": float(self.preference_weight),
+                "num_samples": int(G),
+                "teacher_score_mean": float(drivevla_teacher_score_mean.float().item()),
+                "teacher_score_std": float(drivevla_teacher_score_std.float().item()),
+                "teacher_entropy": float(teacher_pref_entropy.float().item()),
+                "student_entropy": float(student_pref_entropy.float().item()),
+                "top1_match": float(teacher_student_pref_match.float().item()),
+                "teacher_scores": teacher_scores.detach(),
+                "teacher_pref": teacher_pref.detach(),
+                "student_scores": pref_log_probs.detach(),
+                "student_pref": student_pref.detach(),
+            }
+
+        dit_scale = self._update_ema("dit", dit_branch_loss)
+        dit_branch_loss_scaled = dit_branch_loss / dit_scale
+
+        if drivevla_teacher is not None and self.preference_weight > 0.0:
+            loss = self.process_weight * dit_branch_loss_scaled + self.preference_weight * drivevla_pref_scaled
+        else:
+            loss = dit_branch_loss
 
         kl_mean = torch.stack(kl_weighted_list).mean()
         kl_il_mean = torch.stack(kl_il_list).mean()
@@ -371,6 +512,7 @@ class ReCogDriveDiTDistillTrainer:
                 mu_t_last=mu_t_last,
                 student_planner=student_planner,
                 total_loss=loss.item(),
+                drivevla_payload=drivevla_log_payload,
             )
 
         # ── TensorBoard scalars ────────────────────────────────────────────────
@@ -391,6 +533,18 @@ class ReCogDriveDiTDistillTrainer:
             "distill_loss":                   distill_loss.detach(),
             "smooth_loss":                    smooth_loss.detach(),
             "weighted_smooth_loss":           (self.smooth_weight * smooth_loss).detach(),
+            "dit_branch_loss":                dit_branch_loss.detach(),
+            "dit_branch_loss_scaled":         dit_branch_loss_scaled.detach(),
+            "drivevla_pref_loss":             drivevla_pref_loss.detach(),
+            "drivevla_pref_loss_scaled":      drivevla_pref_scaled.detach(),
+            "teacher_pref_entropy":           teacher_pref_entropy,
+            "student_pref_entropy":           student_pref_entropy,
+            "teacher_student_pref_match":     teacher_student_pref_match,
+            "drivevla_teacher_score_mean":    drivevla_teacher_score_mean,
+            "drivevla_teacher_score_std":     drivevla_teacher_score_std,
+            "drivevla_num_samples":           torch.tensor(float(self.preference_num_samples), device=device),
+            "dit_process_weight":             torch.tensor(self.process_weight, device=device),
+            "drivevla_preference_weight":     torch.tensor(self.preference_weight, device=device),
             "kl_il_mean":                     kl_il_mean.detach(),
             "kl_rl_mean":                     kl_rl_mean.detach(),
             "dit_distill_il_weight":          torch.tensor(self.il_weight, device=device),

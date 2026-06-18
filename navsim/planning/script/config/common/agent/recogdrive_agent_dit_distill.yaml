@@ -34,6 +34,12 @@ dit_distill_log_interval: 50
 dit_distill_il_weight: 0.75
 dit_distill_rl_weight: 0.25
 dit_distill_smooth_weight: 0.02
+drivevla_teacher_checkpoint: ''
+drivevla_teacher_config_path: '/workspace/volumes/ad-e2e-al-sh01/nby/HUGSIM_DriveMem_base/episode_drive.yaml'
+drivevla_process_weight: 0.5
+drivevla_preference_weight: 0.5
+drivevla_num_samples: 8
+drivevla_loss_ema_decay: 0.99
 
 # Disable other modes
 grpo: False

@@ -105,6 +105,10 @@ class AgentLightningDiT(pl.LightningModule):
                 "reward", "policy_loss", "bc_loss", "opd_loss", "reward_mean", "reward_weight",
                 "distill_loss", "kl_mean", "kl_il_mean", "kl_rl_mean",
                 "smooth_loss", "weighted_smooth_loss",
+                "dit_branch_loss", "dit_branch_loss_scaled",
+                "drivevla_pref_loss", "drivevla_pref_loss_scaled",
+                "teacher_pref_entropy", "student_pref_entropy", "teacher_student_pref_match",
+                "drivevla_teacher_score_mean", "drivevla_teacher_score_std",
                 "sigma_mean", "chain_abs_max",
                 "policy_entropy", "response_length_mean",
                 "transition_kl", "step_kl_mean", "step_kl_max", "pred_traj_l1_to_teacher",
@@ -227,6 +231,7 @@ class AgentLightningDiT(pl.LightningModule):
             and not k.startswith('agent.teacher_action_head.')
             and not k.startswith('agent.teacher_il_action_head.')
             and not k.startswith('agent.teacher_rl_action_head.')
+            and not k.startswith('agent.drivevla_teacher.')
         }
         checkpoint['state_dict'] = filtered_sd
 

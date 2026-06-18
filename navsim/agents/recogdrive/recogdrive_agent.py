@@ -25,6 +25,7 @@ from .recogdrive_diffusion_planner import (
 )
 from .recogdrive_opd_trainer import ReCogDriveOPDTrainer
 from .recogdrive_dit_distill_trainer import ReCogDriveDiTDistillTrainer
+from .drivevla_m0_teacher import DriveVLAM0Teacher
 
 
 def _resolve_checkpoint_path(path_like: Optional[str]) -> str:
@@ -140,6 +141,12 @@ class ReCogDriveAgent(AbstractAgent):
         dit_distill_il_weight: float = 0.75,
         dit_distill_rl_weight: float = 0.25,
         dit_distill_smooth_weight: float = 0.02,
+        drivevla_teacher_checkpoint: Optional[str] = None,
+        drivevla_teacher_config_path: Optional[str] = None,
+        drivevla_process_weight: float = 0.5,
+        drivevla_preference_weight: float = 0.5,
+        drivevla_num_samples: int = 8,
+        drivevla_loss_ema_decay: float = 0.99,
     ):
         super().__init__()
         self._trajectory_sampling = trajectory_sampling
@@ -158,6 +165,8 @@ class ReCogDriveAgent(AbstractAgent):
         self.teacher_dit_checkpoint = teacher_dit_checkpoint
         self.teacher_dit_checkpoint_il = teacher_dit_checkpoint_il
         self.teacher_dit_checkpoint_rl = teacher_dit_checkpoint_rl
+        self.drivevla_teacher_checkpoint = drivevla_teacher_checkpoint
+        self.drivevla_teacher_config_path = drivevla_teacher_config_path
         self.backbone = None
         self.metric_cache_path = metric_cache_path
         self.reference_policy_checkpoint = reference_policy_checkpoint
@@ -235,6 +244,7 @@ class ReCogDriveAgent(AbstractAgent):
         self.teacher_il_action_head = None
         self.teacher_rl_action_head = None
         self.dit_distill_trainer = None
+        self.drivevla_teacher = None
         if dit_distill:
             # Backward compatibility: teacher_dit_checkpoint is treated as RL teacher.
             teacher_rl_ckpt = teacher_dit_checkpoint_rl or teacher_dit_checkpoint
@@ -282,6 +292,13 @@ class ReCogDriveAgent(AbstractAgent):
             self.teacher_rl_action_head = _build_and_load_teacher(teacher_rl_ckpt, "RL/PDMS")
             self.teacher_action_head = self.teacher_rl_action_head
 
+            if drivevla_teacher_checkpoint:
+                self.drivevla_teacher = DriveVLAM0Teacher(
+                    checkpoint_path=drivevla_teacher_checkpoint,
+                    config_path=drivevla_teacher_config_path,
+                ).cuda()
+                self.drivevla_teacher.eval()
+
             # student DiT is trainable
             for p in self.action_head.parameters():
                 p.requires_grad = True
@@ -295,6 +312,10 @@ class ReCogDriveAgent(AbstractAgent):
                 il_weight=dit_distill_il_weight,
                 rl_weight=dit_distill_rl_weight,
                 smooth_weight=dit_distill_smooth_weight,
+                process_weight=drivevla_process_weight,
+                preference_weight=drivevla_preference_weight,
+                preference_num_samples=drivevla_num_samples,
+                loss_ema_decay=drivevla_loss_ema_decay,
             )
 
     def name(self) -> str:
@@ -474,6 +495,7 @@ class ReCogDriveAgent(AbstractAgent):
                 student_planner=self.action_head,
                 teacher_il_planner=self.teacher_il_action_head,
                 teacher_rl_planner=self.teacher_rl_action_head,
+                drivevla_teacher=self.drivevla_teacher,
                 vl_features=last_hidden_state,
                 action_input=action_inputs,
             )
