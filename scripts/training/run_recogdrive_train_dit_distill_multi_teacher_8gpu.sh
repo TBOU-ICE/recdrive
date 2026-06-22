@@ -28,11 +28,11 @@ GPUS="${GPUS:-8}"
 
 # epoch=2 checkpoint: more IL training → better logvar calibration → stable distillation start
 CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
-TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_temporal_il_opd_2b/2026.06.04.00.02.53/checkpoints/temporal-epochepoch=023-stepstep=00053000.ckpt}"
+TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/model/SGDrive-2B-stage3_rl.ckpt}"
 TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_mini_difference_comparation2-v2}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recdrive_rl_with_SGDrive_rl}"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
-LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_mini_difference_comparation2-v2}"
+LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/log/training_recdrive_rl_with_SGDrive_rl}"
 
 echo "[8gpu] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
 echo "[8gpu] NAVSIM_DEVKIT_ROOT=${NAVSIM_DEVKIT_ROOT}"
