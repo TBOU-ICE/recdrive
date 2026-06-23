@@ -132,6 +132,7 @@ class ReCogDriveAgent(AbstractAgent):
         teacher_dit_checkpoint: Optional[str] = None,  # backward-compatible alias for RL teacher
         teacher_dit_checkpoint_il: Optional[str] = None,
         teacher_dit_checkpoint_rl: Optional[str] = None,
+        teacher_dit_checkpoint_mt: Optional[str] = None,
         dit_distill_eps_clip: float = 0.2,            # unused, kept for config compat
         dit_distill_min_sigma: float = 0.04,
         dit_distill_normalize_advantage: bool = True, # unused, kept for config compat
@@ -139,6 +140,7 @@ class ReCogDriveAgent(AbstractAgent):
         dit_distill_log_interval: int = 50,
         dit_distill_il_weight: float = 0.75,
         dit_distill_rl_weight: float = 0.25,
+        dit_distill_mt_weight: float = 0.0,
         dit_distill_smooth_weight: float = 0.02,
     ):
         super().__init__()
@@ -158,6 +160,7 @@ class ReCogDriveAgent(AbstractAgent):
         self.teacher_dit_checkpoint = teacher_dit_checkpoint
         self.teacher_dit_checkpoint_il = teacher_dit_checkpoint_il
         self.teacher_dit_checkpoint_rl = teacher_dit_checkpoint_rl
+        self.teacher_dit_checkpoint_mt = teacher_dit_checkpoint_mt
         self.backbone = None
         self.metric_cache_path = metric_cache_path
         self.reference_policy_checkpoint = reference_policy_checkpoint
@@ -234,6 +237,7 @@ class ReCogDriveAgent(AbstractAgent):
         self.teacher_action_head = None      # backward-compatible alias: RL teacher
         self.teacher_il_action_head = None
         self.teacher_rl_action_head = None
+        self.teacher_mt_action_head = None
         self.dit_distill_trainer = None
         if dit_distill:
             # Backward compatibility: teacher_dit_checkpoint is treated as RL teacher.
@@ -281,6 +285,10 @@ class ReCogDriveAgent(AbstractAgent):
             self.teacher_il_action_head = _build_and_load_teacher(teacher_il_ckpt, "IL/EC")
             self.teacher_rl_action_head = _build_and_load_teacher(teacher_rl_ckpt, "RL/PDMS")
             self.teacher_action_head = self.teacher_rl_action_head
+            if teacher_dit_checkpoint_mt:
+                self.teacher_mt_action_head = _build_and_load_teacher(
+                    teacher_dit_checkpoint_mt, "MT/multi-teacher"
+                )
 
             # student DiT is trainable
             for p in self.action_head.parameters():
@@ -294,6 +302,7 @@ class ReCogDriveAgent(AbstractAgent):
                 log_interval=dit_distill_log_interval,
                 il_weight=dit_distill_il_weight,
                 rl_weight=dit_distill_rl_weight,
+                mt_weight=dit_distill_mt_weight,
                 smooth_weight=dit_distill_smooth_weight,
             )
 
@@ -476,6 +485,7 @@ class ReCogDriveAgent(AbstractAgent):
                 teacher_rl_planner=self.teacher_rl_action_head,
                 vl_features=last_hidden_state,
                 action_input=action_inputs,
+                teacher_mt_planner=self.teacher_mt_action_head,
             )
         else:
             action_inputs = BatchFeature({"state": input_state.to(model_dtype), "his_traj": history_trajectory_reshaped.to(model_dtype), "status_feature": status_feature.to(model_dtype)})
