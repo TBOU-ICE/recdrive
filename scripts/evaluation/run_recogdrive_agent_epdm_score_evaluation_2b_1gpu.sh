@@ -29,7 +29,7 @@ export PORT=${PORT}
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 # DiT / diffusion planner checkpoint
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dual_teacher_dit_opd_v1/2026.05.31.15.59.08/checkpoints/epochepoch=003-stepstep=00005000.ckpt"
+CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt"
 # Merged VLM: InternVL3-2B base + finetuned weights
 VLM_PATH="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B"
 VLM_WEIGHTS_PATH=""
@@ -54,5 +54,5 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/exp/metric_cach
     agent.sampling_method="ddim" \
     metric_cache_path="${METRIC_CACHE_PATH}" \
     agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-    experiment_name=eval_recogdrive_hydramdpp_epdms_1gpu \
+    experiment_name=eval_recogdrive_hydramdpp_epdms_il  \
     worker=sequential 
