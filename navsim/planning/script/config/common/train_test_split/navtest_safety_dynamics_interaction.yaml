@@ -1,0 +1,4 @@
+defaults:
+  - scene_filter: navtest_safety_dynamics_interaction
+
+data_split: test
