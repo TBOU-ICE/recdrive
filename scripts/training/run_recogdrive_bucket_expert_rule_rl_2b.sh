@@ -4,6 +4,7 @@ export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
 export NAVSIM_DEVKIT_ROOT="/workspace/code"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
+export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 NNODES="${WORLD_SIZE:-1}"
