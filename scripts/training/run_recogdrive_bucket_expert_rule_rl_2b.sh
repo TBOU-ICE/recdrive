@@ -2,7 +2,7 @@ export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$P
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="/workspace/recdrive-scene"
+export NAVSIM_DEVKIT_ROOT="/workspace/code"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
@@ -12,7 +12,7 @@ MASTER_ADDR="${MASTER_ADDR:?MASTER_ADDR is empty}"
 MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS="${GPUS:-8}"
 
-INIT_CKPT="${INIT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
+INIT_CKPT="${INIT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_rule_il/2026.07.01.10.32.38/lightning_logs/version_0/checkpoints/epoch=0-step=534.ckpt}"
 REF_CKPT="${REF_CKPT:-${INIT_CKPT}}"
 BUCKET_JSON="/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain/exclusive_rule_intersection_tokens.json"
 NAVTRAIN_OUTPUT_DIR="/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain"
@@ -39,7 +39,7 @@ METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdr
   agent.vlm_size='small' \
   agent.sampling_method='ddim' \
   agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-  trainer.params.max_epochs=9 \
+  trainer.params.max_epochs=10 \
   trainer.params.num_nodes=${NNODES} \
   trainer.params.devices=${GPUS} \
   experiment_name=training_recogdrive_bucket_rule_rl \
