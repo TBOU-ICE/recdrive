@@ -11,6 +11,13 @@ from navsim.planning.training.dataset import CacheOnlyDataset
 
 logger = logging.getLogger(__name__)
 
+EXCLUSIVE_BUCKET_TOKEN_FILES = {
+    'safety_dynamics_interaction': 'exclusive_safety_dynamics_interaction_tokens.json',
+    'rule_intersection': 'exclusive_rule_intersection_tokens.json',
+    'progress_curbside_stopgo': 'exclusive_progress_curbside_stopgo_tokens.json',
+    'general_or_no_tag': 'exclusive_general_or_no_tag_tokens.json',
+}
+
 
 def normalize_token(token: object) -> Optional[str]:
     if token is None:
@@ -44,6 +51,57 @@ def load_token_list(json_path: str) -> List[str]:
     return tokens
 
 
+def load_token_to_log_mapping(json_path: str) -> Dict[str, str]:
+    path = Path(json_path)
+    with path.open('r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    if not isinstance(data, dict):
+        raise ValueError(f'Expected token metadata dict in {path}, got {type(data).__name__}')
+
+    token_to_log: Dict[str, str] = {}
+    for token, metadata in data.items():
+        normalized = normalize_token(token)
+        if not normalized or not isinstance(metadata, dict):
+            continue
+        log_name = metadata.get('log_name')
+        if isinstance(log_name, str) and log_name:
+            token_to_log[normalized] = log_name
+
+    if not token_to_log:
+        raise ValueError(f'No token->log mappings found in {path}')
+    return token_to_log
+
+
+def load_complement_bucket_tokens(bucket_name: str, navtrain_output_dir: str) -> List[str]:
+    if bucket_name not in EXCLUSIVE_BUCKET_TOKEN_FILES:
+        raise ValueError(f'Unknown bucket name: {bucket_name}')
+
+    tokens: List[str] = []
+    seen = set()
+    output_dir = Path(navtrain_output_dir)
+    for name, filename in EXCLUSIVE_BUCKET_TOKEN_FILES.items():
+        if name == bucket_name:
+            continue
+        for token in load_token_list(str(output_dir / filename)):
+            if token not in seen:
+                seen.add(token)
+                tokens.append(token)
+    return tokens
+
+
+def load_all_bucket_tokens(navtrain_output_dir: str) -> List[str]:
+    tokens: List[str] = []
+    seen = set()
+    output_dir = Path(navtrain_output_dir)
+    for filename in EXCLUSIVE_BUCKET_TOKEN_FILES.values():
+        for token in load_token_list(str(output_dir / filename)):
+            if token not in seen:
+                seen.add(token)
+                tokens.append(token)
+    return tokens
+
+
 class TokenFilteredCacheOnlyDataset(CacheOnlyDataset):
     """Cache-only dataset with optional token whitelist filtering."""
 
@@ -54,8 +112,8 @@ class TokenFilteredCacheOnlyDataset(CacheOnlyDataset):
         target_builders,
         log_names: Optional[List[str]] = None,
         tokens: Optional[Sequence[str]] = None,
+        token_to_log: Optional[Dict[str, str]] = None,
     ):
-        self._token_filter = set(tokens) if tokens is not None else None
         self._cache_path = Path(cache_path)
         if not self._cache_path.is_dir():
             raise AssertionError(f'Cache path {cache_path} does not exist!')
@@ -67,13 +125,26 @@ class TokenFilteredCacheOnlyDataset(CacheOnlyDataset):
 
         self._feature_builders = feature_builders
         self._target_builders = target_builders
-        self._valid_cache_paths = self._load_valid_caches(
-            cache_path=self._cache_path,
-            feature_builders=self._feature_builders,
-            target_builders=self._target_builders,
-            log_names=self.log_names,
-            token_filter=self._token_filter,
-        )
+
+        if tokens is not None and token_to_log is not None:
+            allowed_logs = {str(log_name) for log_name in self.log_names}
+            self._valid_cache_paths = self._load_valid_caches_from_index(
+                cache_path=self._cache_path,
+                feature_builders=self._feature_builders,
+                target_builders=self._target_builders,
+                tokens=tokens,
+                token_to_log=token_to_log,
+                allowed_logs=allowed_logs,
+            )
+        else:
+            token_filter = set(tokens) if tokens is not None else None
+            self._valid_cache_paths = self._load_valid_caches(
+                cache_path=self._cache_path,
+                feature_builders=self._feature_builders,
+                target_builders=self._target_builders,
+                log_names=self.log_names,
+                token_filter=token_filter,
+            )
         self.tokens = list(self._valid_cache_paths.keys())
 
     @staticmethod
@@ -102,6 +173,48 @@ class TokenFilteredCacheOnlyDataset(CacheOnlyDataset):
                 if all(found_caches) and token is not None:
                     valid_cache_paths[token] = token_path
 
+        return valid_cache_paths
+
+    @staticmethod
+    def _load_valid_caches_from_index(
+        cache_path: Path,
+        feature_builders,
+        target_builders,
+        tokens: Sequence[str],
+        token_to_log: Dict[str, str],
+        allowed_logs: set,
+    ) -> Dict[str, Path]:
+        valid_cache_paths: Dict[str, Path] = {}
+        total = len(tokens)
+
+        for index, token in enumerate(tokens):
+            if index > 0 and index % 10000 == 0:
+                logger.info(
+                    'Resolved cached tokens: %d/%d (found %d)',
+                    index,
+                    total,
+                    len(valid_cache_paths),
+                )
+
+            normalized = normalize_token(token)
+            if not normalized:
+                continue
+
+            log_name = token_to_log.get(normalized)
+            if not log_name or log_name not in allowed_logs:
+                continue
+
+            token_path = cache_path / log_name / normalized
+            if not token_path.is_dir():
+                continue
+
+            if all(
+                (token_path / (builder.get_unique_name() + '.gz')).is_file()
+                for builder in feature_builders + target_builders
+            ):
+                valid_cache_paths[normalized] = token_path
+
+        logger.info('Resolved cached tokens: %d/%d (found %d)', total, total, len(valid_cache_paths))
         return valid_cache_paths
 
 
@@ -182,10 +295,21 @@ def split_tokens_by_logs(
     tokens: Iterable[str],
     cache_path: str,
     log_names: Sequence[str],
+    token_to_log: Optional[Dict[str, str]] = None,
 ) -> List[str]:
     log_name_set = {str(log_name) for log_name in log_names}
     cache_root = Path(cache_path)
     filtered: List[str] = []
+
+    if token_to_log is not None:
+        for token in tokens:
+            normalized = normalize_token(token)
+            if not normalized:
+                continue
+            log_name = token_to_log.get(normalized)
+            if log_name in log_name_set and (cache_root / log_name / normalized).is_dir():
+                filtered.append(normalized)
+        return filtered
 
     for token in tokens:
         normalized = normalize_token(token)

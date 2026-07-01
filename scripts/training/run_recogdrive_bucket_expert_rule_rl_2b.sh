@@ -15,6 +15,7 @@ GPUS="${GPUS:-8}"
 INIT_CKPT="${INIT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
 REF_CKPT="${REF_CKPT:-${INIT_CKPT}}"
 BUCKET_JSON="/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain/exclusive_rule_intersection_tokens.json"
+NAVTRAIN_OUTPUT_DIR="/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
 METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache_train}"
 
@@ -46,6 +47,8 @@ METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdr
   cache_path="${CACHE_PATH}" \
   bucket.name=rule_intersection \
   bucket.tokens_json="${BUCKET_JSON}" \
+  bucket.token_to_log_json="${NAVTRAIN_OUTPUT_DIR}/navtrain_token_to_buckets.json" \
+  bucket.navtrain_output_dir="${NAVTRAIN_OUTPUT_DIR}" \
   bucket.full_ratio=0.25 \
   bucket.bucket_ratio=0.75 \
   hydra/job_logging=stdout \

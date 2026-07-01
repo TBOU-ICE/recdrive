@@ -24,6 +24,9 @@ force_cache_computation: false
 bucket:
   name: unset
   tokens_json: ''
+  token_to_log_json: ''
+  navtrain_output_dir: ''
+  use_complement_for_full: true
   full_ratio: 0.2
   bucket_ratio: 0.8
   epoch_size: null
