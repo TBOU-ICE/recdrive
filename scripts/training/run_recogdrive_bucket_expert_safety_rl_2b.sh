@@ -13,7 +13,7 @@ MASTER_ADDR="${MASTER_ADDR:?MASTER_ADDR is empty}"
 MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS="${GPUS:-8}"
 
-INIT_CKPT="${INIT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_safety_il/2026.07.01.10.51.35/lightning_logs/version_0/checkpoints/epoch=5-step=3474.ckpt}"
+INIT_CKPT="${INIT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
 REF_CKPT="${REF_CKPT:-${INIT_CKPT}}"
 BUCKET_JSON="/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain/exclusive_safety_dynamics_interaction_tokens.json"
 NAVTRAIN_OUTPUT_DIR="/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain"
@@ -43,7 +43,7 @@ METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdr
   trainer.params.max_epochs=10 \
   trainer.params.num_nodes=${NNODES} \
   trainer.params.devices=${GPUS} \
-  experiment_name=training_recogdrive_bucket_safety_rl \
+  experiment_name=training_recogdrive_bucket_safety_direct_rl \
   train_test_split=navtrain \
   cache_path="${CACHE_PATH}" \
   bucket.name=safety_dynamics_interaction \

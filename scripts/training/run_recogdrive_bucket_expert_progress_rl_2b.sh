@@ -13,7 +13,7 @@ MASTER_ADDR="${MASTER_ADDR:?MASTER_ADDR is empty}"
 MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS="${GPUS:-8}"
 
-INIT_CKPT="${INIT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_progress_il/2026.07.01.10.38.35/lightning_logs/version_0/checkpoints/epoch=1-step=936.ckpt}"
+INIT_CKPT="${INIT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
 REF_CKPT="${REF_CKPT:-${INIT_CKPT}}"
 BUCKET_JSON="/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain/exclusive_progress_curbside_stopgo_tokens.json"
 NAVTRAIN_OUTPUT_DIR="/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain"
@@ -30,7 +30,7 @@ METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdr
   agent=recogdrive_agent \
   "agent.checkpoint_path=\"${INIT_CKPT}\"" \
   "agent.reference_policy_checkpoint=\"${REF_CKPT}\"" \
-  agent.lr=1e-4 \
+  agent.lr=5e-5 \
   agent.grpo=True \
   agent.vlm_path='/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B' \
   agent.cam_type='single' \
@@ -43,7 +43,7 @@ METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdr
   trainer.params.max_epochs=10 \
   trainer.params.num_nodes=${NNODES} \
   trainer.params.devices=${GPUS} \
-  experiment_name=training_recogdrive_bucket_progress_rl \
+  experiment_name=training_recogdrive_bucket_progress_direct_rl \
   train_test_split=navtrain \
   cache_path="${CACHE_PATH}" \
   bucket.name=progress_curbside_stopgo \
