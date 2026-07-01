@@ -2,7 +2,7 @@ export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$P
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="/workspace/recdrive-scene"
+export NAVSIM_DEVKIT_ROOT="/workspace/code"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
@@ -38,6 +38,7 @@ CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdriv
   trainer.params.num_nodes=${NNODES} \
   trainer.params.devices=${GPUS} \
   experiment_name=training_recogdrive_bucket_safety_il \
+  train_test_split=navtrain \
   cache_path="${CACHE_PATH}" \
   bucket.name=safety_dynamics_interaction \
   bucket.tokens_json="${BUCKET_JSON}" \

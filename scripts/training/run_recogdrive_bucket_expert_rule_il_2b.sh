@@ -38,6 +38,7 @@ CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdriv
   trainer.params.num_nodes=${NNODES} \
   trainer.params.devices=${GPUS} \
   experiment_name=training_recogdrive_bucket_rule_il \
+  train_test_split=navtrain \
   cache_path="${CACHE_PATH}" \
   bucket.name=rule_intersection \
   bucket.tokens_json="${BUCKET_JSON}" \

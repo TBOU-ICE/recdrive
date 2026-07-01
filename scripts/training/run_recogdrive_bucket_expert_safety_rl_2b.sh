@@ -42,6 +42,7 @@ METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdr
   trainer.params.num_nodes=${NNODES} \
   trainer.params.devices=${GPUS} \
   experiment_name=training_recogdrive_bucket_safety_rl \
+  train_test_split=navtrain \
   cache_path="${CACHE_PATH}" \
   bucket.name=safety_dynamics_interaction \
   bucket.tokens_json="${BUCKET_JSON}" \
