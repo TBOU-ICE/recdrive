@@ -1,0 +1,4 @@
+defaults:
+  - scene_filter: all_scenes
+
+data_split: synthetic_reaction_pdm_v1.0-0
