@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
-# 8-GPU fixed-weight four-teacher DiT OPD distillation training.
+# Single-GPU debug for fixed-weight four-teacher DiT OPD distillation.
+# Example:
+#   bash scripts/training/run_recogdrive_train_dit_distill_four_teacher_1gpu_debug.sh
+#   CUDA_VISIBLE_DEVICES=2 bash scripts/training/run_recogdrive_train_dit_distill_four_teacher_1gpu_debug.sh
 set -euo pipefail
 
 export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/code}"
+export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/recdrive-scene}"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export HYDRA_FULL_ERROR=1
 
 TRAIN_TEST_SPLIT="${TRAIN_TEST_SPLIT:-navtrain}"
-NNODES="${WORLD_SIZE:-1}"
-RANK="${RANK:-0}"
 MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
-MASTER_PORT="${MASTER_PORT:-23456}"
-GPUS="${GPUS:-8}"
+MASTER_PORT="${MASTER_PORT:-23457}"
+GPUS=1
 
 STUDENT_CKPT="${STUDENT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
 TEACHER_PROGRESS_CKPT="${TEACHER_PROGRESS_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_progress_rl/2026.07.01.12.37.06/lightning_logs/version_0/checkpoints/epoch=9-step=9350.ckpt}"
@@ -25,18 +26,18 @@ TEACHER_RULE_CKPT="${TEACHER_RULE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/re
 TEACHER_SAFETY_CKPT="${TEACHER_SAFETY_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_safety_rl/2026.07.01.13.17.33/lightning_logs/version_0/checkpoints/epoch=9-step=11580.ckpt}"
 TEACHER_GENERAL_CKPT="${TEACHER_GENERAL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recogdrive_four_teacher_dit_opd}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-debug_four_teacher_dit_opd_1gpu}"
 
-echo "[four-teacher] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
-echo "[four-teacher] STUDENT_CKPT=${STUDENT_CKPT}"
-echo "[four-teacher] TEACHER_PROGRESS_CKPT=${TEACHER_PROGRESS_CKPT}"
-echo "[four-teacher] TEACHER_RULE_CKPT=${TEACHER_RULE_CKPT}"
-echo "[four-teacher] TEACHER_SAFETY_CKPT=${TEACHER_SAFETY_CKPT}"
-echo "[four-teacher] TEACHER_GENERAL_CKPT=${TEACHER_GENERAL_CKPT}"
+echo "[four-teacher-1gpu] MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
+echo "[four-teacher-1gpu] STUDENT_CKPT=${STUDENT_CKPT}"
+echo "[four-teacher-1gpu] TEACHER_PROGRESS_CKPT=${TEACHER_PROGRESS_CKPT}"
+echo "[four-teacher-1gpu] TEACHER_RULE_CKPT=${TEACHER_RULE_CKPT}"
+echo "[four-teacher-1gpu] TEACHER_SAFETY_CKPT=${TEACHER_SAFETY_CKPT}"
+echo "[four-teacher-1gpu] TEACHER_GENERAL_CKPT=${TEACHER_GENERAL_CKPT}"
 
 /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
-  --nnodes="${NNODES}" \
-  --node_rank="${RANK}" \
+  --nnodes=1 \
+  --node_rank=0 \
   --master_addr="${MASTER_ADDR}" \
   --nproc_per_node="${GPUS}" \
   --master_port="${MASTER_PORT}" \
@@ -49,8 +50,8 @@ echo "[four-teacher] TEACHER_GENERAL_CKPT=${TEACHER_GENERAL_CKPT}"
   "agent.teacher_dit_checkpoint_general='${TEACHER_GENERAL_CKPT}'" \
   agent.teacher_weight_progress=0.3 \
   agent.teacher_weight_rule=0.2 \
-  agent.teacher_weight_safety=0.3 \
-  agent.teacher_weight_general=0.2 \
+  agent.teacher_weight_safety=0.2 \
+  agent.teacher_weight_general=0.3 \
   agent.dit_distill_smooth_weight=0.02 \
   agent.dit_distill_min_sigma=0.04 \
   agent.lr=1e-4 \
@@ -60,12 +61,15 @@ echo "[four-teacher] TEACHER_GENERAL_CKPT=${TEACHER_GENERAL_CKPT}"
   agent.dit_type='small' \
   agent.vlm_size='small' \
   agent.sampling_method='ddim' \
-  trainer.params.max_epochs=50 \
+  trainer.params.max_epochs=1 \
   trainer.params.precision=bf16-mixed \
-  trainer.params.num_nodes="${NNODES}" \
-  trainer.params.devices="${GPUS}" \
-  trainer.params.strategy=ddp_find_unused_parameters_true \
-  dataloader.params.batch_size=8 \
+  trainer.params.num_nodes=1 \
+  trainer.params.devices=1 \
+  trainer.params.strategy=auto \
+  trainer.params.limit_train_batches=20 \
+  trainer.params.limit_val_batches=5 \
+  dataloader.params.batch_size=1 \
+  dataloader.params.num_workers=2 \
   experiment_name="${EXPERIMENT_NAME}" \
   train_test_split="${TRAIN_TEST_SPLIT}" \
   cache_path="${CACHE_PATH}" \
