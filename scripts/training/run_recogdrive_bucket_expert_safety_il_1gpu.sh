@@ -21,7 +21,7 @@ MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS=1
 
-BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
+#BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
 BUCKET_JSON="/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain/exclusive_safety_dynamics_interaction_tokens.json"
 NAVTRAIN_OUTPUT_DIR="/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain"
 CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
@@ -36,8 +36,7 @@ echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} MASTER_ADDR=${MASTER_ADDR} MA
   --master_port=${MASTER_PORT} \
   "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_training_recogdrive_bucket_il.py" \
   agent=recogdrive_agent \
-  "agent.checkpoint_path=\"${BASE_CKPT}\"" \
-  agent.lr=5e-5 \
+  agent.lr=1e-4 \
   agent.grpo=False \
   agent.vlm_path='/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B' \
   agent.cam_type='single' \
@@ -46,17 +45,18 @@ echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} MASTER_ADDR=${MASTER_ADDR} MA
   agent.dit_type='small' \
   agent.vlm_size='small' \
   agent.sampling_method='ddim' \
-  trainer.params.max_epochs=8 \
+  trainer.params.max_epochs=50 \
   trainer.params.num_nodes=${NNODES} \
   trainer.params.devices=${GPUS} \
-  experiment_name=training_recogdrive_bucket_safety_il_1gpu \
+  experiment_name=training_dit_bucket_safety_il_1gpu \
   train_test_split=navtrain \
   cache_path="${CACHE_PATH}" \
   bucket.name=safety_dynamics_interaction \
   bucket.tokens_json="${BUCKET_JSON}" \
   bucket.token_to_log_json="${NAVTRAIN_OUTPUT_DIR}/navtrain_token_to_buckets.json" \
   bucket.navtrain_output_dir="${NAVTRAIN_OUTPUT_DIR}" \
-  bucket.full_ratio=0.4 \
-  bucket.bucket_ratio=0.6 \
+  bucket.full_ratio=0.5 \
+  bucket.bucket_ratio=0.5 \
   hydra/job_logging=stdout \
   hydra.output_subdir=null
+  #"agent.checkpoint_path=\"${BASE_CKPT}\"" \
