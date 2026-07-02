@@ -1,0 +1,36 @@
+_target_: navsim.agents.recogdrive.recogdrive_four_teacher_agent.ReCogDriveFourTeacherAgent
+_convert_: 'all'
+
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+
+checkpoint_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt'
+vlm_path: ''
+vlm_weights_path: ''
+cam_type: 'single'
+vlm_type: 'internvl'
+dit_type: 'small'
+sampling_method: 'ddim'
+cache_mode: false
+cache_hidden_state: true
+metric_cache_path: ''
+reference_policy_checkpoint: ''
+vlm_size: 'small'
+train_backbone: false
+grpo: false
+lr: 1e-4
+
+teacher_dit_checkpoint_progress: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_progress_rl/2026.07.01.12.37.06/lightning_logs/version_0/checkpoints/epoch=9-step=9350.ckpt'
+teacher_dit_checkpoint_rule: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_rule_rl/2026.07.01.12.27.25/lightning_logs/version_0/checkpoints/epoch=9-step=10670.ckpt'
+teacher_dit_checkpoint_safety: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_safety_rl/2026.07.01.13.17.33/lightning_logs/version_0/checkpoints/epoch=9-step=11580.ckpt'
+teacher_dit_checkpoint_general: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+
+teacher_weight_progress: 0.25
+teacher_weight_rule: 0.25
+teacher_weight_safety: 0.25
+teacher_weight_general: 0.25
+dit_distill_min_sigma: 0.04
+dit_distill_smooth_weight: 0.02
