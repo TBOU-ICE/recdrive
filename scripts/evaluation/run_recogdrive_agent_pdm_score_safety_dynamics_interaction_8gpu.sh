@@ -32,7 +32,7 @@ export PORT=${PORT}
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "GPUS=${GPUS}, GPUS_PER_NODE=${GPUS_PER_NODE}"
 
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_safety_direct_rl/2026.07.01.22.33.41/lightning_logs/version_0/checkpoints/epoch=9-step=11580.ckpt"
+CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_four_teacher_dit_opd_v2/2026.07.02.16.19.05/lightning_logs/version_0/checkpoints/epoch=31-step=42560.ckpt"
 
 # PDMS on navtest must use caches built for that split; metric_cache_train tokens won't match navtest.
 METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/exp/metric_cache"
@@ -55,5 +55,5 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/exp/metric_cach
     agent.sampling_method="ddim" \
     metric_cache_path="${METRIC_CACHE_PATH}" \
     agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-    experiment_name=eval-pdms-safety_dynamics_interaction-direct-rl \
+    experiment_name=eval-pdms-safety_dynamics_interaction-four_teacher_dit_opd_v2-42kstep \
     worker=sequential

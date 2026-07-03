@@ -28,7 +28,7 @@ export PORT=${PORT}
 
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_buket_safety_dit_il/checkpoints/epoch=44-step=26055.ckpt"
+CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_safety_direct_dit_il_epoch44_rl/2026.07.02.05.57.03/lightning_logs/version_0/checkpoints/epoch=9-step=11580.ckpt"
 # PDMS on navtest must use caches built for that split; metric_cache_train tokens won't match navtest.
 METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
 
@@ -49,5 +49,5 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
     agent.sampling_method="ddim" \
     metric_cache_path="${METRIC_CACHE_PATH}" \
     agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-    experiment_name=eval-pdms-safety_dynamics_interaction-dit-il-epoch44 \
+    experiment_name=eval-pdms-safety_dynamics_interaction-dit-il-epoch44-rl-epoch9 \
     worker=sequential
