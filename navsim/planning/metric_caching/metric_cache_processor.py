@@ -104,10 +104,19 @@ class MetricCacheProcessor:
 
         scenario_step = scenario.database_interval  # [s]
 
-        # sample detection tracks a 2Hz
-        relative_time_s = np.arange(0, (time_horizon * 1 / resolution_step) + 1, 1, dtype=float) * resolution_step
+        # SimScale round0 samples have 4s of future annotations, while the metric cache
+        # still needs a 5s occupancy horizon for TTC. Sample only available GT frames
+        # and let interpolation return no tracks beyond the last annotated frame.
+        initial_frame_idx = getattr(scenario, "_initial_frame_idx", 0)
+        max_available_iteration = max(0, scenario.get_number_of_iterations() - initial_frame_idx - 1)
+        gt_time_horizon = min(time_horizon, max_available_iteration * scenario_step)
 
-        gt_indices = np.arange(0, int(time_horizon / scenario_step) + 1, int(resolution_step / scenario_step))
+        gt_indices = np.arange(
+            0,
+            int(gt_time_horizon / scenario_step) + 1,
+            int(resolution_step / scenario_step),
+        )
+        relative_time_s = gt_indices.astype(float) * scenario_step
         gt_detection_tracks = [
             scenario.get_tracked_objects_at_iteration(iteration=iteration) for iteration in gt_indices
         ]
