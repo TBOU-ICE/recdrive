@@ -18,6 +18,16 @@ split: trainval
 cache_path: ${oc.env:NAVSIM_EXP_ROOT}/training_cache_transfuser
 use_cache_without_dataset: false # load the training samples from the cache. scene-filter will be ignored
 force_cache_computation: true
+
+# Default off. When enabled, training samples are drawn from several cache roots
+# with explicit source ratios, while validation still uses cache_path.
+use_mixed_cache: false
+mixed_cache:
+  paths: []
+  names: []
+  sample_ratios: []
+  num_samples: 0
+
 seed: 0
 
 use_deepspeed: True

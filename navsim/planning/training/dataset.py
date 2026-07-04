@@ -137,6 +137,87 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         return (features, targets, token)
 
 
+class MixedCacheOnlyDataset(torch.utils.data.Dataset):
+    """Dataset wrapper that reads training samples from multiple cache roots."""
+
+    def __init__(
+        self,
+        cache_paths: List[str],
+        cache_names: List[str],
+        feature_builders: List[AbstractFeatureBuilder],
+        target_builders: List[AbstractTargetBuilder],
+    ):
+        super().__init__()
+        assert len(cache_paths) == len(cache_names), "cache_paths and cache_names must have the same length!"
+        assert len(cache_paths) > 0, "At least one cache path is required!"
+
+        self._feature_builders = feature_builders
+        self._target_builders = target_builders
+        self.samples: List[Dict[str, object]] = []
+        self.source_counts: Dict[str, int] = {}
+
+        for cache_name, cache_path in zip(cache_names, cache_paths):
+            root_path = Path(cache_path)
+            assert root_path.is_dir(), f"Cache path {cache_path} does not exist!"
+            valid_cache_paths = CacheOnlyDataset._load_valid_caches(
+                cache_path=root_path,
+                feature_builders=self._feature_builders,
+                target_builders=self._target_builders,
+                log_names=[log_name for log_name in root_path.iterdir()],
+            )
+            self.source_counts[cache_name] = len(valid_cache_paths)
+            assert self.source_counts[cache_name] > 0, f"No valid cached samples found in {cache_name}: {cache_path}"
+            for token, token_path in valid_cache_paths.items():
+                self.samples.append({"source": cache_name, "token": token, "path": token_path})
+
+        assert len(self.samples) > 0, "No valid cached samples found in mixed cache paths!"
+        self.tokens = [f"{sample['source']}:{sample['token']}" for sample in self.samples]
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], str]:
+        sample = self.samples[idx]
+        token_path = Path(sample["path"])
+
+        features: Dict[str, torch.Tensor] = {}
+        for builder in self._feature_builders:
+            data_dict_path = token_path / (builder.get_unique_name() + ".gz")
+            data_dict = load_feature_target_from_pickle(data_dict_path)
+            features.update(data_dict)
+
+        targets: Dict[str, torch.Tensor] = {}
+        for builder in self._target_builders:
+            data_dict_path = token_path / (builder.get_unique_name() + ".gz")
+            data_dict = load_feature_target_from_pickle(data_dict_path)
+            targets.update(data_dict)
+
+        return features, targets, f"{sample['source']}:{sample['token']}"
+
+    def get_sample_weights(self, sample_ratios: List[float]) -> torch.DoubleTensor:
+        """Build per-sample weights so each source is sampled by the requested ratio."""
+        assert len(sample_ratios) == len(self.source_counts), "sample_ratios must match the number of cache sources!"
+        assert all(ratio >= 0 for ratio in sample_ratios), "sample ratios must be non-negative!"
+
+        total_ratio = float(sum(sample_ratios))
+        assert total_ratio > 0, "At least one sample ratio must be positive!"
+
+        source_names = list(self.source_counts.keys())
+        normalized_ratios = {
+            source_name: float(sample_ratios[index]) / total_ratio
+            for index, source_name in enumerate(source_names)
+        }
+        source_weights = {
+            source_name: normalized_ratios[source_name] / max(self.source_counts[source_name], 1)
+            for source_name in source_names
+        }
+
+        return torch.as_tensor(
+            [source_weights[str(sample["source"])] for sample in self.samples],
+            dtype=torch.double,
+        )
+
+
 class Dataset(torch.utils.data.Dataset):
     def __init__(
         self,

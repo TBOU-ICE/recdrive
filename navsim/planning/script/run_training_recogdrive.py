@@ -1,17 +1,18 @@
 from typing import Tuple
 from pathlib import Path
 import logging
+import math
 import os
 import hydra
 from hydra.utils import instantiate
-from omegaconf import DictConfig
-from torch.utils.data import DataLoader
+from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import DataLoader, WeightedRandomSampler
 import pytorch_lightning as pl
 import torch.distributed as dist
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.common.dataclasses import SceneFilter
 from navsim.common.dataloader import SceneLoader
-from navsim.planning.training.dataset import CacheOnlyDataset, Dataset
+from navsim.planning.training.dataset import CacheOnlyDataset, Dataset, MixedCacheOnlyDataset
 from navsim.planning.training.agent_lightning_module import AgentLightningModule
 import torch
 import torch.nn.utils.rnn as rnn_utils
@@ -141,20 +142,59 @@ def main(cfg: DictConfig) -> None:
         agent=agent,
     )
 
+    train_sampler = None
     if cfg.use_cache_without_dataset:
         logger.info("Using cached data without building SceneLoader")
         assert (
             not cfg.force_cache_computation
         ), "force_cache_computation must be False when using cached data without building SceneLoader"
+
+        if cfg.get("use_mixed_cache", False):
+            mixed_cache_paths = list(OmegaConf.to_container(cfg.mixed_cache.paths, resolve=True))
+            mixed_cache_names = list(OmegaConf.to_container(cfg.mixed_cache.names, resolve=True))
+            mixed_sample_ratios = list(OmegaConf.to_container(cfg.mixed_cache.sample_ratios, resolve=True))
+            assert len(mixed_cache_paths) == len(mixed_cache_names) == len(mixed_sample_ratios), (
+                "mixed_cache.paths, mixed_cache.names, and mixed_cache.sample_ratios must have the same length"
+            )
+            logger.info("Using mixed cache training data: %s", dict(zip(mixed_cache_names, mixed_cache_paths)))
+            train_data = MixedCacheOnlyDataset(
+                cache_paths=mixed_cache_paths,
+                cache_names=mixed_cache_names,
+                feature_builders=agent.get_feature_builders(),
+                target_builders=agent.get_target_builders(),
+            )
+            logger.info("Mixed cache source counts: %s", train_data.source_counts)
+            sample_weights = train_data.get_sample_weights(mixed_sample_ratios)
+            global_num_samples = int(cfg.mixed_cache.get("num_samples", 0)) or len(train_data)
+            num_samples = int(math.ceil(global_num_samples / world_size))
+            sampler_generator = torch.Generator()
+            sampler_generator.manual_seed(int(cfg.seed) + rank)
+            train_sampler = WeightedRandomSampler(
+                weights=sample_weights,
+                num_samples=num_samples,
+                replacement=True,
+                generator=sampler_generator,
+            )
+            logger.info(
+                "Mixed cache sampler ratios=%s global_num_samples=%d num_samples_per_rank=%d",
+                mixed_sample_ratios,
+                global_num_samples,
+                num_samples,
+            )
+        else:
+            assert (
+                cfg.cache_path is not None
+            ), "cache_path must be provided when using cached data without building SceneLoader"
+            train_data = CacheOnlyDataset(
+                cache_path=cfg.cache_path,
+                feature_builders=agent.get_feature_builders(),
+                target_builders=agent.get_target_builders(),
+                log_names=cfg.train_logs,
+            )
+
         assert (
             cfg.cache_path is not None
-        ), "cache_path must be provided when using cached data without building SceneLoader"
-        train_data = CacheOnlyDataset(
-            cache_path=cfg.cache_path,
-            feature_builders=agent.get_feature_builders(),
-            target_builders=agent.get_target_builders(),
-            log_names=cfg.train_logs,
-        )
+        ), "cache_path must point to the navtrain cache used for validation"
         val_data = CacheOnlyDataset(
             cache_path=cfg.cache_path,
             feature_builders=agent.get_feature_builders(),
@@ -166,7 +206,16 @@ def main(cfg: DictConfig) -> None:
         train_data, val_data = build_datasets(cfg, agent)
 
     logger.info("Building Datasets")
-    train_dataloader = DataLoader(train_data, collate_fn=custom_collate_fn,  **cfg.dataloader.params, shuffle=True)
+    if train_sampler is not None:
+        train_dataloader = DataLoader(
+            train_data,
+            collate_fn=custom_collate_fn,
+            **cfg.dataloader.params,
+            sampler=train_sampler,
+            shuffle=False,
+        )
+    else:
+        train_dataloader = DataLoader(train_data, collate_fn=custom_collate_fn,  **cfg.dataloader.params, shuffle=True)
     logger.info("Num training samples: %d", len(train_data))
     val_dataloader = DataLoader(val_data, collate_fn=custom_collate_fn, **cfg.dataloader.params, shuffle=False)
     logger.info("Num validation samples: %d", len(val_data))
