@@ -28,6 +28,7 @@ BOOTSTRAP_SYNCED="${BOOTSTRAP_SYNCED:-}"
 # legacy ${SIMSCALE_ROOT}/_extract_* directory.
 USE_OLD_WORK_DIR="${USE_OLD_WORK_DIR:-0}"
 PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
+PARALLEL_MERGE_JOBS="${PARALLEL_MERGE_JOBS:-4}"
 RUN_FINAL_MERGE="${RUN_FINAL_MERGE:-0}"
 
 ARCHIVE_DIR="${SIMSCALE_ROOT}/archives/${DATASET_NAME}"
@@ -231,14 +232,48 @@ wait_for_all_jobs() {
     exit 1
   fi
 }
+merge_active_job_count() {
+  jobs -pr | wc -l
+}
+
+wait_for_merge_slot() {
+  while (( $(merge_active_job_count) >= PARALLEL_MERGE_JOBS )); do
+    if ! wait -n; then
+      MERGE_FAILED=1
+    fi
+  done
+}
+
+wait_for_merge_jobs() {
+  while (( $(merge_active_job_count) > 0 )); do
+    if ! wait -n; then
+      MERGE_FAILED=1
+    fi
+  done
+}
 
 merge_if_exists() {
   local src="$1"
   local dst="$2"
-  if [[ -d "${src}" ]]; then
-    mkdir -p "${dst}"
-    cp -a "${src}/." "${dst}/"
+  local item
+  if [[ ! -d "${src}" ]]; then
+    return
   fi
+
+  mkdir -p "${dst}"
+  MERGE_FAILED=0
+  log_msg "merge copying ${src}/ -> ${dst}/ with ${PARALLEL_MERGE_JOBS} jobs ..."
+  while IFS= read -r -d '' item; do
+    wait_for_merge_slot
+    cp -a "${item}" "${dst}/" &
+  done < <(find "${src}" -mindepth 1 -maxdepth 1 -print0)
+  wait_for_merge_jobs
+
+  if (( MERGE_FAILED != 0 )); then
+    log_msg "[ERROR] merge copy failed: ${src}/ -> ${dst}/"
+    exit 1
+  fi
+  log_msg "merge copy done: ${src}/ -> ${dst}/"
 }
 
 merge_work_dir() {
@@ -264,6 +299,7 @@ fi
 log_msg "dataset=${DATASET_NAME}"
 log_msg "modelscope dataset=${MS_REPO}"
 log_msg "parallel jobs=${PARALLEL_JOBS}"
+log_msg "parallel merge jobs=${PARALLEL_MERGE_JOBS}"
 log_msg "run final merge=${RUN_FINAL_MERGE}"
 log_msg "local staging=${LOCAL_STAGING_ROOT} (extract) -> work_dir=${WORK_DIR} (cp -a)"
 log_msg "sync state=${SYNC_STATE_DIR}"
