@@ -17,7 +17,7 @@ from nuplan.planning.simulation.trajectory.trajectory_sampling import Trajectory
 from .utils.internvl_preprocess import load_image
 from .utils.lr_scheduler import WarmupCosLR
 from .utils.utils import format_number, build_from_configs
-from .recogdrive_features import ReCogDriveFeatureBuilder ,TrajectoryTargetBuilder
+from .recogdrive_features import ReCogDriveFeatureBuilder, TrajectoryTargetBuilder, decode_navigation_command
 from .recogdrive_backbone import RecogDriveBackbone
 from .recogdrive_diffusion_planner import (
     ReCogDriveDiffusionPlanner,
@@ -162,9 +162,7 @@ class ReCogDriveAgent(AbstractAgent):
             pixel_values_cat = torch.cat(pixel_values_list, dim=0).cuda()
             
 
-            navigation_commands = ['turn left', 'go straight', 'turn right']
-            command_indices = torch.argmax(high_command_one_hot, dim=-1)
-            command_str_list = [navigation_commands[idx.item()] for idx in command_indices]
+            command_str_list = [decode_navigation_command(command) for command in high_command_one_hot]
 
             questions = []
             batch_size = high_command_one_hot.shape[0]
