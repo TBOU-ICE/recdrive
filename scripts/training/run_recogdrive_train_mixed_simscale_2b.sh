@@ -21,11 +21,11 @@ SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simsc
 
 NAV_CACHE_PATH="${NAV_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
 SIM_CACHE_PATH="${SIM_CACHE_PATH:-${SIMSCALE_ROOT}/recogdrive_agent_cache_dir_${DATASET_NAME}}"
-#BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
+BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
 VLM_PATH="${VLM_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
 
-NAV_RATIO="${NAV_RATIO:-0.6}"
-SIM_RATIO="${SIM_RATIO:-0.4}"
+NAV_RATIO="${NAV_RATIO:-0.7}"
+SIM_RATIO="${SIM_RATIO:-0.3}"
 MIX_NUM_SAMPLES="${MIX_NUM_SAMPLES:-0}"
 
 NNODES="${WORLD_SIZE:-1}"
@@ -35,7 +35,7 @@ MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS="${GPUS:-8}"
 
 TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_dit_il_mixed_simscale_${NAV_RATIO}_${SIM_RATIO}}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recdrive_il_il_mixed_simscale_${NAV_RATIO}_${SIM_RATIO}}"
 MAX_EPOCHS="${MAX_EPOCHS:-50}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
@@ -54,7 +54,7 @@ LR="${LR:-1e-4}"
 #   exit 1
 # fi
 
-#echo "[mixed-dit] BASE_CKPT=${BASE_CKPT}"
+echo "[mixed-dit] BASE_CKPT=${BASE_CKPT}"
 echo "[mixed-dit] NAV_CACHE_PATH=${NAV_CACHE_PATH}"
 echo "[mixed-dit] SIM_CACHE_PATH=${SIM_CACHE_PATH}"
 echo "[mixed-dit] ratios navtrain=${NAV_RATIO} simscale=${SIM_RATIO}"
@@ -71,6 +71,7 @@ echo "[mixed-dit] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTE
   agent.lr="${LR}" \
   agent.grpo=False \
   agent.vlm_path="${VLM_PATH}" \
+  "agent.checkpoint_path=${BASE_CKPT}" \
   agent.cam_type='single' \
   agent.cache_hidden_state=True \
   agent.vlm_type='internvl' \
@@ -96,4 +97,3 @@ echo "[mixed-dit] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTE
   mixed_cache.num_samples="${MIX_NUM_SAMPLES}" \
   hydra/job_logging=stdout \
   hydra.output_subdir=null
-#"agent.checkpoint_path=${BASE_CKPT}" \
