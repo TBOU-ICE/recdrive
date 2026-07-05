@@ -21,11 +21,11 @@ SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simsc
 
 NAV_CACHE_PATH="${NAV_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
 SIM_CACHE_PATH="${SIM_CACHE_PATH:-${SIMSCALE_ROOT}/recogdrive_agent_cache_dir_${DATASET_NAME}}"
-BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
+#BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
 VLM_PATH="${VLM_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
 
-NAV_RATIO="${NAV_RATIO:-0.7}"
-SIM_RATIO="${SIM_RATIO:-0.3}"
+NAV_RATIO="${NAV_RATIO:-0.6}"
+SIM_RATIO="${SIM_RATIO:-0.4}"
 MIX_NUM_SAMPLES="${MIX_NUM_SAMPLES:-0}"
 
 NNODES="${WORLD_SIZE:-1}"
@@ -35,26 +35,26 @@ MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS="${GPUS:-8}"
 
 TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recogdrive_vlm_il_mixed_simscale_${NAV_RATIO}_${SIM_RATIO}}"
-MAX_EPOCHS="${MAX_EPOCHS:-5}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_dit_il_mixed_simscale_${NAV_RATIO}_${SIM_RATIO}}"
+MAX_EPOCHS="${MAX_EPOCHS:-50}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
 LR="${LR:-1e-4}"
 
-if [[ ! -d "${NAV_CACHE_PATH}" ]]; then
-  echo "[ERROR] NAV_CACHE_PATH does not exist: ${NAV_CACHE_PATH}" >&2
-  exit 1
-fi
-if [[ ! -d "${SIM_CACHE_PATH}" ]]; then
-  echo "[ERROR] SIM_CACHE_PATH does not exist: ${SIM_CACHE_PATH}" >&2
-  exit 1
-fi
-if [[ ! -f "${BASE_CKPT}" ]]; then
-  echo "[ERROR] BASE_CKPT does not exist: ${BASE_CKPT}" >&2
-  exit 1
-fi
+# if [[ ! -d "${NAV_CACHE_PATH}" ]]; then
+#   echo "[ERROR] NAV_CACHE_PATH does not exist: ${NAV_CACHE_PATH}" >&2
+#   exit 1
+# fi
+# if [[ ! -d "${SIM_CACHE_PATH}" ]]; then
+#   echo "[ERROR] SIM_CACHE_PATH does not exist: ${SIM_CACHE_PATH}" >&2
+#   exit 1
+# fi
+# if [[ ! -f "${BASE_CKPT}" ]]; then
+#   echo "[ERROR] BASE_CKPT does not exist: ${BASE_CKPT}" >&2
+#   exit 1
+# fi
 
-echo "[mixed-dit] BASE_CKPT=${BASE_CKPT}"
+#echo "[mixed-dit] BASE_CKPT=${BASE_CKPT}"
 echo "[mixed-dit] NAV_CACHE_PATH=${NAV_CACHE_PATH}"
 echo "[mixed-dit] SIM_CACHE_PATH=${SIM_CACHE_PATH}"
 echo "[mixed-dit] ratios navtrain=${NAV_RATIO} simscale=${SIM_RATIO}"
@@ -68,7 +68,6 @@ echo "[mixed-dit] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTE
   --master_port="${MASTER_PORT}" \
   "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_training_recogdrive.py" \
   agent=recogdrive_agent \
-  "agent.checkpoint_path=${BASE_CKPT}" \
   agent.lr="${LR}" \
   agent.grpo=False \
   agent.vlm_path="${VLM_PATH}" \
@@ -97,3 +96,4 @@ echo "[mixed-dit] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTE
   mixed_cache.num_samples="${MIX_NUM_SAMPLES}" \
   hydra/job_logging=stdout \
   hydra.output_subdir=null
+#"agent.checkpoint_path=${BASE_CKPT}" \
