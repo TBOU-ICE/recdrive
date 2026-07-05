@@ -24,8 +24,8 @@ SIM_CACHE_PATH="${SIM_CACHE_PATH:-${SIMSCALE_ROOT}/recogdrive_agent_cache_dir_${
 BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
 VLM_PATH="${VLM_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
 
-NAV_RATIO="${NAV_RATIO:-0.6}"
-SIM_RATIO="${SIM_RATIO:-0.4}"
+NAV_RATIO="${NAV_RATIO:-1.0}"
+SIM_RATIO="${SIM_RATIO:-0.0}"
 MIX_NUM_SAMPLES="${MIX_NUM_SAMPLES:-0}"
 
 NNODES="${WORLD_SIZE:-1}"
@@ -35,11 +35,11 @@ MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS="${GPUS:-8}"
 
 TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recdrive_il_il_mixed_simscale_${NAV_RATIO}_${SIM_RATIO}}"
-MAX_EPOCHS="${MAX_EPOCHS:-50}"
-BATCH_SIZE="${BATCH_SIZE:-8}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recdrive_il_il_exp0${NAV_RATIO}_${SIM_RATIO}}"
+MAX_EPOCHS="${MAX_EPOCHS:-5}"
+BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
-LR="${LR:-1e-4}"
+LR="${LR:-1e-5}"
 
 # if [[ ! -d "${NAV_CACHE_PATH}" ]]; then
 #   echo "[ERROR] NAV_CACHE_PATH does not exist: ${NAV_CACHE_PATH}" >&2
