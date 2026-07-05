@@ -153,9 +153,15 @@ def main(cfg: DictConfig) -> None:
             mixed_cache_paths = list(OmegaConf.to_container(cfg.mixed_cache.paths, resolve=True))
             mixed_cache_names = list(OmegaConf.to_container(cfg.mixed_cache.names, resolve=True))
             mixed_sample_ratios = list(OmegaConf.to_container(cfg.mixed_cache.sample_ratios, resolve=True))
-            assert len(mixed_cache_paths) == len(mixed_cache_names) == len(mixed_sample_ratios), (
-                "mixed_cache.paths, mixed_cache.names, and mixed_cache.sample_ratios must have the same length"
-            )
+            fullmix = bool(cfg.mixed_cache.get("fullmix", False))
+            if fullmix:
+                assert len(mixed_cache_paths) == len(mixed_cache_names), (
+                    "mixed_cache.paths and mixed_cache.names must have the same length"
+                )
+            else:
+                assert len(mixed_cache_paths) == len(mixed_cache_names) == len(mixed_sample_ratios), (
+                    "mixed_cache.paths, mixed_cache.names, and mixed_cache.sample_ratios must have the same length"
+                )
             logger.info("Using mixed cache training data: %s", dict(zip(mixed_cache_names, mixed_cache_paths)))
             train_data = MixedCacheOnlyDataset(
                 cache_paths=mixed_cache_paths,
@@ -164,23 +170,30 @@ def main(cfg: DictConfig) -> None:
                 target_builders=agent.get_target_builders(),
             )
             logger.info("Mixed cache source counts: %s", train_data.source_counts)
-            sample_weights = train_data.get_sample_weights(mixed_sample_ratios)
-            global_num_samples = int(cfg.mixed_cache.get("num_samples", 0)) or len(train_data)
-            num_samples = int(math.ceil(global_num_samples / world_size))
-            sampler_generator = torch.Generator()
-            sampler_generator.manual_seed(int(cfg.seed) + rank)
-            train_sampler = WeightedRandomSampler(
-                weights=sample_weights,
-                num_samples=num_samples,
-                replacement=True,
-                generator=sampler_generator,
-            )
-            logger.info(
-                "Mixed cache sampler ratios=%s global_num_samples=%d num_samples_per_rank=%d",
-                mixed_sample_ratios,
-                global_num_samples,
-                num_samples,
-            )
+            if cfg.mixed_cache.get("fullmix", False):
+                logger.info(
+                    "Full-mix mode: uniform shuffle over all %d cached samples "
+                    "(navtrain + simscale union, no ratio rebalancing)",
+                    len(train_data),
+                )
+            else:
+                sample_weights = train_data.get_sample_weights(mixed_sample_ratios)
+                global_num_samples = int(cfg.mixed_cache.get("num_samples", 0)) or len(train_data)
+                num_samples = int(math.ceil(global_num_samples / world_size))
+                sampler_generator = torch.Generator()
+                sampler_generator.manual_seed(int(cfg.seed) + rank)
+                train_sampler = WeightedRandomSampler(
+                    weights=sample_weights,
+                    num_samples=num_samples,
+                    replacement=True,
+                    generator=sampler_generator,
+                )
+                logger.info(
+                    "Mixed cache sampler ratios=%s global_num_samples=%d num_samples_per_rank=%d",
+                    mixed_sample_ratios,
+                    global_num_samples,
+                    num_samples,
+                )
         else:
             assert (
                 cfg.cache_path is not None

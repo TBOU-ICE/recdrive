@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# Download SimScale planner-based pseudo-expert round0 and arrange it in the
-# same layout used by NAVSIM/OpenScene:
-#   ${SIMSCALE_ROOT}/navsim_logs/synthetic_reaction_pdm_v1.0-0
-#   ${SIMSCALE_ROOT}/sensor_blobs/synthetic_reaction_pdm_v1.0-0
+# Download SimScale planner-based pseudo-expert data from Hugging Face and
+# arrange it in the same layout used by NAVSIM/OpenScene:
+#   ${SIMSCALE_ROOT}/navsim_logs/synthetic_reaction_pdm_v1.0-${ROUND}
+#   ${SIMSCALE_ROOT}/sensor_blobs/synthetic_reaction_pdm_v1.0-${ROUND}
 #
 # Flow per package: download archive -> tar on ${LOCAL_STAGING_ROOT} (/tmp)
 # -> cp to ${WORK_DIR} (NAS by default, much faster than CPFS).
 # Final merge back to ${SIMSCALE_ROOT} is optional and intentionally off by default.
+#
+# Usage:
+#   bash scripts/download_simscale_pdm_round0.sh
+#   ROUND=1 SPLITS=56 bash scripts/download_simscale_pdm_round0.sh
+#   ROUND=1 RUN_FINAL_MERGE=1 bash scripts/download_simscale_pdm_round0.sh
 set -euo pipefail
 
 PROGRESS_INTERVAL_SEC="${PROGRESS_INTERVAL_SEC:-20}"
@@ -15,10 +20,13 @@ SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simsc
 # Fast NAS path for intermediate extract accumulation (avoid CPFS small-file writes).
 EXTRACT_WORK_ROOT="${EXTRACT_WORK_ROOT:-/workspace/nby/data/simscale}"
 ROUND="${ROUND:-0}"
-SPLITS="${SPLITS:-66}"
+declare -a DEFAULT_SPLITS=(66 56 47 39 33)
+SPLITS="${SPLITS:-${DEFAULT_SPLITS[ROUND]:-66}}"
 DATASET_NAME="synthetic_reaction_pdm_v1.0-${ROUND}"
 ARCHIVE_PREFIX="simscale_pdm_v1.0-${ROUND}"
-MS_REPO="${MS_REPO:-OpenDriveLab/SimScale}"
+# Official HF mirrors from OpenDriveLab/SimScale tools/download_hf.sh
+HF_REPO="${HF_REPO:-https://huggingface.co/datasets/OpenDriveLab/SimScale/resolve/main}"
+HF_REPO_FUT="${HF_REPO_FUT:-https://huggingface.co/datasets/OpenDriveLab-org/SimScale/resolve/main}"
 INCLUDE_FUTURE_SENSOR="${INCLUDE_FUTURE_SENSOR:-0}"
 # Fast local path for tar extract (overlay ~100+ MB/s). Do NOT use /workspace/tmp (NAS).
 LOCAL_STAGING_ROOT="${LOCAL_STAGING_ROOT:-/tmp}"
@@ -60,9 +68,25 @@ fi
 mkdir -p "${WORK_DIR}"
 
 log_msg() {
-  local line="[simscale-round0] $(date '+%Y-%m-%d %H:%M:%S') $*"
+  local line="[simscale-round${ROUND}] $(date '+%Y-%m-%d %H:%M:%S') $*"
   echo "${line}"
   echo "${line}" >> "${RUN_LOG}"
+}
+
+download_from_hf() {
+  local archive_url="$1"
+  local archive_path="$2"
+
+  if command -v wget >/dev/null 2>&1; then
+    wget -c --tries=10 --timeout=120 -O "${archive_path}" "${archive_url}"
+    return
+  fi
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 10 --retry-delay 5 -C - -o "${archive_path}" "${archive_url}"
+    return
+  fi
+  log_msg "[ERROR] wget or curl is required for Hugging Face download"
+  exit 1
 }
 
 # Global holding the last-started watcher pid. We deliberately avoid command
@@ -148,9 +172,17 @@ download_and_extract() {
   local package_idx="$1"
   local remote_path="$2"
   local archive_name="$3"
+  local use_fut_repo="${4:-0}"
   local archive_path="${ARCHIVE_DIR}/${archive_name}"
   local staging_dir="${LOCAL_STAGING_ROOT}/simscale_staging_${DATASET_NAME}_${archive_name%.tar.gz}"
   local staging_marker="${staging_dir}/.extract_complete"
+  local repo_base="${HF_REPO}"
+  local archive_url
+
+  if [[ "${use_fut_repo}" == "1" ]]; then
+    repo_base="${HF_REPO_FUT}"
+  fi
+  archive_url="${repo_base}/${remote_path}"
 
   if is_archive_synced "${archive_name}"; then
     log_msg "[${package_idx}/${TOTAL_PACKAGES}] skip (already synced): ${archive_name}"
@@ -158,15 +190,9 @@ download_and_extract() {
   fi
 
   if [[ ! -f "${archive_path}" ]]; then
-    log_msg "[${package_idx}/${TOTAL_PACKAGES}] downloading ${archive_name} ..."
-    modelscope download --dataset "${MS_REPO}" "${remote_path}" --local_dir "${ARCHIVE_DIR}"
-    if [[ ! -f "${archive_path}" ]]; then
-      local downloaded_path
-      downloaded_path="$(find "${ARCHIVE_DIR}" -type f -name "${archive_name}" -print -quit)"
-      if [[ -n "${downloaded_path}" ]]; then
-        mv "${downloaded_path}" "${archive_path}"
-      fi
-    fi
+    log_msg "[${package_idx}/${TOTAL_PACKAGES}] downloading ${archive_name} from HF ..."
+    log_msg "[${package_idx}/${TOTAL_PACKAGES}] url=${archive_url}"
+    download_from_hf "${archive_url}" "${archive_path}"
   else
     log_msg "[${package_idx}/${TOTAL_PACKAGES}] reusing archive ${archive_path}"
   fi
@@ -297,7 +323,9 @@ if (( ${#EXTRA_MERGE_WORK_DIRS[@]} > 0 )); then
   log_msg "extra merge work_dirs=${EXTRA_MERGE_WORK_DIRS[*]}"
 fi
 log_msg "dataset=${DATASET_NAME}"
-log_msg "modelscope dataset=${MS_REPO}"
+log_msg "hf repo=${HF_REPO}"
+log_msg "hf fut repo=${HF_REPO_FUT}"
+log_msg "splits=${SPLITS}"
 log_msg "parallel jobs=${PARALLEL_JOBS}"
 log_msg "parallel merge jobs=${PARALLEL_MERGE_JOBS}"
 log_msg "run final merge=${RUN_FINAL_MERGE}"
@@ -328,7 +356,8 @@ if [[ "${INCLUDE_FUTURE_SENSOR}" == "1" ]]; then
     queue_download_and_extract \
       "${PACKAGE_IDX}" \
       "SimScale_data/${DATASET_NAME}/${ARCHIVE_PREFIX}_sensor_blobs_fut/${ARCHIVE_PREFIX}_sensor_blobs_fut_${idx}.tar.gz" \
-      "${ARCHIVE_PREFIX}_sensor_blobs_fut_${idx}.tar.gz"
+      "${ARCHIVE_PREFIX}_sensor_blobs_fut_${idx}.tar.gz" \
+      1
   done
 fi
 
@@ -357,7 +386,7 @@ if [[ "${RUN_FINAL_MERGE}" == "1" ]]; then
   log_msg "sensor files: $(find "${SENSOR_DIR}" -type f | wc -l)"
   log_msg "ready:"
   log_msg "  OPENSCENE_DATA_ROOT=${SIMSCALE_ROOT}"
-  log_msg "  train_test_split=simscale_pdm_round0"
+  log_msg "  train_test_split=simscale_pdm_round${ROUND}"
 else
   log_msg "download/extract complete; final merge skipped because RUN_FINAL_MERGE=${RUN_FINAL_MERGE}"
   log_msg "intermediate work_dir=${WORK_DIR}"

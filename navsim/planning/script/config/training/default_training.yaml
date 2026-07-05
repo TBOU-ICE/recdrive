@@ -27,6 +27,9 @@ mixed_cache:
   names: []
   sample_ratios: []
   num_samples: 0
+  # When true, train on the union of all cached samples with uniform per-sample
+  # probability (natural navtrain/simscale proportion). Ignores sample_ratios.
+  fullmix: false
 
 seed: 0
 
