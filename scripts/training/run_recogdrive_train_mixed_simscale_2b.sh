@@ -24,8 +24,8 @@ SIM_CACHE_PATH="${SIM_CACHE_PATH:-${SIMSCALE_ROOT}/recogdrive_agent_cache_dir_${
 BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
 VLM_PATH="${VLM_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
 
-NAV_RATIO="${NAV_RATIO:-0.9}"
-SIM_RATIO="${SIM_RATIO:-0.1}"
+NAV_RATIO="${NAV_RATIO:-0.8}"
+SIM_RATIO="${SIM_RATIO:-0.2}"
 MIX_NUM_SAMPLES="${MIX_NUM_SAMPLES:-0}"
 
 NNODES="${WORLD_SIZE:-1}"
@@ -35,7 +35,7 @@ MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS="${GPUS:-8}"
 
 TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recdrive_il_il_exp1${NAV_RATIO}_${SIM_RATIO}}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recdrive_il_il_exp2${NAV_RATIO}_${SIM_RATIO}}"
 MAX_EPOCHS="${MAX_EPOCHS:-10}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
