@@ -124,6 +124,11 @@ stop_progress_watch() {
   WATCHER_PID=""
 }
 
+archive_is_readable() {
+  local archive_path="$1"
+  tar -tzf "${archive_path}" >/dev/null 2>&1
+}
+
 sync_to_workdir() {
   local staging_dir="$1"
   local label="$2"
@@ -169,6 +174,10 @@ bootstrap_existing_progress() {
 }
 
 download_and_extract() {
+  WATCHER_PID=""
+  trap "stop_progress_watch" EXIT
+  trap "stop_progress_watch; exit 130" INT TERM
+
   local package_idx="$1"
   local remote_path="$2"
   local archive_name="$3"
@@ -187,6 +196,11 @@ download_and_extract() {
   if is_archive_synced "${archive_name}"; then
     log_msg "[${package_idx}/${TOTAL_PACKAGES}] skip (already synced): ${archive_name}"
     return
+  fi
+
+  if [[ -f "${archive_path}" ]] && ! archive_is_readable "${archive_path}"; then
+    log_msg "[${package_idx}/${TOTAL_PACKAGES}] removing incomplete/corrupt archive ${archive_path}"
+    rm -f "${archive_path}"
   fi
 
   if [[ ! -f "${archive_path}" ]]; then
