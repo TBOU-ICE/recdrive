@@ -86,5 +86,5 @@ echo "[fullmix-dit] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MAS
   "mixed_cache.paths=[${NAV_CACHE_PATH},${SIM_CACHE_PATH}]" \
   'mixed_cache.names=[navtrain,simscale]' \
   hydra/job_logging=stdout \
-  hydra/output_subdir=null
+  hydra.output_subdir=null
 #"agent.checkpoint_path=${BASE_CKPT}" \
