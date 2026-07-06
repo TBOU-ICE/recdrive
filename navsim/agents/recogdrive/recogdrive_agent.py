@@ -113,7 +113,23 @@ class ReCogDriveAgent(AbstractAgent):
                 k2 = k[len("agent."):] if k.startswith("agent.") else k
                 if k2 in model_dict and v.shape == model_dict[k2].shape:
                     filtered_ckpt[k2] = v
-            self.load_state_dict(filtered_ckpt, strict=False)
+            action_loaded = sum(1 for k in filtered_ckpt if k.startswith("action_head."))
+            if not filtered_ckpt:
+                raise RuntimeError(
+                    f"No checkpoint weights were loaded from checkpoint_path={self.checkpoint_path!r}. "
+                    "Check that checkpoint keys and model architecture match."
+                )
+            if action_loaded == 0:
+                raise RuntimeError(
+                    f"Checkpoint loaded {len(filtered_ckpt)} tensors from checkpoint_path={self.checkpoint_path!r}, "
+                    "but none belonged to action_head."
+                )
+            missing, unexpected = self.load_state_dict(filtered_ckpt, strict=False)
+            print(
+                f"[ReCogDriveAgent] Loaded {len(filtered_ckpt)} tensors "
+                f"({action_loaded} action_head tensors) from checkpoint_path={self.checkpoint_path}. "
+                f"Missing after partial load: {len(missing)}, Unexpected: {len(unexpected)}"
+            )
 
     def get_sensor_config(self) -> SensorConfig:
         return SensorConfig.build_all_sensors(include=[0, 1, 2, 3])

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Download SimScale planner-based pseudo-expert data from Hugging Face and
-# arrange it in the same layout used by NAVSIM/OpenScene:
+# Download SimScale planner-based pseudo-expert data from Hugging Face or
+# ModelScope and arrange it in the same layout used by NAVSIM/OpenScene:
 #   ${SIMSCALE_ROOT}/navsim_logs/synthetic_reaction_pdm_v1.0-${ROUND}
 #   ${SIMSCALE_ROOT}/sensor_blobs/synthetic_reaction_pdm_v1.0-${ROUND}
 #
@@ -12,6 +12,7 @@
 #   bash scripts/download_simscale_pdm_round0.sh
 #   ROUND=1 SPLITS=56 bash scripts/download_simscale_pdm_round0.sh
 #   ROUND=1 RUN_FINAL_MERGE=1 bash scripts/download_simscale_pdm_round0.sh
+#   DOWNLOAD_SOURCE=ms bash scripts/download_simscale_pdm_round0.sh
 set -euo pipefail
 
 PROGRESS_INTERVAL_SEC="${PROGRESS_INTERVAL_SEC:-20}"
@@ -24,9 +25,14 @@ declare -a DEFAULT_SPLITS=(66 56 47 39 33)
 SPLITS="${SPLITS:-${DEFAULT_SPLITS[ROUND]:-66}}"
 DATASET_NAME="synthetic_reaction_pdm_v1.0-${ROUND}"
 ARCHIVE_PREFIX="simscale_pdm_v1.0-${ROUND}"
+# Download source: hf (default) or ms/modelscope
+DOWNLOAD_SOURCE="${DOWNLOAD_SOURCE:-hf}"
 # Official HF mirrors from OpenDriveLab/SimScale tools/download_hf.sh
 HF_REPO="${HF_REPO:-https://huggingface.co/datasets/OpenDriveLab/SimScale/resolve/main}"
 HF_REPO_FUT="${HF_REPO_FUT:-https://huggingface.co/datasets/OpenDriveLab-org/SimScale/resolve/main}"
+# Official ModelScope mirror from OpenDriveLab/SimScale tools/download_ms.sh
+MS_DATASET="${MS_DATASET:-OpenDriveLab/SimScale}"
+MS_DATASET_FUT="${MS_DATASET_FUT:-OpenDriveLab/SimScale}"
 INCLUDE_FUTURE_SENSOR="${INCLUDE_FUTURE_SENSOR:-0}"
 # Fast local path for tar extract (overlay ~100+ MB/s). Do NOT use /workspace/tmp (NAS).
 LOCAL_STAGING_ROOT="${LOCAL_STAGING_ROOT:-/tmp}"
@@ -73,7 +79,14 @@ log_msg() {
   echo "${line}" >> "${RUN_LOG}"
 }
 
-download_from_hf() {
+download_source_label() {
+  case "${DOWNLOAD_SOURCE}" in
+    ms|modelscope) echo "ModelScope" ;;
+    hf|huggingface|*) echo "Hugging Face" ;;
+  esac
+}
+
+download_from_url() {
   local archive_url="$1"
   local archive_path="$2"
 
@@ -85,8 +98,50 @@ download_from_hf() {
     curl -fL --retry 10 --retry-delay 5 -C - -o "${archive_path}" "${archive_url}"
     return
   fi
-  log_msg "[ERROR] wget or curl is required for Hugging Face download"
+  log_msg "[ERROR] wget or curl is required for URL download"
   exit 1
+}
+
+download_from_modelscope() {
+  local remote_path="$1"
+  local archive_path="$2"
+  local dataset_repo="$3"
+  local ms_staging_dir
+  local downloaded_path
+
+  if ! command -v modelscope >/dev/null 2>&1; then
+    log_msg "[ERROR] modelscope CLI is required when DOWNLOAD_SOURCE=ms"
+    log_msg "[ERROR] Install with: pip install modelscope"
+    exit 1
+  fi
+
+  ms_staging_dir="$(mktemp -d "${LOCAL_STAGING_ROOT}/simscale_ms_XXXXXX")"
+  modelscope download --dataset "${dataset_repo}" "${remote_path}" --local_dir "${ms_staging_dir}"
+  downloaded_path="${ms_staging_dir}/${remote_path}"
+  if [[ ! -f "${downloaded_path}" ]]; then
+    log_msg "[ERROR] ModelScope download did not produce ${downloaded_path}"
+    rm -rf "${ms_staging_dir}"
+    exit 1
+  fi
+  mkdir -p "$(dirname "${archive_path}")"
+  mv "${downloaded_path}" "${archive_path}"
+  rm -rf "${ms_staging_dir}"
+}
+
+download_archive() {
+  local archive_url="$1"
+  local archive_path="$2"
+  local remote_path="$3"
+  local dataset_repo="$4"
+
+  case "${DOWNLOAD_SOURCE}" in
+    ms|modelscope)
+      download_from_modelscope "${remote_path}" "${archive_path}" "${dataset_repo}"
+      ;;
+    hf|huggingface|*)
+      download_from_url "${archive_url}" "${archive_path}"
+      ;;
+  esac
 }
 
 # Global holding the last-started watcher pid. We deliberately avoid command
@@ -186,10 +241,12 @@ download_and_extract() {
   local staging_dir="${LOCAL_STAGING_ROOT}/simscale_staging_${DATASET_NAME}_${archive_name%.tar.gz}"
   local staging_marker="${staging_dir}/.extract_complete"
   local repo_base="${HF_REPO}"
+  local ms_repo="${MS_DATASET}"
   local archive_url
 
   if [[ "${use_fut_repo}" == "1" ]]; then
     repo_base="${HF_REPO_FUT}"
+    ms_repo="${MS_DATASET_FUT}"
   fi
   archive_url="${repo_base}/${remote_path}"
 
@@ -204,9 +261,13 @@ download_and_extract() {
   fi
 
   if [[ ! -f "${archive_path}" ]]; then
-    log_msg "[${package_idx}/${TOTAL_PACKAGES}] downloading ${archive_name} from HF ..."
-    log_msg "[${package_idx}/${TOTAL_PACKAGES}] url=${archive_url}"
-    download_from_hf "${archive_url}" "${archive_path}"
+    log_msg "[${package_idx}/${TOTAL_PACKAGES}] downloading ${archive_name} from $(download_source_label) ..."
+    if [[ "${DOWNLOAD_SOURCE}" == "hf" || "${DOWNLOAD_SOURCE}" == "huggingface" ]]; then
+      log_msg "[${package_idx}/${TOTAL_PACKAGES}] url=${archive_url}"
+    else
+      log_msg "[${package_idx}/${TOTAL_PACKAGES}] dataset=${ms_repo} path=${remote_path}"
+    fi
+    download_archive "${archive_url}" "${archive_path}" "${remote_path}" "${ms_repo}"
   else
     log_msg "[${package_idx}/${TOTAL_PACKAGES}] reusing archive ${archive_path}"
   fi
@@ -337,8 +398,11 @@ if (( ${#EXTRA_MERGE_WORK_DIRS[@]} > 0 )); then
   log_msg "extra merge work_dirs=${EXTRA_MERGE_WORK_DIRS[*]}"
 fi
 log_msg "dataset=${DATASET_NAME}"
+log_msg "download source=${DOWNLOAD_SOURCE} ($(download_source_label))"
 log_msg "hf repo=${HF_REPO}"
 log_msg "hf fut repo=${HF_REPO_FUT}"
+log_msg "ms dataset=${MS_DATASET}"
+log_msg "ms fut dataset=${MS_DATASET_FUT}"
 log_msg "splits=${SPLITS}"
 log_msg "parallel jobs=${PARALLEL_JOBS}"
 log_msg "parallel merge jobs=${PARALLEL_MERGE_JOBS}"
