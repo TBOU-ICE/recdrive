@@ -30,7 +30,7 @@ SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simsc
 
 NAV_CACHE_PATH="${NAV_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
 SIM_CACHE_PATH="${SIM_CACHE_PATH:-${SIMSCALE_ROOT}/recogdrive_agent_cache_dir_${DATASET_NAME}}"
-BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
+#BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
 VLM_PATH="${VLM_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
 
 NNODES="${WORLD_SIZE:-1}"
@@ -40,11 +40,11 @@ MASTER_PORT="${MASTER_PORT:-23457}"
 GPUS="${GPUS:-8}"
 
 TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_il_fullmix_simscale—quality}"
-MAX_EPOCHS="${MAX_EPOCHS:-30}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_dit_fullmix_simscale_quality}"
+MAX_EPOCHS="${MAX_EPOCHS:-100}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
-LR="${LR:-1e-5}"
+LR="${LR:-1e-4}"
 
 #echo "[fullmix-dit] BASE_CKPT=${BASE_CKPT}"
 echo "[fullmix-dit] NAV_CACHE_PATH=${NAV_CACHE_PATH}"
@@ -63,7 +63,6 @@ echo "[fullmix-dit] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MAS
   agent.lr="${LR}" \
   agent.grpo=False \
   agent.vlm_path="${VLM_PATH}" \
-  "agent.checkpoint_path=${BASE_CKPT}" \
   agent.cam_type='single' \
   agent.cache_hidden_state=True \
   agent.vlm_type='internvl' \
@@ -88,3 +87,4 @@ echo "[fullmix-dit] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MAS
   'mixed_cache.names=[navtrain,simscale]' \
   hydra/job_logging=stdout \
   hydra.output_subdir=null
+#"agent.checkpoint_path=${BASE_CKPT}" \
