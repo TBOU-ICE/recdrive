@@ -16,7 +16,7 @@ export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD="${TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD:-1}"
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
 
 ROUND="${ROUND:-0}"
-DATASET_NAME="synthetic_reaction_pdm_v1.0-${ROUND}"
+DATASET_NAME="synthetic_reaction_pdm_v1.0-${ROUND}_quality"
 SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale}"
 
 NAV_CACHE_PATH="${NAV_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
@@ -24,8 +24,8 @@ SIM_CACHE_PATH="${SIM_CACHE_PATH:-${SIMSCALE_ROOT}/recogdrive_agent_cache_dir_${
 BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
 VLM_PATH="${VLM_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
 
-NAV_RATIO="${NAV_RATIO:-1.0}"
-SIM_RATIO="${SIM_RATIO:-0.0}"
+NAV_RATIO="${NAV_RATIO:-0.9}"
+SIM_RATIO="${SIM_RATIO:-0.1}"
 MIX_NUM_SAMPLES="${MIX_NUM_SAMPLES:-0}"
 
 NNODES="${WORLD_SIZE:-1}"
@@ -35,8 +35,8 @@ MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS="${GPUS:-8}"
 
 TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recdrive_il_il_exp0-v2${NAV_RATIO}_${SIM_RATIO}}"
-MAX_EPOCHS="${MAX_EPOCHS:-5}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recdrive_il_il-mix-round0-quality${NAV_RATIO}_${SIM_RATIO}}"
+MAX_EPOCHS="${MAX_EPOCHS:-30}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
 LR="${LR:-1e-5}"
