@@ -40,7 +40,7 @@ MASTER_PORT="${MASTER_PORT:-23457}"
 GPUS="${GPUS:-8}"
 
 TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_dit_il_fullmix_simscale}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_il_fullmix_simscale—quality}"
 MAX_EPOCHS="${MAX_EPOCHS:-30}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
