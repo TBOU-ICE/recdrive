@@ -26,7 +26,10 @@ def normalize_token(token: object) -> Optional[str]:
         token = token.hex()
     if not isinstance(token, str):
         return None
-    token = token.strip().lower().replace('-', '')
+    token = token.strip().lower()
+    base, sep, suffix = token.rpartition('-')
+    if not (sep and suffix.isdigit() and len(suffix) == 3 and base):
+        token = token.replace('-', '')
     return token or None
 
 
