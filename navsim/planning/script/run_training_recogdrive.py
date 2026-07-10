@@ -238,10 +238,17 @@ def main(cfg: DictConfig) -> None:
     trainer = pl.Trainer(**cfg.trainer.params, callbacks=[pl.callbacks.ModelCheckpoint(monitor="val/loss_epoch",mode='min', save_top_k=5,every_n_epochs=1)])
 
     logger.info("Starting Training")
+    ckpt_path = cfg.get("ckpt_path", None)
+    if ckpt_path in ("", None):
+        ckpt_path = None
+    else:
+        ckpt_path = str(ckpt_path)
+        logger.info("Resuming Lightning training from ckpt_path=%s", ckpt_path)
     trainer.fit(
         model=lightning_module,
         train_dataloaders=train_dataloader,
         val_dataloaders=val_dataloader,
+        ckpt_path=ckpt_path,
     )
 
 

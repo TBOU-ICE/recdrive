@@ -25,6 +25,9 @@ export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/volumes/ad-e2e-al-sh01/j
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD="${TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD:-1}"
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
+# Soften Alluxio/FUSE flaky reads in dataset.py load_feature_target_from_pickle.
+export CACHE_READ_MAX_RETRIES="${CACHE_READ_MAX_RETRIES:-5}"
+export CACHE_READ_RETRY_BASE_SEC="${CACHE_READ_RETRY_BASE_SEC:-0.5}"
 
 SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
 SIM_ROUNDS="${SIM_ROUNDS:-0,1}"
@@ -67,9 +70,12 @@ TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_env
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_dit_il_fullmix_simscale_round01_quality}"
 MAX_EPOCHS="${MAX_EPOCHS:-100}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
-NUM_WORKERS="${NUM_WORKERS:-8}"
+NUM_WORKERS="${NUM_WORKERS:-4}"
 LR="${LR:-1e-4}"
 PYTHON_BIN="${PYTHON_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/python}"
+# Lightning full-state resume (optimizer/epoch). Prefer this over agent.checkpoint_path
+# when continuing an interrupted run of the same experiment.
+CKPT_PATH="${CKPT_PATH:-}"
 
 if [[ "${USE_QUALITY_CACHE}" == "true" ]]; then
   NEED_PREP_QUALITY_CACHE=false
@@ -162,7 +168,43 @@ for idx in "${!SIM_CACHE_PATHS[@]}"; do
   echo "[fullmix-dit] SIM_CACHE_PATH[${SIM_CACHE_NAMES[$idx]}]=${SIM_CACHE_PATHS[$idx]}"
 done
 echo "[fullmix-dit] mixed_cache.fullmix=true (uniform union, sample_ratios ignored)"
+echo "[fullmix-dit] CACHE_READ_MAX_RETRIES=${CACHE_READ_MAX_RETRIES} CACHE_READ_RETRY_BASE_SEC=${CACHE_READ_RETRY_BASE_SEC}"
+echo "[fullmix-dit] CKPT_PATH=${CKPT_PATH:-<none>}"
 echo "[fullmix-dit] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
+
+HYDRA_ARGS=(
+  agent=recogdrive_agent
+  agent.lr="${LR}"
+  agent.grpo=False
+  agent.vlm_path="${VLM_PATH}"
+  agent.cam_type='single'
+  agent.cache_hidden_state=True
+  agent.vlm_type='internvl'
+  agent.dit_type='small'
+  agent.vlm_size='small'
+  agent.sampling_method='ddim'
+  trainer.params.max_epochs="${MAX_EPOCHS}"
+  trainer.params.num_nodes="${NNODES}"
+  trainer.params.devices="${GPUS}"
+  trainer.params.precision=bf16-mixed
+  trainer.params.strategy=ddp_find_unused_parameters_true
+  dataloader.params.batch_size="${BATCH_SIZE}"
+  dataloader.params.num_workers="${NUM_WORKERS}"
+  experiment_name="${EXPERIMENT_NAME}"
+  train_test_split=navtrain
+  cache_path="${NAV_CACHE_PATH}"
+  use_cache_without_dataset=True
+  force_cache_computation=False
+  use_mixed_cache=True
+  mixed_cache.fullmix=True
+  "mixed_cache.paths=[${MIXED_CACHE_PATHS}]"
+  "mixed_cache.names=[${MIXED_CACHE_NAMES}]"
+  hydra/job_logging=stdout
+  hydra.output_subdir=null
+)
+if [[ -n "${CKPT_PATH}" ]]; then
+  HYDRA_ARGS+=("ckpt_path=${CKPT_PATH}")
+fi
 
 "${TORCHRUN_BIN}" \
   --nnodes="${NNODES}" \
@@ -171,32 +213,5 @@ echo "[fullmix-dit] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MAS
   --master_port="${MASTER_PORT}" \
   --nproc_per_node="${GPUS}" \
   "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_training_recogdrive.py" \
-  agent=recogdrive_agent \
-  agent.lr="${LR}" \
-  agent.grpo=False \
-  agent.vlm_path="${VLM_PATH}" \
-  agent.cam_type='single' \
-  agent.cache_hidden_state=True \
-  agent.vlm_type='internvl' \
-  agent.dit_type='small' \
-  agent.vlm_size='small' \
-  agent.sampling_method='ddim' \
-  trainer.params.max_epochs="${MAX_EPOCHS}" \
-  trainer.params.num_nodes="${NNODES}" \
-  trainer.params.devices="${GPUS}" \
-  trainer.params.precision=bf16-mixed \
-  trainer.params.strategy=ddp_find_unused_parameters_true \
-  dataloader.params.batch_size="${BATCH_SIZE}" \
-  dataloader.params.num_workers="${NUM_WORKERS}" \
-  experiment_name="${EXPERIMENT_NAME}" \
-  train_test_split=navtrain \
-  cache_path="${NAV_CACHE_PATH}" \
-  use_cache_without_dataset=True \
-  force_cache_computation=False \
-  use_mixed_cache=True \
-  mixed_cache.fullmix=True \
-  "mixed_cache.paths=[${MIXED_CACHE_PATHS}]" \
-  "mixed_cache.names=[${MIXED_CACHE_NAMES}]" \
-  hydra/job_logging=stdout \
-  hydra.output_subdir=null
+  "${HYDRA_ARGS[@]}"
 #"agent.checkpoint_path=${BASE_CKPT}" \
