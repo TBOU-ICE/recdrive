@@ -57,7 +57,8 @@ if [[ ${#SIM_CACHE_PATHS[@]} -eq 0 ]]; then
   echo "[ERROR] SIM_ROUNDS resolved to no cache paths: ${SIM_ROUNDS}" >&2
   exit 1
 fi
-#BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
+# Weight-only warm start (agent.initialize). Leave empty when using CKPT_PATH resume.
+BASE_CKPT="${BASE_CKPT:-}"
 VLM_PATH="${VLM_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
 
 NNODES="${WORLD_SIZE:-1}"
@@ -73,9 +74,8 @@ BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
 LR="${LR:-1e-4}"
 PYTHON_BIN="${PYTHON_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/python}"
-# Lightning full-state resume (optimizer/epoch). Prefer this over agent.checkpoint_path
-# when continuing an interrupted run of the same experiment.
-CKPT_PATH="${CKPT_PATH:-}"
+# Lightning full-state resume (model + optimizer + epoch/step). Continues from epoch 15.
+CKPT_PATH="${CKPT_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_round01_quality/2026.07.10.04.42.42/lightning_logs/version_0/checkpoints/epoch=15-step=24976.ckpt}"
 
 if [[ "${USE_QUALITY_CACHE}" == "true" ]]; then
   NEED_PREP_QUALITY_CACHE=false
@@ -159,7 +159,7 @@ for idx in "${!SIM_CACHE_PATHS[@]}"; do
   MIXED_CACHE_NAMES="${MIXED_CACHE_NAMES},${SIM_CACHE_NAMES[$idx]}"
 done
 
-#echo "[fullmix-dit] BASE_CKPT=${BASE_CKPT}"
+echo "[fullmix-dit] BASE_CKPT=${BASE_CKPT:-<none>}"
 echo "[fullmix-dit] NAV_CACHE_PATH=${NAV_CACHE_PATH}"
 echo "[fullmix-dit] SIMSCALE_ROOT=${SIMSCALE_ROOT}"
 echo "[fullmix-dit] SIM_ROUNDS=${SIM_ROUNDS}"
@@ -171,6 +171,11 @@ echo "[fullmix-dit] mixed_cache.fullmix=true (uniform union, sample_ratios ignor
 echo "[fullmix-dit] CACHE_READ_MAX_RETRIES=${CACHE_READ_MAX_RETRIES} CACHE_READ_RETRY_BASE_SEC=${CACHE_READ_RETRY_BASE_SEC}"
 echo "[fullmix-dit] CKPT_PATH=${CKPT_PATH:-<none>}"
 echo "[fullmix-dit] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
+
+if [[ -n "${CKPT_PATH}" && ! -f "${CKPT_PATH}" ]]; then
+  echo "[ERROR] CKPT_PATH does not exist: ${CKPT_PATH}" >&2
+  exit 1
+fi
 
 HYDRA_ARGS=(
   agent=recogdrive_agent
@@ -202,6 +207,12 @@ HYDRA_ARGS=(
   hydra/job_logging=stdout
   hydra.output_subdir=null
 )
+# Weight-only init only when not doing Lightning resume (avoid double-load).
+if [[ -n "${BASE_CKPT}" ]]; then
+  HYDRA_ARGS+=("agent.checkpoint_path=${BASE_CKPT}")
+else
+  HYDRA_ARGS+=("agent.checkpoint_path=null")
+fi
 if [[ -n "${CKPT_PATH}" ]]; then
   HYDRA_ARGS+=("ckpt_path=${CKPT_PATH}")
 fi
@@ -214,4 +225,3 @@ fi
   --nproc_per_node="${GPUS}" \
   "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_training_recogdrive.py" \
   "${HYDRA_ARGS[@]}"
-#"agent.checkpoint_path=${BASE_CKPT}" \
