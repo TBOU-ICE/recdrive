@@ -220,8 +220,8 @@ echo "SAMPLE_RATIOS: nav=${NAV_RATIO}, nav_rule=${NAV_BUCKET_RATIO}, sim_rule=${
   --master_port="${MASTER_PORT}" \
   "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_training_recogdrive_mixed_simscale_rl.py" \
   agent=recogdrive_agent \
-  "agent.checkpoint_path=${INIT_CKPT}" \
-  "agent.reference_policy_checkpoint=${REF_CKPT}" \
+  "agent.checkpoint_path=\"${INIT_CKPT}\"" \
+  "agent.reference_policy_checkpoint=\"${REF_CKPT}\"" \
   agent.lr="${LR}" \
   agent.grpo=True \
   agent.vlm_path="${VLM_PATH}" \
@@ -243,6 +243,7 @@ echo "SAMPLE_RATIOS: nav=${NAV_RATIO}, nav_rule=${NAV_BUCKET_RATIO}, sim_rule=${
   train_test_split=navtrain \
   cache_path="${NAV_CACHE_PATH}" \
   use_cache_without_dataset=true \
+  force_cache_computation=False \
   use_mixed_cache=true \
   mixed_cache.paths="[${NAV_CACHE_PATH},${NAV_BUCKET_CACHE_PATH},${SIM_BUCKET_CACHE_PATH}]" \
   mixed_cache.names="[navtrain_full,navtrain_rule,simscale_rule]" \
