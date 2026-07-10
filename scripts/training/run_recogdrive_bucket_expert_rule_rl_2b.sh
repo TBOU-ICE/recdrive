@@ -41,15 +41,15 @@ LIMIT_VAL_BATCHES="${LIMIT_VAL_BATCHES:-1.0}"
 
 NAVTRAIN_OUTPUT_DIR="${NAVTRAIN_OUTPUT_DIR:-/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain}"
 SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
-# scene_buckets metadata still lives on the old NFS root; cache/metric use SIMSCALE_ROOT.
-SIMSCALE_BUCKET_ROOT="${SIMSCALE_BUCKET_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale}"
+# All SimScale artifacts (agent cache / metric cache / scene buckets) live under SIMSCALE_ROOT.
+SIMSCALE_BUCKET_ROOT="${SIMSCALE_BUCKET_ROOT:-${SIMSCALE_ROOT}}"
 SIM_BUCKET_DIR="${SIM_BUCKET_DIR:-${SIMSCALE_BUCKET_ROOT}/scene_buckets_${SIM_DATASET_NAME}}"
 
 NAV_CACHE_PATH="${NAV_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
 SIM_CACHE_PATH="${SIM_CACHE_PATH:-${SIMSCALE_ROOT}/recogdrive_agent_cache_dir_${SIM_CACHE_DATASET_NAME}}"
 NAV_METRIC_CACHE_PATH="${NAV_METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache_train}"
 SIM_METRIC_CACHE_PATH="${SIM_METRIC_CACHE_PATH:-${SIMSCALE_ROOT}/metric_cache_${SIM_METRIC_DATASET_NAME}}"
-
+ 
 MIX_ROOT="${MIX_ROOT:-${SIMSCALE_ROOT}/mixed_training/rule_intersection_45nav_35navbucket_20simbucket}"
 NAV_BUCKET_CACHE_PATH="${NAV_BUCKET_CACHE_PATH:-${MIX_ROOT}/navtrain_rule_bucket_cache}"
 SIM_BUCKET_CACHE_PATH="${SIM_BUCKET_CACHE_PATH:-${MIX_ROOT}/simscale_rule_bucket_cache}"
@@ -147,11 +147,13 @@ def iter_metric_paths(metric_root):
         return []
     paths = []
     for csv_path in sorted(metadata_dir.glob("*.csv")):
+        if csv_path.name.endswith(".bak_oldpath"):
+            continue
         with csv_path.open("r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 path = row.get("file_name") or next(iter(row.values()))
-                if path:
+                if path and Path(path).is_file():
                     paths.append(path)
     return paths
 

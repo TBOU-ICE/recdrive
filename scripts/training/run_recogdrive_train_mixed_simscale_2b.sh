@@ -17,7 +17,7 @@ export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
 
 ROUND="${ROUND:-0}"
 DATASET_NAME="synthetic_reaction_pdm_v1.0-${ROUND}_quality"
-SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale}"
+SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
 
 NAV_CACHE_PATH="${NAV_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
 SIM_CACHE_PATH="${SIM_CACHE_PATH:-${SIMSCALE_ROOT}/recogdrive_agent_cache_dir_${DATASET_NAME}}"

@@ -108,6 +108,7 @@ for round in rounds:
         raise RuntimeError(f"Quality allowlist not found: {allowlist}")
 
     linked = 0
+    missing_src = 0
     dst_cache.mkdir(parents=True, exist_ok=True)
     with allowlist.open("r", encoding="utf-8") as f:
         for line in f:
@@ -117,6 +118,7 @@ for round in rounds:
             log_name, token = line.split("\t", 1)
             src = src_cache / log_name / token
             if not src.is_dir():
+                missing_src += 1
                 continue
             dst_log = dst_cache / log_name
             dst_log.mkdir(parents=True, exist_ok=True)
@@ -126,14 +128,18 @@ for round in rounds:
                 continue
             try:
                 dst.symlink_to(src, target_is_directory=True)
-            except FileExistsError:
-                linked += 1
+            except (FileExistsError, FileNotFoundError, OSError):
+                if dst.exists() or dst.is_symlink():
+                    linked += 1
                 continue
             linked += 1
 
     if linked == 0:
         raise RuntimeError(f"No quality cache entries linked for round {round}: {dst_cache}")
-    print(f"[fullmix-dit] round={round} linked_quality_cache={linked} path={dst_cache}")
+    print(
+        f"[fullmix-dit] round={round} linked_quality_cache={linked} "
+        f"missing_src={missing_src} path={dst_cache}"
+    )
 PYPREP
   else
     echo "[fullmix-dit] quality symlink caches already present; skip prep (set FORCE_PREP_QUALITY_CACHE=true to rebuild)"

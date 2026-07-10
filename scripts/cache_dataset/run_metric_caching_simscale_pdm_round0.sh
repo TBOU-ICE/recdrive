@@ -14,7 +14,7 @@ ROUND="${ROUND:-1}"
 DATASET_NAME="synthetic_reaction_pdm_v1.0-${ROUND}"
 TRAIN_TEST_SPLIT="${TRAIN_TEST_SPLIT:-simscale_pdm_round1}"
 
-SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale}"
+SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"

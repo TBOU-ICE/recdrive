@@ -17,7 +17,7 @@ set -euo pipefail
 
 PROGRESS_INTERVAL_SEC="${PROGRESS_INTERVAL_SEC:-20}"
 
-SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale}"
+SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
 # Fast NAS path for intermediate extract accumulation (avoid CPFS small-file writes).
 EXTRACT_WORK_ROOT="${EXTRACT_WORK_ROOT:-/workspace/nby/data/simscale}"
 ROUND="${ROUND:-0}"

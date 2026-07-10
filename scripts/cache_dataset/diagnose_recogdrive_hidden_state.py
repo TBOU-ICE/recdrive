@@ -15,8 +15,8 @@ Example:
     PYTHONPATH=/workspace/recdrive-scene \\
     python scripts/cache_dataset/diagnose_recogdrive_hidden_state.py \\
       --nav-cache /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train \\
-      --sim-cache /workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-0 \\
-      --output-dir /workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/hidden_state_diag_round0
+      --sim-cache /workspace/datasets/simscale/20260709/recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-0 \\
+      --output-dir /workspace/datasets/simscale/20260709/hidden_state_diag_round0
 """
 
 from __future__ import annotations
@@ -467,14 +467,14 @@ def parse_args() -> argparse.Namespace:
         "--sim-cache",
         type=Path,
         default=Path(
-            "/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/"
+            "/workspace/datasets/simscale/20260709/"
             "recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-0"
         ),
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/hidden_state_diag"),
+        default=Path("/workspace/datasets/simscale/20260709/hidden_state_diag"),
     )
     parser.add_argument("--repo-root", type=Path, default=DEFAULT_REPO_ROOT)
     parser.add_argument("--pool-method", choices=["mean", "max", "cls"], default="mean")

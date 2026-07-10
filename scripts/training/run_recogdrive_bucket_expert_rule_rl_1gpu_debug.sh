@@ -23,13 +23,14 @@ export LIMIT_TRAIN_BATCHES="${LIMIT_TRAIN_BATCHES:-10}"
 export LIMIT_VAL_BATCHES="${LIMIT_VAL_BATCHES:-2}"
 
 export EXPERIMENT_NAME="${EXPERIMENT_NAME:-debug_rule_rl_40nav_30navbucket_30simbucket_1gpu}"
-export MIX_ROOT="${MIX_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/mixed_training/debug_rule_intersection_40nav_30navbucket_30simbucket}"
+export SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
+export MIX_ROOT="${MIX_ROOT:-${SIMSCALE_ROOT}/mixed_training/debug_rule_intersection_40nav_30navbucket_30simbucket}"
 
 # Defaults to round0 quality. Override SIM_ROUND=1 to test round1 quality.
 export SIM_ROUND="${SIM_ROUND:-0}"
 
 echo "[debug-rule-rl] GPUS=${GPUS} BATCH_SIZE=${BATCH_SIZE} MAX_EPOCHS=${MAX_EPOCHS}"
 echo "[debug-rule-rl] LIMIT_TRAIN_BATCHES=${LIMIT_TRAIN_BATCHES} LIMIT_VAL_BATCHES=${LIMIT_VAL_BATCHES}"
-echo "[debug-rule-rl] SIM_ROUND=${SIM_ROUND} MIX_ROOT=${MIX_ROOT}"
+echo "[debug-rule-rl] SIMSCALE_ROOT=${SIMSCALE_ROOT} SIM_ROUND=${SIM_ROUND} MIX_ROOT=${MIX_ROOT}"
 
 bash "${SCRIPT_DIR}/run_recogdrive_bucket_expert_rule_rl_2b.sh"

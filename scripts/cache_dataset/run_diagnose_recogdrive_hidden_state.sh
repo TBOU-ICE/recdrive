@@ -11,7 +11,7 @@ set -euo pipefail
 
 ROUND="${ROUND:-0}"
 DATASET_NAME="synthetic_reaction_pdm_v1.0-${ROUND}"
-SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale}"
+SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 NAV_CACHE="${NAV_CACHE:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
