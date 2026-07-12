@@ -208,13 +208,14 @@ HYDRA_ARGS=(
   hydra.output_subdir=null
 )
 # Weight-only init only when not doing Lightning resume (avoid double-load).
+# Quote paths for Hydra: checkpoint filenames contain '=' (e.g. epoch=15-step=...).
 if [[ -n "${BASE_CKPT}" ]]; then
-  HYDRA_ARGS+=("agent.checkpoint_path=${BASE_CKPT}")
+  HYDRA_ARGS+=("agent.checkpoint_path='${BASE_CKPT}'")
 else
   HYDRA_ARGS+=("agent.checkpoint_path=null")
 fi
 if [[ -n "${CKPT_PATH}" ]]; then
-  HYDRA_ARGS+=("ckpt_path=${CKPT_PATH}")
+  HYDRA_ARGS+=("ckpt_path='${CKPT_PATH}'")
 fi
 
 "${TORCHRUN_BIN}" \
