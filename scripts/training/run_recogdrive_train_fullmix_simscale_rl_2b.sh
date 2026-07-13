@@ -6,8 +6,9 @@
 # - keeps navtrain/simscale feature caches in their original locations;
 # - writes only a small union metric-cache metadata CSV under MIX_ROOT;
 # - uses the mixed-data RL reward:
-#     if NC == 0 or DAC == 0: R = 0
-#     else: R = 0.50 * PDMS + 0.25 * EP + 0.15 * DAC + 0.10 * TTC
+#     gate(NC, DAC) * (0.35*PDMS + 0.25*EP + 0.15*DAC + 0.15*DDC + 0.10*TTC)
+#     where gate = 0 if NC==0 or DAC==0 else 1
+#     DDC = driving_direction_compliance
 # - does not add trajectory IL loss for SimScale samples.
 #
 # Usage:

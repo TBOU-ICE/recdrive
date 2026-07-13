@@ -126,13 +126,15 @@ def install_mixed_rl_reward(agent: AbstractAgent) -> None:
             result = asdict(pdm_result)
             nc = float(result["no_at_fault_collisions"])
             dac = float(result["drivable_area_compliance"])
+            # gate(NC, DAC): hard zero when either multiplicative metric fails.
             if np.isclose(nc, 0.0) or np.isclose(dac, 0.0):
                 reward = 0.0
             else:
                 reward = (
-                    0.50 * float(result["score"])
+                    0.35 * float(result["score"])
                     + 0.25 * float(result["ego_progress"])
                     + 0.15 * dac
+                    + 0.15 * float(result["driving_direction_compliance"])
                     + 0.10 * float(result["time_to_collision_within_bound"])
                 )
             rewards.append(reward)
