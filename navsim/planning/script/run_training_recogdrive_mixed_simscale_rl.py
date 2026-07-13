@@ -131,10 +131,10 @@ def install_mixed_rl_reward(agent: AbstractAgent) -> None:
                 reward = 0.0
             else:
                 reward = (
-                    0.35 * float(result["score"])
-                    + 0.25 * float(result["ego_progress"])
-                    + 0.15 * dac
-                    + 0.15 * float(result["driving_direction_compliance"])
+                    0.30 * float(result["score"])
+                    + 0.20 * float(result["ego_progress"])
+                    + 0.20 * dac
+                    + 0.20 * float(result["driving_direction_compliance"])
                     + 0.10 * float(result["time_to_collision_within_bound"])
                 )
             rewards.append(reward)

@@ -3,14 +3,14 @@ set -euo pipefail
 
 # Rule-intersection RL with three explicit sampling sources:
 #   10% full navtrain cache
-#   50% navtrain rule_intersection bucket
-#   40% SimScale quality rule_intersection bucket
+#   45% navtrain rule_intersection bucket
+#   45% SimScale quality rule_intersection bucket
 #
 # The model is initialized from INIT_CKPT and the GRPO reference policy defaults
 # to the same checkpoint.
 #
 # Reward (installed by run_training_recogdrive_mixed_simscale_rl.py):
-#   gate(NC, DAC) * (0.35*PDMS + 0.25*EP + 0.15*DAC + 0.15*DDC + 0.10*TTC)
+#   gate(NC, DAC) * (0.30*PDMS + 0.20*EP + 0.20*DAC + 0.20*DDC + 0.10*TTC)
 #   where gate = 0 if NC==0 or DAC==0 else 1.
 #
 # SIM_ROUNDS is comma-separated (e.g. "0" or "0,1"); each round's quality
@@ -34,9 +34,9 @@ GPUS="${GPUS:-8}"
 # Prefer SIM_ROUNDS; keep SIM_ROUND as a backward-compatible alias.
 SIM_ROUNDS="${SIM_ROUNDS:-${SIM_ROUND:-0,1}}"
 
-INIT_CKPT="${INIT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
+INIT_CKPT="${INIT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_round01_quality/2026.07.12.03.07.49/lightning_logs/version_0/checkpoints/epoch=99-step=156100.ckpt}"
 REF_CKPT="${REF_CKPT:-${INIT_CKPT}}"
-LR="${LR:-1e-4}"
+LR="${LR:-3e-5}"
 MAX_EPOCHS="${MAX_EPOCHS:-15}"
 VLM_PATH="${VLM_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
@@ -82,16 +82,16 @@ fi
 SIM_ROUNDS="${SIM_ROUNDS_CLEAN[*]}"
 SIM_ROUNDS="${SIM_ROUNDS// /,}"
 
-MIX_ROOT="${MIX_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/mixed_training/rule_intersection_10nav_50navbucket_40simbucket}"
+MIX_ROOT="${MIX_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/mixed_training/rule_intersection_10nav_45navbucket_45simbucket}"
 NAV_BUCKET_CACHE_PATH="${NAV_BUCKET_CACHE_PATH:-${MIX_ROOT}/navtrain_rule_bucket_cache}"
 SIM_BUCKET_CACHE_PATH="${SIM_BUCKET_CACHE_PATH:-${MIX_ROOT}/simscale_rule_bucket_cache}"
 MIX_METRIC_CACHE_PATH="${MIX_METRIC_CACHE_PATH:-${MIX_ROOT}/union_metric_cache}"
 MIX_INFO_DIR="${MIX_INFO_DIR:-${MIX_ROOT}/metadata}"
 
 NAV_RATIO="${NAV_RATIO:-0.1}"
-NAV_BUCKET_RATIO="${NAV_BUCKET_RATIO:-0.5}"
-SIM_BUCKET_RATIO="${SIM_BUCKET_RATIO:-0.4}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recogdrive_rule_rl_10nav_50navbucket_40simbucket}"
+NAV_BUCKET_RATIO="${NAV_BUCKET_RATIO:-0.45}"
+SIM_BUCKET_RATIO="${SIM_BUCKET_RATIO:-0.45}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recogdrive_rule_rl_10nav_45navbucket_45simbucket}"
 TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
 PYTHON_BIN="${PYTHON_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/python}"
 
