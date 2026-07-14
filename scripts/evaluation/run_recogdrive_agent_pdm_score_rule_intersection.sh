@@ -28,7 +28,7 @@ export PORT=${PORT}
 
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_rule_rl_10nav_50navbucket_40simbucket/2026.07.13.03.40.15/lightning_logs/version_0/checkpoints/epoch=14-step=2115.ckpt"
+CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_rule_rl_10nav_45navbucket_45simbucket/2026.07.13.12.11.00/lightning_logs/version_0/checkpoints/epoch=4-step=705.ckpt"
 # PDMS on navtest must use caches built for that split; metric_cache_train tokens won't match navtest.
 METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
 
@@ -49,5 +49,5 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
     agent.sampling_method="ddim" \
     metric_cache_path="${METRIC_CACHE_PATH}" \
     agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-    experiment_name=eval-pdms-rule_rl_10nav_50navbucket_40simbucket-14epoch \
+    experiment_name=eval-pdms-rule_rl_10nav_45navbucket_45simbucket-4epoch \
     worker=sequential

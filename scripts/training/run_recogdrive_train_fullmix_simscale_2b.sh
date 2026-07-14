@@ -69,13 +69,13 @@ GPUS="${GPUS:-8}"
 
 TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_dit_il_fullmix_simscale_round01_quality}"
-MAX_EPOCHS="${MAX_EPOCHS:-100}"
+MAX_EPOCHS="${MAX_EPOCHS:-200}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
 LR="${LR:-1e-4}"
 PYTHON_BIN="${PYTHON_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/python}"
 # Lightning full-state resume (model + optimizer + epoch/step). Continues from epoch 15.
-CKPT_PATH="${CKPT_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_round01_quality/2026.07.10.04.42.42/lightning_logs/version_0/checkpoints/epoch=15-step=24976.ckpt}"
+CKPT_PATH="${CKPT_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_round01_quality/2026.07.12.03.07.49/lightning_logs/version_0/checkpoints/epoch=99-step=156100.ckpt}"
 
 if [[ "${USE_QUALITY_CACHE}" == "true" ]]; then
   NEED_PREP_QUALITY_CACHE=false
