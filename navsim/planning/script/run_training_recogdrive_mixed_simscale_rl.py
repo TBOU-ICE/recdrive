@@ -7,7 +7,6 @@ from types import MethodType
 from typing import Dict, List, Tuple
 
 import hydra
-import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.distributed as dist
@@ -110,6 +109,7 @@ def build_datasets(cfg: DictConfig, agent: AbstractAgent) -> Tuple[Dataset, Data
 
 def install_mixed_rl_reward(agent: AbstractAgent) -> None:
     def reward_fn(self, pred_traj: torch.Tensor, tokens_list, cache_dict) -> torch.Tensor:
+        """GRPO reward = PDM score (PDMS)."""
         pred_np = pred_traj.detach().cpu().numpy()
         rewards = []
         for i, token in enumerate(tokens_list):
@@ -123,21 +123,7 @@ def install_mixed_rl_reward(agent: AbstractAgent) -> None:
                 simulator=self.simulator,
                 scorer=self.train_scorer,
             )
-            result = asdict(pdm_result)
-            nc = float(result["no_at_fault_collisions"])
-            dac = float(result["drivable_area_compliance"])
-            # gate(NC, DAC): hard zero when either multiplicative metric fails.
-            if np.isclose(nc, 0.0) or np.isclose(dac, 0.0):
-                reward = 0.0
-            else:
-                reward = (
-                    0.30 * float(result["score"])
-                    + 0.20 * float(result["ego_progress"])
-                    + 0.20 * dac
-                    + 0.20 * float(result["driving_direction_compliance"])
-                    + 0.10 * float(result["time_to_collision_within_bound"])
-                )
-            rewards.append(reward)
+            rewards.append(float(asdict(pdm_result)["score"]))
         return torch.tensor(rewards, device=pred_traj.device, dtype=pred_traj.dtype).detach()
 
     action_head = getattr(agent, "action_head", None)

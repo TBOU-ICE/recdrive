@@ -5,10 +5,7 @@
 # - trains with run_training_recogdrive_mixed_simscale_rl.py;
 # - keeps navtrain/simscale feature caches in their original locations;
 # - writes only a small union metric-cache metadata CSV under MIX_ROOT;
-# - uses the mixed-data RL reward:
-#     gate(NC, DAC) * (0.35*PDMS + 0.25*EP + 0.15*DAC + 0.15*DDC + 0.10*TTC)
-#     where gate = 0 if NC==0 or DAC==0 else 1
-#     DDC = driving_direction_compliance
+# - uses PDM score (PDMS) as the GRPO reward;
 # - does not add trajectory IL loss for SimScale samples.
 #
 # Usage:
@@ -55,7 +52,7 @@ GPUS="${GPUS:-8}"
 
 TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
 PYTHON_BIN="${PYTHON_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/python}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recogdrive_rl_fullmix_simscale_quality}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recogdrive_rl_fullmix_simscale_quality_pdms}"
 MAX_EPOCHS="${MAX_EPOCHS:-20}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
@@ -126,7 +123,7 @@ echo "[mixed-rl] NAV_METRIC_CACHE_PATH=${NAV_METRIC_CACHE_PATH}"
 echo "[mixed-rl] SIM_METRIC_CACHE_PATH=${SIM_METRIC_CACHE_PATH}"
 echo "[mixed-rl] MIX_METRIC_CACHE_PATH=${MIX_METRIC_CACHE_PATH}"
 echo "[mixed-rl] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
-echo "[mixed-rl] reward: gate NC/DAC, then 0.50*PDMS + 0.25*EP + 0.15*DAC + 0.10*TTC"
+echo "[mixed-rl] reward: PDMS (PDM score)"
 echo "[mixed-rl] SimScale trajectory IL loss is not added."
 
 HYDRA_OVERRIDES=(

@@ -10,8 +10,7 @@ set -euo pipefail
 # to the same checkpoint.
 #
 # Reward (installed by run_training_recogdrive_mixed_simscale_rl.py):
-#   gate(NC, DAC) * (0.30*PDMS + 0.20*EP + 0.20*DAC + 0.20*DDC + 0.10*TTC)
-#   where gate = 0 if NC==0 or DAC==0 else 1.
+#   PDMS (PDM score).
 #
 # SIM_ROUNDS is comma-separated (e.g. "0" or "0,1"); each round's quality
 # scene_buckets / agent cache / metric cache are merged into the sim rule bucket.
