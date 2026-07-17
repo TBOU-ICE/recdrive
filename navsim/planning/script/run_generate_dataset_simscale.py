@@ -265,9 +265,14 @@ def build_history_and_command(ego_statuses):
             "heading": format_number(ego.ego_pose[2]),
         })
     high_command_one_hot = ego_statuses[-1].driving_command
+    # driving_command is a 4-element one-hot [left, straight, right, unknown];
+    # zip over the 3 named commands so the trailing "unknown" bit maps to "unknown"
+    # instead of raising IndexError.
     navigation_commands = ['turn left', 'go straight', 'turn right']
-    command_str = [navigation_commands[i] for i in range(len(high_command_one_hot)) if high_command_one_hot[i] == 1]
-    command_str = command_str[0] if command_str else "unknown"
+    command_str = next(
+        (cmd for cmd, flag in zip(navigation_commands, high_command_one_hot) if flag == 1),
+        "unknown",
+    )
     return history_trajectory, command_str
 
 
