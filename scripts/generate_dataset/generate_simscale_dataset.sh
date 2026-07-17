@@ -111,8 +111,25 @@ if [[ "${fail}" -ne 0 ]]; then
 fi
 
 echo "--------------------------------------------------"
-echo "All shards done. Merge with:"
-echo "  cat ${SIMSCALE_QA_OUT_DIR}/simscale_${DATASET_NAME}_traj_shard*of${SHARDS}.jsonl > ${SIMSCALE_QA_OUT_DIR}/simscale_${DATASET_NAME}_traj_all.jsonl"
-echo "  cat ${SIMSCALE_QA_OUT_DIR}/simscale_${DATASET_NAME}_qa_shard*of${SHARDS}.jsonl   > ${SIMSCALE_QA_OUT_DIR}/simscale_${DATASET_NAME}_qa_all.jsonl"
-echo "Then count:"
-echo "  wc -l ${SIMSCALE_QA_OUT_DIR}/simscale_${DATASET_NAME}_*_all.jsonl"
+echo "All shards done."
+
+# Auto-merge shards into *_all.jsonl (the paths the meta points to) using an
+# allowlist-aware, dedup merger. Robust to stale/mixed shards from earlier runs
+# (RESUME can leave pre-QC records behind). Idempotent. Disable with MERGE=0.
+MERGE="${MERGE:-1}"
+if [[ "${MERGE}" == "1" ]]; then
+  KINDS="${SIMSCALE_EMIT}"
+  [[ "${SIMSCALE_EMIT}" == "both" ]] && KINDS="traj,qa"
+  ROUND="${ROUND}" \
+  SIMSCALE_ROOT="${SIMSCALE_ROOT}" \
+  SIMSCALE_QA_OUT_DIR="${SIMSCALE_QA_OUT_DIR}" \
+  QUALITY_FILTER="${QUALITY_FILTER}" \
+  PDMS_THRESHOLD="${PDMS_THRESHOLD}" \
+  SIMSCALE_ALLOWLIST="${SIMSCALE_ALLOWLIST}" \
+  KINDS="${KINDS}" \
+  "${PYTHON_BIN}" "${NAVSIM_DEVKIT_ROOT}/scripts/generate_dataset/merge_simscale_qa.py"
+  echo "[merge] *_all.jsonl paths match the meta in shell/data_info/recogdrive_simscale_*.json"
+else
+  echo "MERGE=0 -> skipped. Merge later with:"
+  echo "  ROUND=${ROUND} SIMSCALE_ROOT=${SIMSCALE_ROOT} ${PYTHON_BIN} ${NAVSIM_DEVKIT_ROOT}/scripts/generate_dataset/merge_simscale_qa.py"
+fi

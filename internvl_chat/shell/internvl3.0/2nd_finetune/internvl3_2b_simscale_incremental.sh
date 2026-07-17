@@ -66,7 +66,7 @@ MODE="${MODE:-lora}"                 # lora | full
 # Base checkpoint to CONTINUE from: the driving-pretrained ReCogDrive VLM.
 MODEL_PATH="${MODEL_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
 META="${META:-./shell/data_info/recogdrive_simscale_only.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/vlm_simscale_${MODE}}"
+OUTPUT_DIR="${OUTPUT_DIR:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora}"
 
 # LoRA rank (only used when MODE=lora). Backbone LoRA off by default to protect
 # real-domain vision features; set USE_BACKBONE_LORA>0 to enable.
@@ -79,9 +79,11 @@ PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-1}"
 GRADIENT_ACC=$((BATCH_SIZE / PER_DEVICE_BATCH_SIZE / GPUS))
 [ "${GRADIENT_ACC}" -lt 1 ] && GRADIENT_ACC=1
 DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
-NUM_TRAIN_EPOCHS="${NUM_TRAIN_EPOCHS:-1}"
+NUM_TRAIN_EPOCHS="${NUM_TRAIN_EPOCHS:-3}"
 MAX_DYNAMIC_PATCH="${MAX_DYNAMIC_PATCH:-12}"
 MAX_SEQ_LENGTH="${MAX_SEQ_LENGTH:-12288}"
+# Optional hard cap on optimizer steps (overrides epochs). Handy for smoke tests.
+MAX_STEPS="${MAX_STEPS:-0}"
 
 # LR defaults differ by mode: LoRA tolerates a higher LR; full finetune uses a
 # small LR to limit forgetting during incremental training.
@@ -108,6 +110,12 @@ elif [ "${MODE}" = "full" ]; then
 else
   echo "[ERROR] MODE must be 'lora' or 'full', got '${MODE}'" >&2
   exit 1
+fi
+
+# Optional extra args (e.g. hard step cap for smoke tests).
+EXTRA_ARGS=()
+if [ "${MAX_STEPS}" -gt 0 ]; then
+  EXTRA_ARGS+=(--max_steps "${MAX_STEPS}")
 fi
 
 NNODES="${NNODES:-1}"
@@ -174,6 +182,7 @@ fi
   --freeze_mlp "${FREEZE_MLP}" \
   --freeze_backbone "${FREEZE_BACKBONE}" \
   "${LORA_ARGS[@]}" \
+  "${EXTRA_ARGS[@]}" \
   --vision_select_layer -1 \
   --dataloader_num_workers "${DATALOADER_NUM_WORKERS}" \
   --bf16 True \
