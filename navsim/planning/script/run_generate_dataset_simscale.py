@@ -551,6 +551,73 @@ def resolve_shard() -> Tuple[int, int]:
     return int(os.environ.get("RANK", "0")), int(os.environ.get("WORLD_SIZE", "1"))
 
 
+def load_quality_allowlist(simscale_root: Path, data_split: str, pdms_threshold: float) -> Optional[set]:
+    """Return the set of accepted scene tokens for quality control, or None to disable.
+
+    ReCogDrive's SimScale quality control scores each scene's pseudo-expert
+    trajectory with PDM (NC/DAC/EP/TTC/C/DDC -> PDMS) and keeps only high-PDMS
+    scenes. This is the SAME filter the downstream `_quality` DiT/RL caches use,
+    so the VLM sees the same high-quality scene subset as the planner.
+
+    Selection order:
+      1. If SIMSCALE_ALLOWLIST is set -> read tokens from it (tsv col2 or 1-col).
+      2. Else if a custom PDMS_THRESHOLD (>0) is given AND the scores CSV exists
+         -> select tokens with PDMS >= threshold (lets you go stricter/looser
+         than the pre-baked allowlist).
+      3. Else use the pre-baked allowlist_tokens.txt (== downstream pass_filter).
+    """
+    qc_dir = simscale_root / f"quality_filter_{data_split}"
+
+    override = os.environ.get("SIMSCALE_ALLOWLIST", "")
+    if override:
+        path = Path(override)
+        if not path.is_file():
+            raise RuntimeError(f"SIMSCALE_ALLOWLIST not found: {path}")
+        tokens = set()
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split("\t")
+                tokens.add(parts[1] if len(parts) >= 2 else parts[0])
+        logger.info(f"[simscale-gen][qc] allowlist(override)={path} tokens={len(tokens)}")
+        return tokens
+
+    if pdms_threshold > 0:
+        csv_path = qc_dir / "simscale_target_quality_scores.csv"
+        if csv_path.is_file():
+            import csv as _csv
+            tokens = set()
+            with open(csv_path) as f:
+                for row in _csv.DictReader(f):
+                    try:
+                        if float(row["PDMS"]) >= pdms_threshold:
+                            tokens.add(row["token"])
+                    except (KeyError, ValueError):
+                        continue
+            logger.info(f"[simscale-gen][qc] PDMS>={pdms_threshold} from {csv_path.name} tokens={len(tokens)}")
+            return tokens
+        logger.warning(f"[simscale-gen][qc] PDMS_THRESHOLD set but {csv_path} missing; falling back to allowlist")
+
+    allowlist_tokens = qc_dir / "allowlist_tokens.txt"
+    allowlist_tsv = qc_dir / "allowlist_log_token.tsv"
+    src = allowlist_tokens if allowlist_tokens.is_file() else allowlist_tsv
+    if not src.is_file():
+        logger.warning(f"[simscale-gen][qc] no allowlist found under {qc_dir}; QC DISABLED")
+        return None
+    tokens = set()
+    with open(src) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("\t")
+            tokens.add(parts[1] if len(parts) >= 2 else parts[0])
+    logger.info(f"[simscale-gen][qc] allowlist={src.name} tokens={len(tokens)}")
+    return tokens
+
+
 def prepend_image_token(qa_pair: dict) -> None:
     first = qa_pair["conversations"][0]
     # find first human turn (skip system)
@@ -584,10 +651,18 @@ def main(cfg: DictConfig) -> None:
     resume = os.environ.get("RESUME", "0") == "1"
     shard_idx, shard_cnt = resolve_shard()
 
+    # Quality control: keep only high-PDMS scenes (same subset the downstream
+    # `_quality` planner caches use). Disable with QUALITY_FILTER=0.
+    quality_filter = os.environ.get("QUALITY_FILTER", "1") == "1"
+    pdms_threshold = float(os.environ.get("PDMS_THRESHOLD", "0"))
+    simscale_root = Path(os.environ.get("SIMSCALE_ROOT", str(image_root)))
+    allow_tokens = load_quality_allowlist(simscale_root, data_split, pdms_threshold) if quality_filter else None
+
     logger.info(f"[simscale-gen] data_split={data_split} shard={shard_idx}/{shard_cnt}")
     logger.info(f"[simscale-gen] navsim_log_path={data_path}")
     logger.info(f"[simscale-gen] image_root={image_root}")
     logger.info(f"[simscale-gen] out_dir={out_dir} emit={emit} use_vlm={use_vlm}")
+    logger.info(f"[simscale-gen] quality_filter={quality_filter} allow_tokens={'None' if allow_tokens is None else len(allow_tokens)}")
 
     # Shard by log file (each shard loads only its own logs).
     all_stems = sorted(p.stem for p in data_path.iterdir() if p.suffix == ".pkl")
@@ -652,16 +727,23 @@ def main(cfg: DictConfig) -> None:
 
     n_traj = n_qa = 0
     processed = 0
+    n_skipped_qc = 0
     for idx in range(n):
         if max_scenes and processed >= max_scenes:
             break
         (ego_statuses, cameras, future_trajectory, agent_states, agent_labels,
          agent_names, token, future_velocities, box_2d) = dataset[idx]
 
+        # quality control: drop scenes whose pseudo-expert trajectory is low-PDMS
+        if allow_tokens is not None and token not in allow_tokens:
+            n_skipped_qc += 1
+            continue
+
         if resume and token in done_tokens:
             continue
         processed += 1
 
+        log_name = scene_loader.token_to_log_file.get(token, "")
         abs_img = str(cameras[-1].cam_f0.image)
         try:
             rel_img = os.path.relpath(abs_img, image_root)
@@ -681,6 +763,7 @@ def main(cfg: DictConfig) -> None:
         traj_pair, future_points, history_trajectory, command_str = build_trajectory_qa(
             ego_statuses, rel_img, future_trajectory, idx, token
         )
+        traj_pair["log_name"] = log_name
         if emit_traj:
             json.dump(traj_pair, traj_f, ensure_ascii=False)
             traj_f.write("\n")
@@ -735,7 +818,7 @@ def main(cfg: DictConfig) -> None:
         if not conversations:
             continue
 
-        qa_pair = {"id": idx, "image": [rel_img], "token": token, "conversations": conversations}
+        qa_pair = {"id": idx, "image": [rel_img], "token": token, "log_name": log_name, "conversations": conversations}
         prepend_image_token(qa_pair)
         json.dump(qa_pair, qa_f, ensure_ascii=False)
         qa_f.write("\n")
@@ -746,7 +829,8 @@ def main(cfg: DictConfig) -> None:
         traj_f.close()
     if qa_f:
         qa_f.close()
-    logger.info(f"[simscale-gen] DONE shard={shard_idx}/{shard_cnt} processed={processed} traj={n_traj} qa={n_qa}")
+    logger.info(f"[simscale-gen] DONE shard={shard_idx}/{shard_cnt} processed={processed} "
+                f"skipped_qc={n_skipped_qc} traj={n_traj} qa={n_qa}")
     if emit_traj:
         logger.info(f"[simscale-gen] traj -> {traj_path}")
     if emit_qa:

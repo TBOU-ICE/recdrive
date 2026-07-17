@@ -47,12 +47,20 @@ export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-}"   # generation is CPU-on
 # Image paths in the jsonl are stored relative to this root (== meta `root`).
 export SIMSCALE_IMAGE_ROOT="${SIMSCALE_IMAGE_ROOT:-${SIMSCALE_ROOT}}"
 export SIMSCALE_QA_OUT_DIR="${SIMSCALE_QA_OUT_DIR:-${SIMSCALE_ROOT}/simscale_vlm_qa/${DATASET_NAME}}"
+export SIMSCALE_ROOT
 export SIMSCALE_EMIT="${EMIT:-both}"
 export SIMSCALE_MAX_SCENES="${SIMSCALE_MAX_SCENES:-0}"
 export SIMSCALE_MAX_LOGS="${SIMSCALE_MAX_LOGS:-0}"
 export VRU_KEEP_EMPTY_PROB="${VRU_KEEP_EMPTY_PROB:-0.1}"
 export USE_VLM="${USE_VLM:-0}"
 export RESUME="${RESUME:-0}"
+# Quality control: keep only high-PDMS scenes (== downstream `_quality` subset).
+#   QUALITY_FILTER=1 (default) uses the pre-baked allowlist for the round.
+#   PDMS_THRESHOLD>0 selects tokens with PDMS>=threshold from the scores CSV.
+#   SIMSCALE_ALLOWLIST=<path> overrides with a custom allowlist file.
+export QUALITY_FILTER="${QUALITY_FILTER:-1}"
+export PDMS_THRESHOLD="${PDMS_THRESHOLD:-0}"
+export SIMSCALE_ALLOWLIST="${SIMSCALE_ALLOWLIST:-}"
 
 PYTHON_BIN="${PYTHON_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/python}"
 # CPU-bound: default parallelism to ~1/3 of cores (each proc also does IO/pkl load),
@@ -73,6 +81,7 @@ echo "   OPENSCENE_DATA_ROOT=${OPENSCENE_DATA_ROOT}"
 echo "   OUT_DIR=${SIMSCALE_QA_OUT_DIR}"
 echo "   EMIT=${SIMSCALE_EMIT}  SHARDS=${SHARDS}  USE_VLM=${USE_VLM}"
 echo "   MAX_SCENES(per shard)=${SIMSCALE_MAX_SCENES}  RESUME=${RESUME}"
+echo "   QUALITY_FILTER=${QUALITY_FILTER}  PDMS_THRESHOLD=${PDMS_THRESHOLD}  ALLOWLIST=${SIMSCALE_ALLOWLIST:-<pre-baked>}"
 echo "=================================================="
 
 pids=()

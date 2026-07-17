@@ -1,0 +1,110 @@
+{
+  "Navsim": {
+    "root": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/NAVSIM",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/Navsim_Traj/dataset_navsim_traj.jsonl",
+    "data_augment": false,
+    "repeat_time": 2,
+    "length": 85109
+  },
+  "Navsim_QA": {
+    "root": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/Navsim_ReCogDrive/dataset_navsim_recogdrive.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 85109
+  },
+  "CODA-LM": {
+    "root": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingimages/CODA-LM",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/CODA-LM/dataset_coda_lm.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 20318
+  },
+  "DriveLM": {
+    "root": "/mnt/datasets/nuscenes_053/v1.0.0",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/DriveLM/drivelm_original_box.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 4072
+  },
+  "LingoQA": {
+    "root": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingimages",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/LingoQA/dataset_lingoqa.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 26824
+  },
+  "MAPLM": {
+    "root": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingimages",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/Maplm/dataset_maplm.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 10612
+  },
+  "Nuinstruct": {
+    "root": "/mnt/datasets/nuscenes_053/v1.0.0/nuscenes",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/Nuinstruct/dataset_nuinstruct.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 57317
+  },
+  "Omnidrive": {
+    "root": "/mnt/datasets/nuscenes_053/v1.0.0/nuscenes",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/Omnidrive/dataset_omnidrive.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 28010
+  },
+  "SUTD": {
+    "root": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingimages",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/SUTD/dataset_sutd.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 9916
+  },
+  "Talk2Car": {
+    "root": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingimages/Talk2Car/imgs",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/Talk2Car/dataset_talk2car.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 8079
+  },
+  "NuScenes-QA": {
+    "root": "/mnt/datasets/nuscenes_053/v1.0.0/nuscenes",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/Nuscenes-QA/dataset_nuscenes_qa.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 24988
+  },
+  "Senna": {
+    "root": "/mnt/datasets/nuscenes_053/v1.0.0/nuscenes",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/Senna/dataset_senna.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 27813
+  },
+  "SimScale_Traj_r0": {
+    "root": "/workspace/datasets/simscale/20260709",
+    "annotation": "/workspace/datasets/simscale/20260709/simscale_vlm_qa/synthetic_reaction_pdm_v1.0-0/simscale_synthetic_reaction_pdm_v1.0-0_traj_all.jsonl",
+    "data_augment": false,
+    "repeat_time": 1
+  },
+  "SimScale_QA_r0": {
+    "root": "/workspace/datasets/simscale/20260709",
+    "annotation": "/workspace/datasets/simscale/20260709/simscale_vlm_qa/synthetic_reaction_pdm_v1.0-0/simscale_synthetic_reaction_pdm_v1.0-0_qa_all.jsonl",
+    "data_augment": false,
+    "repeat_time": 1
+  },
+  "SimScale_Traj_r1": {
+    "root": "/workspace/datasets/simscale/20260709",
+    "annotation": "/workspace/datasets/simscale/20260709/simscale_vlm_qa/synthetic_reaction_pdm_v1.0-1/simscale_synthetic_reaction_pdm_v1.0-1_traj_all.jsonl",
+    "data_augment": false,
+    "repeat_time": 1
+  },
+  "SimScale_QA_r1": {
+    "root": "/workspace/datasets/simscale/20260709",
+    "annotation": "/workspace/datasets/simscale/20260709/simscale_vlm_qa/synthetic_reaction_pdm_v1.0-1/simscale_synthetic_reaction_pdm_v1.0-1_qa_all.jsonl",
+    "data_augment": false,
+    "repeat_time": 1
+  }
+}

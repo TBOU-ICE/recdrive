@@ -1,0 +1,26 @@
+{
+  "SimScale_Traj_r0": {
+    "root": "/workspace/datasets/simscale/20260709",
+    "annotation": "/workspace/datasets/simscale/20260709/simscale_vlm_qa/synthetic_reaction_pdm_v1.0-0/simscale_synthetic_reaction_pdm_v1.0-0_traj_all.jsonl",
+    "data_augment": false,
+    "repeat_time": 1
+  },
+  "SimScale_QA_r0": {
+    "root": "/workspace/datasets/simscale/20260709",
+    "annotation": "/workspace/datasets/simscale/20260709/simscale_vlm_qa/synthetic_reaction_pdm_v1.0-0/simscale_synthetic_reaction_pdm_v1.0-0_qa_all.jsonl",
+    "data_augment": false,
+    "repeat_time": 1
+  },
+  "SimScale_Traj_r1": {
+    "root": "/workspace/datasets/simscale/20260709",
+    "annotation": "/workspace/datasets/simscale/20260709/simscale_vlm_qa/synthetic_reaction_pdm_v1.0-1/simscale_synthetic_reaction_pdm_v1.0-1_traj_all.jsonl",
+    "data_augment": false,
+    "repeat_time": 1
+  },
+  "SimScale_QA_r1": {
+    "root": "/workspace/datasets/simscale/20260709",
+    "annotation": "/workspace/datasets/simscale/20260709/simscale_vlm_qa/synthetic_reaction_pdm_v1.0-1/simscale_synthetic_reaction_pdm_v1.0-1_qa_all.jsonl",
+    "data_augment": false,
+    "repeat_time": 1
+  }
+}
