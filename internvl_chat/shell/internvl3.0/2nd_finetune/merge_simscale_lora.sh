@@ -44,15 +44,25 @@ mkdir -p "${OUTPUT_DIR}"
 
 "${PYTHON_BIN}" tools/merge_lora.py "${INPUT_DIR}" "${OUTPUT_DIR}"
 
-# Defensive copy: ensure custom modeling/config .py and tokenizer aux files that
-# some transformers versions do not re-emit are present in the merged dir.
+# The downstream agent loads the VLM with AutoModel.from_pretrained(trust_remote_code=True),
+# which REQUIRES the custom modeling/config .py referenced by config.json's auto_map.
+# trainer.save_model does NOT emit those .py, so copy them from INPUT_DIR and, failing
+# that, from the original base model (BASE_MODEL_PATH). Without this the merged dir
+# fails to load in navsim eval/caching.
+BASE_MODEL_PATH="${BASE_MODEL_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
 for f in modeling_intern_vit.py modeling_internvl_chat.py configuration_intern_vit.py \
          configuration_internvl_chat.py conversation.py preprocessor_config.json \
          tokenizer_config.json tokenizer.model vocab.json merges.txt \
          added_tokens.json special_tokens_map.json generation_config.json; do
-  if [ -f "${INPUT_DIR}/${f}" ] && [ ! -f "${OUTPUT_DIR}/${f}" ]; then
+  if [ -f "${OUTPUT_DIR}/${f}" ]; then
+    continue
+  fi
+  if [ -f "${INPUT_DIR}/${f}" ]; then
     cp -a "${INPUT_DIR}/${f}" "${OUTPUT_DIR}/${f}"
-    echo "[merge] copied missing ${f}"
+    echo "[merge] copied missing ${f} (from input)"
+  elif [ -n "${BASE_MODEL_PATH}" ] && [ -f "${BASE_MODEL_PATH}/${f}" ]; then
+    cp -a "${BASE_MODEL_PATH}/${f}" "${OUTPUT_DIR}/${f}"
+    echo "[merge] copied missing ${f} (from base)"
   fi
 done
 
