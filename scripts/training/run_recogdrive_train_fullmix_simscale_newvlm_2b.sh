@@ -3,19 +3,22 @@
 # VLM hidden-state caches.
 #
 # Differences vs run_recogdrive_train_fullmix_simscale_2b.sh:
-#   * Reads caches from OUT_ROOT (the new_vlm hidden-state dir), NOT the canonical dirs.
-#   * Keeps the quality allowlist at its ORIGINAL location (ALLOWLIST_ROOT), since only
-#     the caches moved, not the quality_filter_*/allowlist files.
+#   * Reads full caches from SRC_CACHE_ROOT / OUT_ROOT (Alluxio).
+#   * Builds quality symlink views on QUALITY_CACHE_ROOT (CPFS by default) to avoid
+#     Alluxio FUSE EIO when creating many mkdir/symlink metadata ops.
+#   * Allowlist stays at ALLOWLIST_ROOT (unchanged).
 #   * Starts a FRESH training (CKPT_PATH empty) so it does not resume the old-VLM DiT.
 #   * Defaults VLM_PATH to the merged new VLM and uses a distinct EXPERIMENT_NAME.
 #
 # Usage:
 #   bash scripts/training/run_recogdrive_train_fullmix_simscale_newvlm_2b.sh
+#   # Skip quality filter (train on full SimScale caches):
+#   USE_QUALITY_CACHE=false bash scripts/training/run_recogdrive_train_fullmix_simscale_newvlm_2b.sh
 #   GPUS=8 MAX_EPOCHS=200 bash scripts/training/run_recogdrive_train_fullmix_simscale_newvlm_2b.sh
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 export PATH="${CONDA_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin}:$PATH"
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
@@ -30,14 +33,18 @@ export CACHE_READ_MAX_RETRIES="${CACHE_READ_MAX_RETRIES:-5}"
 export CACHE_READ_RETRY_BASE_SEC="${CACHE_READ_RETRY_BASE_SEC:-0.5}"
 
 # ---- cache locations (NEW VLM) ----
-# All hidden-state caches live under OUT_ROOT; the allowlist stays at ALLOWLIST_ROOT.
+# Full hidden-state caches (read-only for prep) live on Alluxio under OUT_ROOT.
 OUT_ROOT="${OUT_ROOT:-/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim}"
-CACHE_ROOT="${CACHE_ROOT:-${OUT_ROOT}}"
+SRC_CACHE_ROOT="${SRC_CACHE_ROOT:-${OUT_ROOT}}"
+# Quality symlink tree is written to CPFS (not Alluxio) to avoid FUSE EIO.
+QUALITY_CACHE_ROOT="${QUALITY_CACHE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/new_vlm_quality_views}"
+# Backward-compat: CACHE_ROOT overrides where quality views live when set.
+CACHE_ROOT="${CACHE_ROOT:-${QUALITY_CACHE_ROOT}}"
 ALLOWLIST_ROOT="${ALLOWLIST_ROOT:-/workspace/datasets/simscale/20260709}"
 SIM_ROUNDS="${SIM_ROUNDS:-0,1}"
 USE_QUALITY_CACHE="${USE_QUALITY_CACHE:-true}"
 
-NAV_CACHE_PATH="${NAV_CACHE_PATH:-${CACHE_ROOT}/recogdrive_agent_cache_dir_train}"
+NAV_CACHE_PATH="${NAV_CACHE_PATH:-${SRC_CACHE_ROOT}/recogdrive_agent_cache_dir_train}"
 
 IFS=',' read -r -a SIM_ROUND_LIST <<< "${SIM_ROUNDS}"
 SIM_CACHE_PATHS=()
@@ -49,7 +56,7 @@ for round in "${SIM_ROUND_LIST[@]}"; do
   if [[ "${USE_QUALITY_CACHE}" == "true" ]]; then
     sim_cache_path="${CACHE_ROOT}/recogdrive_agent_cache_dir_${dataset_name}_quality"
   else
-    sim_cache_path="${CACHE_ROOT}/recogdrive_agent_cache_dir_${dataset_name}"
+    sim_cache_path="${SRC_CACHE_ROOT}/recogdrive_agent_cache_dir_${dataset_name}"
   fi
   SIM_CACHE_PATHS+=("${sim_cache_path}")
   SIM_CACHE_NAMES+=("simscale_r${round}")
@@ -80,7 +87,10 @@ PYTHON_BIN="${PYTHON_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/re
 # FRESH training by default (do NOT resume the old-VLM DiT). Set CKPT_PATH to resume.
 CKPT_PATH="${CKPT_PATH:-}"
 
-# ---- build quality symlink caches (cache under CACHE_ROOT, allowlist under ALLOWLIST_ROOT) ----
+# ---- build quality symlink caches ----
+# src: SRC_CACHE_ROOT (Alluxio full caches)
+# dst: CACHE_ROOT / QUALITY_CACHE_ROOT (CPFS symlink views)
+# allowlist: ALLOWLIST_ROOT
 if [[ "${USE_QUALITY_CACHE}" == "true" ]]; then
   NEED_PREP_QUALITY_CACHE=false
   for round in "${SIM_ROUND_LIST[@]}"; do
@@ -95,21 +105,23 @@ if [[ "${USE_QUALITY_CACHE}" == "true" ]]; then
   [[ "${FORCE_PREP_QUALITY_CACHE:-false}" == "true" ]] && NEED_PREP_QUALITY_CACHE=true
 
   if [[ "${NEED_PREP_QUALITY_CACHE}" == "true" ]]; then
-    export PREP_CACHE_ROOT="${CACHE_ROOT}"
+    export PREP_SRC_CACHE_ROOT="${SRC_CACHE_ROOT}"
+    export PREP_QUALITY_CACHE_ROOT="${CACHE_ROOT}"
     export PREP_ALLOWLIST_ROOT="${ALLOWLIST_ROOT}"
     export PREP_SIM_ROUNDS="${SIM_ROUNDS}"
     "${PYTHON_BIN}" - <<'PYPREP'
 import os
 from pathlib import Path
 
-cache_root = Path(os.environ["PREP_CACHE_ROOT"])
+src_root = Path(os.environ["PREP_SRC_CACHE_ROOT"]).resolve()
+dst_root = Path(os.environ["PREP_QUALITY_CACHE_ROOT"])
 allow_root = Path(os.environ["PREP_ALLOWLIST_ROOT"])
 rounds = [r.strip() for r in os.environ["PREP_SIM_ROUNDS"].split(",") if r.strip()]
 
 for round in rounds:
     dataset_name = f"synthetic_reaction_pdm_v1.0-{round}"
-    src_cache = cache_root / f"recogdrive_agent_cache_dir_{dataset_name}"
-    dst_cache = cache_root / f"recogdrive_agent_cache_dir_{dataset_name}_quality"
+    src_cache = src_root / f"recogdrive_agent_cache_dir_{dataset_name}"
+    dst_cache = dst_root / f"recogdrive_agent_cache_dir_{dataset_name}_quality"
     allowlist = allow_root / f"quality_filter_{dataset_name}" / "allowlist_log_token.tsv"
     if not src_cache.is_dir():
         raise RuntimeError(f"SimScale source cache not found: {src_cache}")
@@ -118,6 +130,7 @@ for round in rounds:
 
     linked = 0
     missing_src = 0
+    errors = 0
     dst_cache.mkdir(parents=True, exist_ok=True)
     with allowlist.open("r", encoding="utf-8") as f:
         for line in f:
@@ -125,7 +138,7 @@ for round in rounds:
             if not line:
                 continue
             log_name, token = line.split("\t", 1)
-            src = src_cache / log_name / token
+            src = (src_cache / log_name / token).resolve()
             if not src.is_dir():
                 missing_src += 1
                 continue
@@ -136,17 +149,22 @@ for round in rounds:
                 linked += 1
                 continue
             try:
+                # Absolute symlink so dst on CPFS can point at Alluxio src.
                 dst.symlink_to(src, target_is_directory=True)
-            except (FileExistsError, FileNotFoundError, OSError):
+            except (FileExistsError, FileNotFoundError, OSError) as exc:
                 if dst.exists() or dst.is_symlink():
                     linked += 1
+                    continue
+                errors += 1
+                if errors <= 5:
+                    print(f"[fullmix-newvlm] symlink failed ({errors}): {dst} -> {src}: {exc}")
                 continue
             linked += 1
 
     if linked == 0:
         raise RuntimeError(f"No quality cache entries linked for round {round}: {dst_cache}")
     print(f"[fullmix-newvlm] round={round} linked_quality_cache={linked} "
-          f"missing_src={missing_src} src={src_cache} dst={dst_cache} allowlist={allowlist}")
+          f"missing_src={missing_src} errors={errors} src={src_cache} dst={dst_cache} allowlist={allowlist}")
 PYPREP
   else
     echo "[fullmix-newvlm] quality symlink caches already present; skip prep (FORCE_PREP_QUALITY_CACHE=true to rebuild)"
@@ -161,7 +179,8 @@ for idx in "${!SIM_CACHE_PATHS[@]}"; do
 done
 
 echo "[fullmix-newvlm] VLM_PATH=${VLM_PATH}"
-echo "[fullmix-newvlm] OUT_ROOT/CACHE_ROOT=${CACHE_ROOT}"
+echo "[fullmix-newvlm] SRC_CACHE_ROOT=${SRC_CACHE_ROOT}"
+echo "[fullmix-newvlm] QUALITY/CACHE_ROOT=${CACHE_ROOT}"
 echo "[fullmix-newvlm] ALLOWLIST_ROOT=${ALLOWLIST_ROOT}"
 echo "[fullmix-newvlm] NAV_CACHE_PATH=${NAV_CACHE_PATH}"
 for idx in "${!SIM_CACHE_PATHS[@]}"; do
