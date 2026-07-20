@@ -9,18 +9,21 @@ set -x
 # (NOT raw InternVL3-2B), so the model keeps its navtrain/real-domain cognition.
 #
 # Two modes:
-#   MODE=lora (default)  -> freeze base LLM + ViT backbone, train LLM-LoRA + MLP
-#                           connector. No catastrophic forgetting of the real
-#                           domain; can be run on SimScale-only data.
-#                           Produces a LoRA checkpoint -> run merge_simscale_lora.sh
-#                           before feeding to the downstream hidden-state cache.
+#   MODE=lora (default)  -> freeze base LLM + ViT weights, train LLM-LoRA +
+#                           ViT-LoRA + MLP connector (adapts to SimScale visuals
+#                           without full-param updates). Produces a LoRA ckpt ->
+#                           run merge_simscale_lora.sh before hidden-state cache.
+#                           Disable ViT-LoRA with USE_BACKBONE_LORA=0 if needed.
 #   MODE=full            -> full-parameter finetune. Use with the *mix* meta
 #                           (SimScale + navtrain replay) and a small LR to limit
 #                           forgetting. Output is directly a full VLM.
 #
 # Usage:
-#   # LoRA on SimScale-only (recommended first iteration):
+#   # LoRA on SimScale-only (LLM + ViT LoRA, recommended for sim visual gap):
 #   bash shell/internvl3.0/2nd_finetune/internvl3_2b_simscale_incremental.sh
+#
+#   # LLM-LoRA only (freeze ViT entirely):
+#   USE_BACKBONE_LORA=0 bash shell/internvl3.0/2nd_finetune/internvl3_2b_simscale_incremental.sh
 #
 #   # Full finetune with replay:
 #   MODE=full META=./shell/data_info/recogdrive_simscale_mix.json \
@@ -66,12 +69,13 @@ MODE="${MODE:-lora}"                 # lora | full
 # Base checkpoint to CONTINUE from: the driving-pretrained ReCogDrive VLM.
 MODEL_PATH="${MODEL_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
 META="${META:-./shell/data_info/recogdrive_simscale_only.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora}"
+OUTPUT_DIR="${OUTPUT_DIR:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_vit}"
 
-# LoRA rank (only used when MODE=lora). Backbone LoRA off by default to protect
-# real-domain vision features; set USE_BACKBONE_LORA>0 to enable.
+# LoRA ranks (only used when MODE=lora). Both LLM and ViT LoRA are on by default
+# so the model can adapt to SimScale visual domain; set USE_BACKBONE_LORA=0 to
+# freeze ViT entirely (old behavior).
 USE_LLM_LORA="${USE_LLM_LORA:-16}"
-USE_BACKBONE_LORA="${USE_BACKBONE_LORA:-0}"
+USE_BACKBONE_LORA="${USE_BACKBONE_LORA:-16}"
 
 GPUS="${GPUS:-8}"
 BATCH_SIZE="${BATCH_SIZE:-128}"
