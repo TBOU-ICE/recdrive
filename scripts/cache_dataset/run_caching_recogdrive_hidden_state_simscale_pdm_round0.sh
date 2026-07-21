@@ -36,6 +36,10 @@ OUT_ROOT="${OUT_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/new_vlm_vit_hid
 
 SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
 CACHE_ROOT="${CACHE_ROOT:-${OUT_ROOT}}"
+# Hydra/experiment output must NOT be written under SIMSCALE_ROOT: that path is an
+# Alluxio FUSE mount that intermittently throws OSError [Errno 5] (EIO) on the small
+# metadata writes Hydra does (overrides.yaml/config.yaml). Keep exp output on CPFS.
+SIMSCALE_EXP_ROOT="${SIMSCALE_EXP_ROOT:-${OUT_ROOT}/exp}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # navtrain locations (data root differs from simscale!)
@@ -102,7 +106,7 @@ for round in ${ROUNDS}; do
   JOB_NAME+=("simscale_r${round}")
   JOB_SPLIT+=("simscale_pdm_round${round}")
   JOB_DATAROOT+=("${SIMSCALE_ROOT}")
-  JOB_EXPROOT+=("${SIMSCALE_ROOT}")
+  JOB_EXPROOT+=("${SIMSCALE_EXP_ROOT}")
   JOB_CACHE+=("${CACHE_ROOT}/recogdrive_agent_cache_dir_${ds}")
 done
 if [[ "${CACHE_NAVTRAIN}" == "1" ]]; then
@@ -145,7 +149,7 @@ for i in "${!JOB_NAME[@]}"; do
 
   export OPENSCENE_DATA_ROOT="${dataroot}"
   export NAVSIM_EXP_ROOT="${exproot}"
-  mkdir -p "${cache}"
+  mkdir -p "${cache}" "${exproot}"
 
   echo ""
   echo "----- caching ${name}: split=${split} -----"
