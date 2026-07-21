@@ -10,8 +10,8 @@ set -euo pipefail
 #     GPUS=8 bash scripts/cache_dataset/run_caching_recogdrive_hidden_state_simscale_pdm_round0.sh
 #
 # IMPORTANT #2 - OUTPUT: all three caches are written UNDER a single new root OUT_ROOT
-# (default /workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim), so the
-# old-VLM caches at their canonical locations are NOT touched. The DiT training must then
+# (default /workspace/volumes/ad-e2e-al-sh01/nby/data/new_vlm_vit_hidden_state_nav_sim), so
+# the old-VLM caches at their canonical locations are NOT touched. The DiT training must then
 # point its cache paths at OUT_ROOT.
 #   OUT_ROOT/recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-0   (simscale r0)
 #   OUT_ROOT/recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-1   (simscale r1)
@@ -32,7 +32,7 @@ CACHE_NAVTRAIN="${CACHE_NAVTRAIN:-1}"
 
 # All three caches (simscale round0/round1 + navtrain) are written UNDER this single
 # root so nothing overwrites the old-VLM caches at their canonical locations.
-OUT_ROOT="${OUT_ROOT:-/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim}"
+OUT_ROOT="${OUT_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/new_vlm_vit_hidden_state_nav_sim}"
 
 SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
 CACHE_ROOT="${CACHE_ROOT:-${OUT_ROOT}}"
@@ -52,7 +52,7 @@ export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD="${TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD:-1}"
 LOG_DIR="${LOG_DIR:-${OUT_ROOT}/logs}"
 CONDA_PYTHON_ROOT="${CONDA_PYTHON_ROOT:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive}"
 TORCHRUN_BIN="${TORCHRUN_BIN:-${CONDA_PYTHON_ROOT}/bin/torchrun}"
-VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_merged}"
+VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_vit_merged}"
 
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-0}"
 export NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-0}"
