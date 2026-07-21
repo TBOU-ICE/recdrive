@@ -34,10 +34,10 @@ export CACHE_READ_RETRY_BASE_SEC="${CACHE_READ_RETRY_BASE_SEC:-0.5}"
 
 # ---- cache locations (NEW VLM) ----
 # Full hidden-state caches (read-only for prep) live on Alluxio under OUT_ROOT.
-OUT_ROOT="${OUT_ROOT:-/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim}"
+OUT_ROOT="${OUT_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/new_vlm_vit_hidden_state_nav_sim}"
 SRC_CACHE_ROOT="${SRC_CACHE_ROOT:-${OUT_ROOT}}"
 # Quality symlink tree is written to CPFS (not Alluxio) to avoid FUSE EIO.
-QUALITY_CACHE_ROOT="${QUALITY_CACHE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/new_vlm_quality_views}"
+QUALITY_CACHE_ROOT="${QUALITY_CACHE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/new_vlm_vit_quality_views}"
 # Backward-compat: CACHE_ROOT overrides where quality views live when set.
 CACHE_ROOT="${CACHE_ROOT:-${QUALITY_CACHE_ROOT}}"
 ALLOWLIST_ROOT="${ALLOWLIST_ROOT:-/workspace/datasets/simscale/20260709}"
@@ -69,7 +69,7 @@ fi
 # Weight-only warm start (agent.initialize). Empty = random-init DiT.
 BASE_CKPT="${BASE_CKPT:-}"
 # New merged VLM (LoRA on SimScale). MUST match what produced the caches above.
-VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_merged}"
+VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_vit_merged}"
 
 NNODES="${WORLD_SIZE:-1}"
 RANK="${RANK:-0}"
