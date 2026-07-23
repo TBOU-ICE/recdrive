@@ -107,9 +107,44 @@ def build_datasets(cfg: DictConfig, agent: AbstractAgent) -> Tuple[Dataset, Data
     return train_data, val_data
 
 
+def _shaped_reward(mode: str, result_dict: Dict[str, float]) -> float:
+    """Per-teacher GRPO reward shaping.
+
+    Available train-scorer sub-metrics (PDMS / v1 scorer): NC, DAC, EP, TTC, C, DDC.
+    Note the training scorer does NOT expose EPDMS-only terms (TLC/LK/HC/EC), so those
+    can only be protected via the reference-policy KL, not optimized here.
+
+    ``gate = NC * DAC`` is a hard multiplicative safety gate (collision / off-road -> 0),
+    applied only to the shaping bonus so unsafe rollouts never earn scenario bonuses.
+
+    mode="pdms" (default) reproduces the previous behaviour exactly (plain PDM score),
+    so existing callers that do not set REWARD_MODE are unaffected.
+    """
+    nc = result_dict["no_at_fault_collisions"]
+    dac = result_dict["drivable_area_compliance"]
+    ep = result_dict["ego_progress"]
+    ttc = result_dict["time_to_collision_within_bound"]
+    ddc = result_dict["driving_direction_compliance"]
+    pdms = result_dict["score"]
+    gate = nc * dac
+
+    if mode == "safety":
+        return gate * (0.5 * pdms + 0.3 * ttc + 0.2 * nc)
+    if mode == "rule":
+        return gate * (0.6 * pdms + 0.4 * ddc)
+    if mode == "progress":
+        return gate * (0.6 * pdms + 0.4 * ep)
+    if mode in ("general", "pdms"):
+        return pdms
+    raise ValueError(f"Unknown REWARD_MODE={mode!r} (expected pdms|safety|rule|progress|general)")
+
+
 def install_mixed_rl_reward(agent: AbstractAgent) -> None:
+    reward_mode = os.environ.get("REWARD_MODE", "pdms").strip().lower()
+    logger.info("Installing GRPO reward with REWARD_MODE=%s", reward_mode)
+
     def reward_fn(self, pred_traj: torch.Tensor, tokens_list, cache_dict) -> torch.Tensor:
-        """GRPO reward = PDM score (PDMS)."""
+        """GRPO reward = REWARD_MODE-dependent shaping of PDM sub-metrics."""
         pred_np = pred_traj.detach().cpu().numpy()
         rewards = []
         for i, token in enumerate(tokens_list):
@@ -123,7 +158,7 @@ def install_mixed_rl_reward(agent: AbstractAgent) -> None:
                 simulator=self.simulator,
                 scorer=self.train_scorer,
             )
-            rewards.append(float(asdict(pdm_result)["score"]))
+            rewards.append(_shaped_reward(reward_mode, asdict(pdm_result)))
         return torch.tensor(rewards, device=pred_traj.device, dtype=pred_traj.dtype).detach()
 
     action_head = getattr(agent, "action_head", None)

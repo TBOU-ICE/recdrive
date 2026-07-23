@@ -12,7 +12,7 @@ export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH" #nby
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
-export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/eval_recdrive_v2"
+export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
 export NAVSIM_DEVKIT_ROOT="/workspace/recdrive-scene"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}:${PYTHONPATH:-}"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
@@ -21,13 +21,13 @@ export NCCL_IB_DISABLE=0
 export NCCL_P2P_DISABLE=0
 export NCCL_SHM_DISABLE=0
 
-MASTER_PORT=${MASTER_PORT:-62669}
-PORT=${PORT:-62668}
+MASTER_PORT=${MASTER_PORT:-62662}
+PORT=${PORT:-62663}
 export MASTER_PORT=${MASTER_PORT}
 export PORT=${PORT}
 
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt"
+CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_newvlm/2026.07.20.14.31.06/lightning_logs/version_0/checkpoints/epoch=199-step=312200.ckpt"
 
 # PDMS on navtest must use caches built for that split; metric_cache_train tokens won't match navtest.
 METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
@@ -39,7 +39,7 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
     train_test_split="${TRAIN_TEST_SPLIT}" \
     agent=recogdrive_agent \
     agent.checkpoint_path="'$CHECKPOINT'" \
-    agent.vlm_path='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B' \
+    agent.vlm_path='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_merged' \
     agent.cam_type='single' \
     agent.grpo=False \
     agent.cache_hidden_state=False \
@@ -49,5 +49,5 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
     agent.sampling_method="ddim" \
     metric_cache_path="${METRIC_CACHE_PATH}" \
     agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-    experiment_name=eval-pdms_progress_curbside_stopgo-recdrive-RL \
+    experiment_name=eval-pdms-progress-new-vlm-new-dit-199epoch \
     worker=sequential

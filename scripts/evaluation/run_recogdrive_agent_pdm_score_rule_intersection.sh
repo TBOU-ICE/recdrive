@@ -21,14 +21,14 @@ export NCCL_IB_DISABLE=0
 export NCCL_P2P_DISABLE=0
 export NCCL_SHM_DISABLE=0
 
-MASTER_PORT=${MASTER_PORT:-62668}
-PORT=${PORT:-62669}
+MASTER_PORT=${MASTER_PORT:-62666}
+PORT=${PORT:-62667}
 export MASTER_PORT=${MASTER_PORT}
 export PORT=${PORT}
 
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_rule_rl_40nav_30navbucket_30simbucket/2026.07.10.04.16.16/lightning_logs/version_0/checkpoints/epoch=13-step=1848.ckpt"
+CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_newvlm/2026.07.20.14.31.06/lightning_logs/version_0/checkpoints/epoch=199-step=312200.ckpt"
 # PDMS on navtest must use caches built for that split; metric_cache_train tokens won't match navtest.
 METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
 
@@ -49,5 +49,5 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
     agent.sampling_method="ddim" \
     metric_cache_path="${METRIC_CACHE_PATH}" \
     agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-    experiment_name=eval-pdms-rule_rl_40nav_30navbucket_30simbucket-13epoch-new-vlm \
+    experiment_name=eval-pdms-rule-new-vlm-new-dit-199epoch \
     worker=sequential
