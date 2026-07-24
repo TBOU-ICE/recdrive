@@ -50,8 +50,20 @@ INIT_CKPT="${INIT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/train
 REF_CKPT="${REF_CKPT:-${INIT_CKPT}}"
 VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_merged}"
 
+# Optional full-state resume (continue optimizer+epoch from a prior RL run of THIS teacher).
+# Empty -> fresh run warm-started from INIT_CKPT (stage-1 IL). To continue a run, point at that
+# teacher's checkpoint, e.g. RESUME_CKPT=<exp>/.../lightning_logs/version_0/checkpoints/last.ckpt
+RESUME_CKPT="${RESUME_CKPT:-}"
+if [[ -n "${RESUME_CKPT}" ]]; then
+  echo "[teacher] RESUME full state from: ${RESUME_CKPT}"
+  CKPT_ARGS=( "agent.checkpoint_path=null" "ckpt_path='${RESUME_CKPT}'" )
+else
+  echo "[teacher] FRESH warm-start from INIT_CKPT: ${INIT_CKPT}"
+  CKPT_ARGS=( "agent.checkpoint_path='${INIT_CKPT}'" )
+fi
+
 LR="${LR:-3e-5}"
-MAX_EPOCHS="${MAX_EPOCHS:-20}"
+MAX_EPOCHS="${MAX_EPOCHS:-40}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
 LIMIT_TRAIN_BATCHES="${LIMIT_TRAIN_BATCHES:-1.0}"
@@ -313,7 +325,7 @@ echo "======================================================================"
   --master_port="${MASTER_PORT}" \
   "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_training_recogdrive_mixed_simscale_rl.py" \
   agent=recogdrive_agent \
-  "agent.checkpoint_path=\"${INIT_CKPT}\"" \
+  "${CKPT_ARGS[@]}" \
   "agent.reference_policy_checkpoint=\"${REF_CKPT}\"" \
   agent.lr="${LR}" \
   agent.grpo=True \

@@ -270,13 +270,37 @@ def main(cfg: DictConfig) -> None:
     logger.info("Num validation samples: %d", len(val_data))
 
     logger.info("Building Trainer")
+    # GRPO objective is reward, NOT the val denoising loss (they are anti-correlated:
+    # reward rises as the policy leaves the demonstration manifold). Select checkpoints by
+    # train/reward_epoch (max) and always keep last.ckpt so the final/best policy is retained.
     trainer = pl.Trainer(
         **cfg.trainer.params,
-        callbacks=[pl.callbacks.ModelCheckpoint(monitor="val/loss_epoch", mode="min", save_top_k=5, every_n_epochs=1)],
+        callbacks=[
+            pl.callbacks.ModelCheckpoint(
+                monitor="train/reward_epoch",
+                mode="max",
+                save_top_k=5,
+                save_last=True,
+                every_n_epochs=1,
+            )
+        ],
     )
 
+    # Optional full-state resume (model + optimizer + epoch) for trainer.fit(ckpt_path=...).
+    ckpt_path = cfg.get("ckpt_path", None)
+    if ckpt_path in ("", None):
+        ckpt_path = None
+    else:
+        ckpt_path = str(ckpt_path)
+        logger.info("Resuming Lightning training from ckpt_path=%s", ckpt_path)
+
     logger.info("Starting Training")
-    trainer.fit(model=lightning_module, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
+    trainer.fit(
+        model=lightning_module,
+        train_dataloaders=train_dataloader,
+        val_dataloaders=val_dataloader,
+        ckpt_path=ckpt_path,
+    )
 
 
 if __name__ == "__main__":
