@@ -14,7 +14,6 @@ checkpoint_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_di
 
 # new representation (must match the caches that produced the teachers)
 vlm_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_merged'
-vlm_weights_path: ''
 cam_type: 'single'
 vlm_type: 'internvl'
 dit_type: 'small'
