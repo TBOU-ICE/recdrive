@@ -46,6 +46,12 @@ class AgentLightningSceneRouter(pl.LightningModule):
                         prog_bar=key == "distill_loss",
                         sync_dist=True,
                     )
+            # These per-bucket keys are DATA-DEPENDENT: a key is only present for a
+            # scenario bucket that appears in this rank's local batch. Logging them with
+            # sync_dist=True issues one cross-rank all-reduce per key, and since different
+            # ranks see different bucket mixes, the collectives mismatch and DDP deadlocks
+            # at the first step (no traceback, training just hangs). They are diagnostics
+            # only, so log them rank-locally (sync_dist=False) to avoid the hang.
             for key in list(output.keys()):
                 if key.startswith(("kl_", "n_samples_")):
                     self.log(
@@ -54,7 +60,7 @@ class AgentLightningSceneRouter(pl.LightningModule):
                         on_step=True,
                         on_epoch=True,
                         prog_bar=False,
-                        sync_dist=True,
+                        sync_dist=False,
                     )
 
         return loss
