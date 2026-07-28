@@ -94,6 +94,9 @@ EXTRA_REPEATS_ARG="$(join_hydra ${EXTRA_REPEAT_LIST[@]+"${EXTRA_REPEAT_LIST[@]}"
 EXTRA_TOKEN_JSONS_ARG="$(join_hydra ${EXTRA_TOKEN_JSON_LIST[@]+"${EXTRA_TOKEN_JSON_LIST[@]}"})"
 
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_scene_router_dit_opd_v1}"
+# Local tee of stdout/stderr (HPC also captures logs). Must be set under `set -u`.
+LOG_FILE="${LOG_FILE:-${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}/run_scene_router_dit_opd_v1.log}"
+mkdir -p "$(dirname "${LOG_FILE}")"
 
 echo "[scene-router-v1] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
 echo "[scene-router-v1] teacher_select=scene_route match_target=${MATCH_TARGET} exopd_lambda=${EXOPD_LAMBDA}"
@@ -101,6 +104,7 @@ echo "[scene-router-v1] STUDENT_CKPT=${STUDENT_CKPT}"
 echo "[scene-router-v1] EXOPD_REF_CKPT=${EXOPD_REF_CKPT}"
 echo "[scene-router-v1] CACHE_PATH=${CACHE_PATH}"
 echo "[scene-router-v1] TOKEN_TO_BUCKET_JSON=${TOKEN_TO_BUCKET_JSON}"
+echo "[scene-router-v1] LOG_FILE=${LOG_FILE}"
 
 /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
   --nnodes="${NNODES}" \
