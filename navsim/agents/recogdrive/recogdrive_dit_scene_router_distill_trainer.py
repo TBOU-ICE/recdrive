@@ -234,11 +234,17 @@ class ReCogDriveDiTSceneRouterDistillTrainer:
             "student_pred_traj_mean": pred_traj_s.mean().detach(),
             "student_pred_traj_std": pred_traj_s.std(unbiased=False).detach(),
         }
+        # Always emit ALL buckets' keys (0 when absent): the lightning module logs
+        # each key with sync_dist=True, so a rank-dependent key set desynchronizes
+        # NCCL collectives across DDP ranks and deadlocks training silently.
         for bucket in self.bucket_names:
             values = per_bucket_step_losses[bucket]
-            if values:
-                data[f"kl_{bucket}_mean"] = torch.stack(values).mean().detach()
-                data[f"n_samples_{bucket}"] = torch.tensor(
-                    float(len(bucket_to_indices.get(bucket, []))), device=device
-                )
+            data[f"kl_{bucket}_mean"] = (
+                torch.stack(values).mean().detach()
+                if values
+                else torch.tensor(0.0, device=device)
+            )
+            data[f"n_samples_{bucket}"] = torch.tensor(
+                float(len(bucket_to_indices.get(bucket, []))), device=device
+            )
         return BatchFeature(data=data)

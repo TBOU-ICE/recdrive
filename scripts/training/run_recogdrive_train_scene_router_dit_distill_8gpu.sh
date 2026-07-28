@@ -145,4 +145,4 @@ echo "[scene-router-v1] TOKEN_TO_BUCKET_JSON=${TOKEN_TO_BUCKET_JSON}"
   use_cache_without_dataset=True \
   force_cache_computation=False \
   hydra/job_logging=stdout \
-  hydra.output_subdir=null
+  hydra.output_subdir=null 2>&1 | tee "${LOG_FILE}"

@@ -224,6 +224,7 @@ def main(cfg: DictConfig) -> None:
         mode="min",
         save_top_k=5,
         every_n_epochs=1,
+        save_last=True,
     )
     trainer = pl.Trainer(**cfg.trainer.params, callbacks=[checkpoint_cb])
     trainer.fit(
