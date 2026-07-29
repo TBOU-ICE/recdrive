@@ -47,9 +47,9 @@ SCENE_TERM="${SCENE_TERM:-none}"           # none | ep | ec | gate
 SCENE_TERM_WEIGHT="${SCENE_TERM_WEIGHT:-0.3}"
 
 # ---- sample-level source ratios ----
-RATIO_NAV_FULL="${RATIO_NAV_FULL:-0.35}"
-RATIO_NAV_BUCKET="${RATIO_NAV_BUCKET:-0.40}"
-RATIO_SIM_BUCKET="${RATIO_SIM_BUCKET:-0.25}"
+RATIO_NAV_FULL="${RATIO_NAV_FULL:-0.0}"
+RATIO_NAV_BUCKET="${RATIO_NAV_BUCKET:-0.6}"
+RATIO_SIM_BUCKET="${RATIO_SIM_BUCKET:-0.4}"
 
 # ---- schedule (identical across experts on purpose) ----
 LR="${LR:-2e-5}"
