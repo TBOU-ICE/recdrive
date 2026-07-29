@@ -29,10 +29,14 @@ MATCH_TARGET="${MATCH_TARGET:-x0}"
 TOKEN_TO_BUCKET_JSON="${TOKEN_TO_BUCKET_JSON:-/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain/exclusive_token_to_bucket.json}"
 VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_merged}"
 CACHE_PATH="${CACHE_PATH:-/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_train}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-debug_scene_router_dit_opd_v1}"
-MASTER_PORT="${MASTER_PORT:-23462}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-debug_scene_router_dit_opd_v1_2gpu}"
+MASTER_PORT="${MASTER_PORT:-24571}"
 
-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
+echo "[scene-router-debug] GPUS=${GPUS} CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} MASTER_PORT=${MASTER_PORT}"
+echo "[scene-router-debug] STUDENT_CKPT=${STUDENT_CKPT}"
+echo "[scene-router-debug] TEACHER_SAFETY_CKPT=${TEACHER_SAFETY_CKPT}"
+
+PYTHONUNBUFFERED=1 /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
   --nnodes=1 --node_rank=0 --nproc_per_node="${GPUS}" --master_port="${MASTER_PORT}" \
   "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_training_recogdrive_scene_router_dit_distill.py" \
   agent=recogdrive_agent_scene_router_dit_distill \
