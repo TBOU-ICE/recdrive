@@ -193,7 +193,7 @@ echo "======================================================================"
   dataloader.params.num_workers="${NUM_WORKERS}" \
   dataloader.params.pin_memory=true \
   dataloader.params.prefetch_factor="${PREFETCH_FACTOR}" \
-  dataloader.params.persistent_workers=true \
+  "+dataloader.params.persistent_workers=true" \
   experiment_name="${EXPERIMENT_NAME}" \
   train_test_split=navtrain \
   cache_path="${NAV_CACHE_PATH}" \
