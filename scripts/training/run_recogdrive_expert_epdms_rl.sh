@@ -187,7 +187,7 @@ echo "======================================================================"
   trainer.params.max_epochs="${MAX_EPOCHS}" \
   trainer.params.num_nodes="${NNODES}" \
   trainer.params.devices="${GPUS}" \
-  trainer.params.limit_val_batches=0 \
+  trainer.params.check_val_every_n_epoch=3 \
   trainer.params.num_sanity_val_steps=0 \
   dataloader.params.batch_size="${BATCH_SIZE}" \
   dataloader.params.num_workers="${NUM_WORKERS}" \
@@ -199,7 +199,6 @@ echo "======================================================================"
   cache_path="${NAV_CACHE_PATH}" \
   use_cache_without_dataset=true \
   force_cache_computation=False \
-  "+epdms.skip_val=true" \
   "+epdms.pair_table='${PAIR_TABLE}'" \
   "+epdms.bucket_tokens='${BUCKET_TOKENS}'" \
   "+epdms.sim_cache_paths=${SIM_CACHES_HYDRA}" \

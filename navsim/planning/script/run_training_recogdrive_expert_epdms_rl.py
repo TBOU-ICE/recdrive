@@ -152,11 +152,19 @@ def main(cfg: DictConfig) -> None:
 
     lightning_module = AgentLightningEpdmsRL(agent=agent)
 
-    # save every epoch; per-bucket checkpoint selection happens offline on navtest
+    # Keep top-5 by val loss, checkpoint every 3 epochs (+ last). Pair with
+    # trainer.params.check_val_every_n_epoch=3 so val runs on the same cadence.
+    checkpoint_cb = pl.callbacks.ModelCheckpoint(
+        monitor="val/loss_epoch",
+        mode="min",
+        save_top_k=5,
+        every_n_epochs=3,
+        save_last=True,
+    )
     trainer = pl.Trainer(
         **cfg.trainer.params,
         use_distributed_sampler=False,
-        callbacks=[pl.callbacks.ModelCheckpoint(save_top_k=-1, save_last=True, every_n_epochs=1)],
+        callbacks=[checkpoint_cb],
     )
 
     ckpt_path = cfg.get("ckpt_path", None) or None
