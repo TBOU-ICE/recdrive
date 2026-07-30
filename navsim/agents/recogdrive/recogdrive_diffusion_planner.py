@@ -827,7 +827,7 @@ class ReCogDriveDiffusionPlanner(nn.Module):
         tokens_list,
         sample_time: int = 8,
         deterministic=False,
-        bc_coeff: float = 0.1,
+        bc_coeff: float = 0.3,
         use_bc_loss: bool = True
     ) -> BatchFeature:
         """Computes the Diffusion-GRPO loss."""
