@@ -270,15 +270,14 @@ def main(cfg: DictConfig) -> None:
     logger.info("Num validation samples: %d", len(val_data))
 
     logger.info("Building Trainer")
-    # GRPO objective is reward, NOT the val denoising loss (they are anti-correlated:
-    # reward rises as the policy leaves the demonstration manifold). Select checkpoints by
-    # train/reward_epoch (max) and always keep last.ckpt so the final/best policy is retained.
+    # Keep the top-5 checkpoints by validation loss; last.ckpt is kept for resume.
+    # Final pick can still be refined by offline EPDMS/PDMS eval among these candidates.
     trainer = pl.Trainer(
         **cfg.trainer.params,
         callbacks=[
             pl.callbacks.ModelCheckpoint(
-                monitor="train/reward_epoch",
-                mode="max",
+                monitor="val/loss_epoch",
+                mode="min",
                 save_top_k=5,
                 save_last=True,
                 every_n_epochs=1,

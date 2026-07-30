@@ -281,7 +281,8 @@ class ReCogDriveAgent(AbstractAgent):
         optimizer = build_from_configs(optim, optimizer_cfg, params=params)
         
         if self.grpo:
-            scheduler = WarmupCosLR(optimizer=optimizer, lr=self._lr, min_lr=0.0, epochs=10, warmup_epochs=0)
+            # Keep cosine period aligned with teacher RL max_epochs (scripts default to 15).
+            scheduler = WarmupCosLR(optimizer=optimizer, lr=self._lr, min_lr=0.0, epochs=15, warmup_epochs=0)
         else:
             scheduler = WarmupCosLR(optimizer=optimizer, lr=self._lr, min_lr=1e-6, epochs=200, warmup_epochs=3)
             

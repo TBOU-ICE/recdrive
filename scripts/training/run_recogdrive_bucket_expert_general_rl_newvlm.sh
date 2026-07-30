@@ -41,9 +41,9 @@ BUCKET_FILE="${BUCKET_FILE:-exclusive_general_or_no_tag_tokens.json}"
 export REWARD_MODE="${REWARD_MODE:-general}"
 
 # ---- sampling ratios (full navtrain / navtrain-bucket / simscale-bucket) ----
-NAV_RATIO="${NAV_RATIO:-0.4}"
-NAV_BUCKET_RATIO="${NAV_BUCKET_RATIO:-0.4}"
-SIM_BUCKET_RATIO="${SIM_BUCKET_RATIO:-0.2}"
+NAV_RATIO="${NAV_RATIO:-0.0}"
+NAV_BUCKET_RATIO="${NAV_BUCKET_RATIO:-0.5}"
+SIM_BUCKET_RATIO="${SIM_BUCKET_RATIO:-0.5}"
 
 # ---- new-representation init + VLM (must match the caches!) ----
 INIT_CKPT="${INIT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_newvlm/2026.07.20.14.31.06/lightning_logs/version_0/checkpoints/epoch=199-step=312200.ckpt}"
@@ -63,9 +63,9 @@ else
 fi
 
 LR="${LR:-2e-5}"
-MAX_EPOCHS="${MAX_EPOCHS:-40}"
+MAX_EPOCHS="${MAX_EPOCHS:-15}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
-NUM_WORKERS="${NUM_WORKERS:-8}"
+NUM_WORKERS="${NUM_WORKERS:-16}"
 LIMIT_TRAIN_BATCHES="${LIMIT_TRAIN_BATCHES:-1.0}"
 LIMIT_VAL_BATCHES="${LIMIT_VAL_BATCHES:-1.0}"
 
@@ -119,7 +119,7 @@ SIM_BUCKET_CACHE_PATH="${SIM_BUCKET_CACHE_PATH:-${MIX_ROOT}/simscale_bucket_cach
 MIX_METRIC_CACHE_PATH="${MIX_METRIC_CACHE_PATH:-${MIX_ROOT}/union_metric_cache}"
 MIX_INFO_DIR="${MIX_INFO_DIR:-${MIX_ROOT}/metadata}"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_teacher_${BUCKET_NAME}_rl_newvlm}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_teacher_${BUCKET_NAME}_rl_newvlm_v1-1}"
 TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
 PYTHON_BIN="${PYTHON_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/python}"
 
