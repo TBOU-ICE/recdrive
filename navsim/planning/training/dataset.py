@@ -1,9 +1,11 @@
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
+import errno
 import logging
 import pickle
 import gzip
 import os
+import time
 
 import torch
 from tqdm import tqdm
@@ -18,12 +20,63 @@ import math
 from navsim.visualization.camera import _transform_points_to_image, _rotation_3d_in_axis, _transform_annotations_to_camera
 logger = logging.getLogger(__name__)
 
+# Transient filesystem errors commonly seen on Alluxio/FUSE/OSS mounts.
+_RETRYABLE_ERRNOS = {
+    errno.EIO,  # 5 Input/output error
+    errno.EAGAIN,  # 11 Resource temporarily unavailable
+    errno.EBUSY,  # 16 Device or resource busy
+    errno.ESTALE,  # 116 Stale file handle
+    getattr(errno, "ETIMEDOUT", 110),
+}
+_CACHE_READ_MAX_RETRIES = int(os.environ.get("CACHE_READ_MAX_RETRIES", "5"))
+_CACHE_READ_RETRY_BASE_SEC = float(os.environ.get("CACHE_READ_RETRY_BASE_SEC", "0.5"))
+
 
 def load_feature_target_from_pickle(path: Path) -> Dict[str, torch.Tensor]:
-    """Helper function to load pickled feature/target from path."""
-    with gzip.open(path, "rb") as f:
-        data_dict: Dict[str, torch.Tensor] = pickle.load(f)
-    return data_dict
+    """Helper function to load pickled feature/target from path.
+
+    Retries on transient I/O errors (e.g. Alluxio FUSE Errno 5) so long training
+    runs are less likely to die on a single flaky cache read.
+    """
+    path = Path(path)
+    last_err: Optional[BaseException] = None
+    for attempt in range(1, _CACHE_READ_MAX_RETRIES + 1):
+        try:
+            with gzip.open(path, "rb") as f:
+                data_dict: Dict[str, torch.Tensor] = pickle.load(f)
+            return data_dict
+        except OSError as err:
+            last_err = err
+            err_no = getattr(err, "errno", None)
+            if err_no not in _RETRYABLE_ERRNOS or attempt >= _CACHE_READ_MAX_RETRIES:
+                raise
+            sleep_s = _CACHE_READ_RETRY_BASE_SEC * (2 ** (attempt - 1))
+            logger.warning(
+                "Retryable cache read failure (%s/%s) path=%s errno=%s: %s; sleep=%.2fs",
+                attempt,
+                _CACHE_READ_MAX_RETRIES,
+                path,
+                err_no,
+                err,
+                sleep_s,
+            )
+            time.sleep(sleep_s)
+        except (EOFError, pickle.UnpicklingError) as err:
+            last_err = err
+            if attempt >= _CACHE_READ_MAX_RETRIES:
+                raise
+            sleep_s = _CACHE_READ_RETRY_BASE_SEC * (2 ** (attempt - 1))
+            logger.warning(
+                "Retryable cache decode failure (%s/%s) path=%s: %s; sleep=%.2fs",
+                attempt,
+                _CACHE_READ_MAX_RETRIES,
+                path,
+                err,
+                sleep_s,
+            )
+            time.sleep(sleep_s)
+    assert last_err is not None
+    raise last_err
 
 
 def dump_feature_target_to_pickle(path: Path, data_dict: Dict[str, torch.Tensor]) -> None:
