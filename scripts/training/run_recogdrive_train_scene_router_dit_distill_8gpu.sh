@@ -10,11 +10,12 @@
 # point at old-VLM or *_vit_* caches, or the DiT reads OOD features.
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/code}"
+export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-${REPO_ROOT}}"
 export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
@@ -33,10 +34,10 @@ GPUS="${GPUS:-8}"
 STUDENT_CKPT="${STUDENT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
 
 # ---- four scenario-expert teachers (new-vlm RL experts) ----
-TEACHER_PROGRESS_CKPT="${TEACHER_PROGRESS_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_progress_curbside_stopgo_rl_newvlm/2026.07.24.05.09.01/lightning_logs/version_0/checkpoints/ckpt/epoch=14-step=2385.ckpt}"
-TEACHER_RULE_CKPT="${TEACHER_RULE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_rule_intersection_rl_newvlm/2026.07.24.04.59.12/lightning_logs/version_0/checkpoints/ckpt/epoch=14-step=2115.ckpt}"
-TEACHER_SAFETY_CKPT="${TEACHER_SAFETY_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_safety_dynamics_interaction_rl_newvlm/2026.07.27.07.05.26/lightning_logs/version_0/checkpoints/epoch=14-step=1890.ckpt}"
-TEACHER_GENERAL_CKPT="${TEACHER_GENERAL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_general_or_no_tag_rl_newvlm/2026.07.23.22.12.41/lightning_logs/version_0/checkpoints/epoch=11-step=2100.ckpt}"
+TEACHER_PROGRESS_CKPT="${TEACHER_PROGRESS_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_progress_curbside_stopgo_rl_newvlm_v1-1/2026.07.30.11.52.25/lightning_logs/version_0/checkpoints/epoch=6-step=1113.ckpt}"
+TEACHER_RULE_CKPT="${TEACHER_RULE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_rule_intersection_rl_newvlm_v1-1/2026.07.30.11.52.22/lightning_logs/version_0/checkpoints/epoch=12-step=1833.ckpt}"
+TEACHER_SAFETY_CKPT="${TEACHER_SAFETY_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_safety_dynamics_interaction_rl_newvlm_v1-1/2026.07.30.11.52.26/lightning_logs/version_0/checkpoints/epoch=13-step=1764.ckpt}"
+TEACHER_GENERAL_CKPT="${TEACHER_GENERAL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_general_or_no_tag_rl_newvlm_v1-1/2026.07.30.11.52.29/lightning_logs/version_0/checkpoints/epoch=4-step=875.ckpt}"
 
 # ---- ExOPD reference (experts' pre-RL IL base, new-vlm 199-epoch) ----
 EXOPD_REF_CKPT="${EXOPD_REF_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
@@ -93,7 +94,7 @@ EXTRA_CACHES_ARG="$(join_hydra ${EXTRA_CACHE_LIST[@]+"${EXTRA_CACHE_LIST[@]}"})"
 EXTRA_REPEATS_ARG="$(join_hydra ${EXTRA_REPEAT_LIST[@]+"${EXTRA_REPEAT_LIST[@]}"})"
 EXTRA_TOKEN_JSONS_ARG="$(join_hydra ${EXTRA_TOKEN_JSON_LIST[@]+"${EXTRA_TOKEN_JSON_LIST[@]}"})"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_scene_router_dit_opd_v1}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_scene_router_dit_opd_v2}"
 # Local tee of stdout/stderr (HPC also captures logs). Must be set under `set -u`.
 LOG_FILE="${LOG_FILE:-${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}/run_scene_router_dit_opd_v1.log}"
 mkdir -p "$(dirname "${LOG_FILE}")"
