@@ -7,7 +7,7 @@ set -x
 
 TRAIN_TEST_SPLIT=navtest_progress_curbside_stopgo
 export PYTHONUNBUFFERED=1
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-4}"
 
 export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH" #nby
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
@@ -21,13 +21,13 @@ export NCCL_IB_DISABLE=0
 export NCCL_P2P_DISABLE=0
 export NCCL_SHM_DISABLE=0
 
-MASTER_PORT=${MASTER_PORT:-62666}
-PORT=${PORT:-62667}
+MASTER_PORT=${MASTER_PORT:-62659}
+PORT=${PORT:-62658}
 export MASTER_PORT=${MASTER_PORT}
 export PORT=${PORT}
 
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_expert_epdms_rl_progress_curbside_stopgo/2026.07.29.11.59.14/lightning_logs/version_0/checkpoints/epoch=14-step=3000.ckpt"
+CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_progress_curbside_stopgo_rl_newvlm_v1-1/2026.07.30.13.43.55/lightning_logs/version_0/checkpoints/epoch=7-step=1272.ckpt"
 
 # PDMS on navtest must use caches built for that split; metric_cache_train tokens won't match navtest.
 METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
@@ -39,7 +39,7 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
     train_test_split="${TRAIN_TEST_SPLIT}" \
     agent=recogdrive_agent \
     agent.checkpoint_path="'$CHECKPOINT'" \
-    agent.vlm_path='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_vit_merged' \
+    agent.vlm_path='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_merged' \
     agent.cam_type='single' \
     agent.grpo=False \
     agent.cache_hidden_state=False \
@@ -49,5 +49,5 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
     agent.sampling_method="ddim" \
     metric_cache_path="${METRIC_CACHE_PATH}" \
     agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-    experiment_name=eval-pdms-new-vlm-rl-expert-v2-2-14epoch-progress \
+    experiment_name=eval-pdms-new-vlm-rl-teacher-v1-2-7epoch-progress \
     worker=sequential

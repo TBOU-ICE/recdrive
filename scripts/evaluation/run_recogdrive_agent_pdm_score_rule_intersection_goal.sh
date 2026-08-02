@@ -5,9 +5,9 @@ set -x
 # - worker=sequential: no local Ray cluster (faster startup; matches single-process eval).
 # - PYTHONUNBUFFERED: stage timing logs appear immediately in terminal + log.txt.
 
-TRAIN_TEST_SPLIT=navtest_general_or_no_tag
+TRAIN_TEST_SPLIT=navtest_rule_intersection
 export PYTHONUNBUFFERED=1
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-4}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-3}"
 
 export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH" #nby
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
@@ -21,25 +21,24 @@ export NCCL_IB_DISABLE=0
 export NCCL_P2P_DISABLE=0
 export NCCL_SHM_DISABLE=0
 
-MASTER_PORT=${MASTER_PORT:-62669}
-PORT=${PORT:-62668}
+MASTER_PORT=${MASTER_PORT:-62660}
+PORT=${PORT:-62661}
 export MASTER_PORT=${MASTER_PORT}
 export PORT=${PORT}
 
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
-#CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/training_recogdrive_agent_rl_jiaoqf/2026.03.07.11.46.20/lightning_logs/version_0/checkpoints/epoch=9-step=3330.ckpt"
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_general_or_no_tag_rl_newvlm_v1-1/2026.07.30.13.32.07/lightning_logs/version_0/checkpoints/epoch=14-step=2625.ckpt"
-
+CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_rule_intersection_rl_newvlm_v1-1/2026.07.30.11.52.22/lightning_logs/version_0/checkpoints/epoch=12-step=1833.ckpt"
 # PDMS on navtest must use caches built for that split; metric_cache_train tokens won't match navtest.
 METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
 
 /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
     --nproc_per_node=1 \
     --master_port="${MASTER_PORT}" \
-    "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_pdm_score_recogdrive.py" \
+    "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_pdm_score_recogdrive_goal.py" \
     train_test_split="${TRAIN_TEST_SPLIT}" \
-    agent=recogdrive_agent \
+    agent=recogdrive_goal_agent \
+    agent.goal_mode="inpaint" \
     agent.checkpoint_path="'$CHECKPOINT'" \
     agent.vlm_path='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_merged' \
     agent.cam_type='single' \
@@ -51,5 +50,5 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
     agent.sampling_method="ddim" \
     metric_cache_path="${METRIC_CACHE_PATH}" \
     agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-    experiment_name=eval-pdms-new-vlm-rl-teacher-v1-2-14epoch-general \
+    experiment_name=eval-pdms-newvlm-rl-teacher-v1-1-12epoch-rule-goal \
     worker=sequential
