@@ -57,7 +57,7 @@ BUCKET_NAME="${BUCKET_NAME:-rule_intersection}"
 BUCKET_FILE="${BUCKET_FILE:-exclusive_rule_intersection_tokens.json}"
 
 # ---- goal-point conditioning ----
-GOAL_MODE="${GOAL_MODE:-channel}"
+GOAL_MODE="${GOAL_MODE:-cross}"
 
 # ---- data mixture: NO sampling ratios ----
 # mixed_cache.fullmix=true makes the trainer shuffle the UNION of this bucket's
