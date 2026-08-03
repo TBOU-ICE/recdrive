@@ -122,7 +122,7 @@ NNODES="${WORLD_SIZE:-1}"
 RANK="${RANK:-0}"
 MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 # Goal-point conditioning: adaln | channel | cross | none
-GOAL_MODE="${GOAL_MODE:-adaln}"
+GOAL_MODE="${GOAL_MODE:-cross}"
 
 MASTER_PORT="${MASTER_PORT:-23561}"
 GPUS="${GPUS:-8}"
