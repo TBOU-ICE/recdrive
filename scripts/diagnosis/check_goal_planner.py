@@ -147,6 +147,32 @@ def main() -> None:
         assert torch.isfinite(traj).all(), f"{mode}: non-finite trajectory"
         _ok(f"{mode:8s} loss={loss.item():.4f}, trajectory {tuple(traj.shape)}")
 
+    print("\n=== goal branches receive gradient (no stacked-zero deadlock) ===")
+    # Catches the failure mode where a zero-init encoder feeds a zero-init
+    # projection: with y = P.e, dL/dP = g.e^T = 0 (e = 0) and dL/de = P^T.g = 0
+    # (P = 0), so the branch trains to nothing.  The 2026.08.02 channel/cross
+    # teachers hit exactly this; their goal weights were still zero after ~200
+    # epochs.  Unlike the "bound goal changes the prediction" check below, this
+    # one does NOT re-initialise any goal weights, so it tests the real
+    # from-scratch training regime.
+    grad_targets = {
+        "adaln": "goal_encoder.net.2.weight",
+        "channel": "goal_channel_proj.weight",
+        "cross": "goal_cross_proj.weight",
+    }
+    for mode, param_name in grad_targets.items():
+        planner = _simulate_trained_dit(_build(mode, args)).train()
+        with planner.goal_context(batch["goal"]):
+            loss = planner.forward(batch["vl"], batch["input"])["loss"]
+        loss.backward()
+        param = dict(planner.named_parameters())[param_name]
+        grad_max = 0.0 if param.grad is None else param.grad.abs().max().item()
+        assert grad_max > 0, (
+            f"{mode}: {param_name} received zero gradient -- goal branch is dead "
+            "(two stacked zero-init layers?)"
+        )
+        _ok(f"{mode:8s} max |d(loss)/d({param_name})| = {grad_max:.2e}")
+
     print("\n=== zero-init goal branches are a no-op on a trained checkpoint ===")
     for mode in ("adaln", "channel", "cross"):
         planner = _simulate_trained_dit(_build(mode, args))

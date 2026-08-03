@@ -59,10 +59,20 @@ def pos2posemb2d(pos: torch.Tensor, num_pos_feats: int = 128, temperature: float
 class GoalEncoder(nn.Module):
     """Encodes a normalised goal point into a conditioning vector.
 
-    The final linear layer is zero-initialised, so a goal-conditioned planner
+    ``zero_init_last`` controls whether the final linear layer starts at zero.
+    The goal branch as a whole must contain EXACTLY ONE zero-initialised layer,
+    and it must be the OUTERMOST one (the ControlNet zero-conv rule): a single
+    zero layer makes the branch a no-op at init -- so a goal-conditioned planner
     warm-started from a goal-free checkpoint reproduces that checkpoint exactly
-    until the first gradient step.  This mirrors how ``LightningDiT`` zero-inits
-    ``adaLN_modulation`` and ``final_layer.modulation_proj``.
+    until the first gradient step -- while still receiving gradient itself.
+    Stacking TWO zero layers (e.g. a zero-init encoder followed by a zero-init
+    projection) deadlocks instead: with ``y = P e``, ``dL/dP = g e^T = 0``
+    because ``e = 0``, and ``dL/de = P^T g = 0`` because ``P = 0``, so neither
+    layer ever updates and the goal can never influence the output.
+
+    Therefore set ``zero_init_last=True`` only when this encoder's output is
+    consumed directly (adaln mode); set it ``False`` when a separate
+    zero-initialised projection follows (channel / cross modes).
     """
 
     def __init__(
@@ -71,6 +81,7 @@ class GoalEncoder(nn.Module):
         hidden_dim: int = 1024,
         sincos_dim: int = 128,
         use_heading: bool = False,
+        zero_init_last: bool = True,
     ):
         super().__init__()
         self.sincos_dim = sincos_dim
@@ -82,8 +93,9 @@ class GoalEncoder(nn.Module):
             nn.SiLU(),
             nn.Linear(hidden_dim, out_dim),
         )
-        nn.init.zeros_(self.net[-1].weight)
-        nn.init.zeros_(self.net[-1].bias)
+        if zero_init_last:
+            nn.init.zeros_(self.net[-1].weight)
+            nn.init.zeros_(self.net[-1].bias)
 
     def forward(self, goal_norm: torch.Tensor) -> torch.Tensor:
         """:param goal_norm: ``(B, >=2)`` goal normalised to ``[-1, 1]`` by ``norm_odo``."""

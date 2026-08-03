@@ -106,11 +106,21 @@ class GoalCondDiffusionPlanner(ReCogDriveDiffusionPlanner):
 
         embed_dim = config.input_embedding_dim
         if goal_mode in TRAINABLE_GOAL_MODES:
+            # Exactly ONE zero-initialised layer per goal branch, at the OUTERMOST
+            # position (ControlNet zero-conv rule).  For adaln the encoder output is
+            # consumed directly, so its last layer is the zero layer.  For channel and
+            # cross the zero layer is the projection below; the encoder must then be
+            # normally initialised, because two stacked zero layers block each other's
+            # gradients (dL/dP = g.e^T = 0 and dL/de = P^T.g = 0) and the goal branch
+            # would stay dead forever -- confirmed on the 2026.08.02 channel/cross
+            # teacher checkpoints, whose goal weights were still exactly zero after
+            # ~200 epochs.
             self.goal_encoder = GoalEncoder(
                 out_dim=embed_dim,
                 hidden_dim=goal_hidden_dim,
                 sincos_dim=goal_sincos_dim,
                 use_heading=goal_use_heading,
+                zero_init_last=(goal_mode == "adaln"),
             )
         if goal_mode == "channel":
             self.goal_channel_proj = zero_init_linear(nn.Linear(embed_dim, embed_dim))
