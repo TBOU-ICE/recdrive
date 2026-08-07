@@ -1,7 +1,7 @@
 """Step 1 of the EPDMS-port parity test: produce reference outputs with the
 ORIGINAL navsim_v2 stack.
 
-Run with:  PYTHONPATH=/workspace/navsim_v2 python test_epdms_port_step1_navsimv2.py
+Run with:  PYTHONPATH=/workspace/volumes/ad-e2e-bd-su01/nby/navsim_v2 python test_epdms_port_step1_navsimv2.py
 
 For a sample of navtest v2 metric caches it
   1) builds a deterministic ego-frame "prediction" (the cache's own PDM
@@ -32,7 +32,7 @@ from navsim.planning.simulation.planner.pdm_planner.scoring.pdm_scorer import PD
 from navsim.planning.simulation.planner.pdm_planner.simulation.pdm_simulator import PDMSimulator
 from navsim.planning.simulation.planner.pdm_planner.utils.pdm_enums import MultiMetricIndex, WeightedMetricIndex
 
-CACHE_ROOT = Path("/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/metric_cache_v2")
+CACHE_ROOT = Path("/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cache_v2")
 OUT_JSON = Path("/tmp/epdms_port_ref.json")
 N_TOKENS = 40
 

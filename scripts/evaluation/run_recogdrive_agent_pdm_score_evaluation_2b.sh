@@ -2,13 +2,13 @@ set -x
 
 TRAIN_TEST_SPLIT=navtest
 export OPENBLAS_CORETYPE=Haswell
-export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH" #nby
+export PATH="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH" #nby
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
-export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="/workspace/code"
+export NUPLAN_MAPS_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/exp"
+export NAVSIM_DEVKIT_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}:${PYTHONPATH:-}"
-export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
+export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download"
 
 
 export NCCL_IB_DISABLE=0
@@ -27,22 +27,22 @@ echo "GPUS: ${GPUS}"
 
 
 #CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/training_recogdrive_agent_rl_jiaoqf/2026.03.07.11.46.20/lightning_logs/version_0/checkpoints/epoch=9-step=3330.ckpt"
-#CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt"
+#CHECKPOINT="/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt"
 # PDMS on navtest: use metric_cache (eval); metric_cache_train is for training and won't match navtest tokens.
-METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
+METRIC_CACHE_PATH="/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cache"
 
 # 1. Set NAVSIM dataset and related environment variables
 # 2. Configure torchrun (e.g., single machine: --nproc_per_node=8; adjust for multi-node)
 # 3. Set agent.vlm_path and agent.checkpoint_path CHECKPOINT
 
 
-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
+/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
     --nproc_per_node=8 \
     $NAVSIM_DEVKIT_ROOT/navsim/planning/script/run_pdm_score_recogdrive.py \
     train_test_split=$TRAIN_TEST_SPLIT \
     agent=recogdrive_agent \
     agent.checkpoint_path="'$CHECKPOINT'" \
-    agent.vlm_path='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/merged_model/InternVL3-2B-ckpt400-merged' \
+    agent.vlm_path='/workspace/models/recdrive/v1.0.0/merged_model/InternVL3-2B-ckpt400-merged' \
     agent.cam_type='single' \
     agent.grpo=False \
     agent.cache_hidden_state=False \

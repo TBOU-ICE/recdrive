@@ -10,15 +10,15 @@
 #   bash scripts/data/run_metric_caching_navtrain_v2.sh
 set -euo pipefail
 
-export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:${PATH}"
+export PATH="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:${PATH}"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
-export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="/workspace/navsim_v2"
+export NUPLAN_MAPS_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/exp"
+export NAVSIM_DEVKIT_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/navsim_v2"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}"
-export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
+export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download"
 
-CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/metric_cache_train_v2}"
+CACHE_PATH="${CACHE_PATH:-/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cache_train_v2}"
 THREADS="${THREADS:-64}"
 
 mkdir -p "${CACHE_PATH}"
@@ -28,7 +28,7 @@ mkdir -p "${CACHE_PATH}"
 # repo makes them import that repo's (v1) caching module and crash.
 cd "${NAVSIM_DEVKIT_ROOT}"
 
-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/python \
+/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python \
   "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_metric_caching.py" \
   train_test_split=navtrain \
   metric_cache_path="${CACHE_PATH}" \

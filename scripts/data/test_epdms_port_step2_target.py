@@ -1,7 +1,7 @@
 """Step 2 of the EPDMS-port parity test: reproduce the reference outputs with
 the PORTED stack in this repo and compare numerically.
 
-Run with:  PYTHONPATH=/workspace/recdrive-multi-opd-v1 python test_epdms_port_step2_target.py
+Run with:  PYTHONPATH=/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1 python test_epdms_port_step2_target.py
 """
 
 import json
@@ -17,7 +17,7 @@ from navsim.agents.recogdrive.epdms import (
     two_frame_extended_comfort,
 )
 
-CACHE_ROOT = "/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/metric_cache_v2"
+CACHE_ROOT = "/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cache_v2"
 REF_JSON = Path("/tmp/epdms_port_ref.json")
 
 SUB_KEYS = [

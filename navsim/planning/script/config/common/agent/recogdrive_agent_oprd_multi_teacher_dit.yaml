@@ -17,12 +17,12 @@ cache_mode: False
 cache_hidden_state: True
 
 # Student DiT checkpoint.
-checkpoint_path: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
+checkpoint_path: '/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
 
 # Frozen IL / RL teacher DiTs.
 dit_distill: True
-teacher_dit_checkpoint_il: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
-teacher_dit_checkpoint_rl: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+teacher_dit_checkpoint_il: '/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
+teacher_dit_checkpoint_rl: '/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
 teacher_dit_checkpoint: ''
 
 # Compatibility fields consumed by the base ReCogDriveAgent.

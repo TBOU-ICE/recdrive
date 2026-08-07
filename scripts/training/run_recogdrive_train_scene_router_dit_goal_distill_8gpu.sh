@@ -13,12 +13,12 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH"
+export PATH="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
-export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
+export NUPLAN_MAPS_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/exp"
 export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-${REPO_ROOT}}"
-export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
+export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export HYDRA_FULL_ERROR=1
@@ -31,25 +31,25 @@ MASTER_PORT="${MASTER_PORT:-23471}"
 GPUS="${GPUS:-8}"
 
 # ---- student init = new-vlm IL base (representation-consistent) ----
-STUDENT_CKPT="${STUDENT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
+STUDENT_CKPT="${STUDENT_CKPT:-/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
 
 # ---- four goal-conditioned scenario teachers (adaln IL experts, epoch=199) ----
 # TEACHER_GOAL_MODE must match the mode the checkpoints were TRAINED with.
 TEACHER_GOAL_MODE="${TEACHER_GOAL_MODE:-adaln}"
-TEACHER_PROGRESS_CKPT="${TEACHER_PROGRESS_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_progress_curbside_stopgo_il_goal_adaln_newvlm/2026.08.04.10.54.30/lightning_logs/version_0/checkpoints/epoch=199-step=92800.ckpt}"
-TEACHER_RULE_CKPT="${TEACHER_RULE_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_rule_intersection_il_goal_adaln_newvlm/2026.08.02.16.39.57/lightning_logs/version_0/checkpoints/epoch=199-step=62800.ckpt}"
-TEACHER_SAFETY_CKPT="${TEACHER_SAFETY_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_safety_dynamics_interaction_il_goal_adaln_newvlm/2026.08.04.10.25.26/lightning_logs/version_0/checkpoints/epoch=199-step=38800.ckpt}"
-TEACHER_GENERAL_CKPT="${TEACHER_GENERAL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_general_or_no_tag_il_goal_adaln_newvlm/2026.08.04.10.44.01/lightning_logs/version_0/checkpoints/epoch=199-step=118000.ckpt}"
+TEACHER_PROGRESS_CKPT="${TEACHER_PROGRESS_CKPT:-/workspace/models/recdrive/v1.0.0/training_teacher_progress_curbside_stopgo_il_goal_adaln_newvlm/2026.08.04.10.54.30/lightning_logs/version_0/checkpoints/epoch=199-step=92800.ckpt}"
+TEACHER_RULE_CKPT="${TEACHER_RULE_CKPT:-/workspace/models/recdrive/v1.0.0/training_teacher_rule_intersection_il_goal_adaln_newvlm/2026.08.02.16.39.57/lightning_logs/version_0/checkpoints/epoch=199-step=62800.ckpt}"
+TEACHER_SAFETY_CKPT="${TEACHER_SAFETY_CKPT:-/workspace/models/recdrive/v1.0.0/training_teacher_safety_dynamics_interaction_il_goal_adaln_newvlm/2026.08.04.10.25.26/lightning_logs/version_0/checkpoints/epoch=199-step=38800.ckpt}"
+TEACHER_GENERAL_CKPT="${TEACHER_GENERAL_CKPT:-/workspace/models/recdrive/v1.0.0/training_teacher_general_or_no_tag_il_goal_adaln_newvlm/2026.08.04.10.44.01/lightning_logs/version_0/checkpoints/epoch=199-step=118000.ckpt}"
 
 # ---- pure OPD (target == goal-conditioned expert); ref unused at lambda=1.0 ----
 EXOPD_LAMBDA="${EXOPD_LAMBDA:-1.0}"
 MATCH_TARGET="${MATCH_TARGET:-x0}"
 
 # ---- token -> scenario bucket map ----
-TOKEN_TO_BUCKET_JSON="${TOKEN_TO_BUCKET_JSON:-/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain/exclusive_token_to_bucket.json}"
+TOKEN_TO_BUCKET_JSON="${TOKEN_TO_BUCKET_JSON:-/workspace/datasets/simscale/20260709/data/navtrain_scene/output/navtrain/exclusive_token_to_bucket.json}"
 
 # ---- new-VLM representation + cache (must match the teachers!) ----
-VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_merged}"
+VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 CACHE_PATH="${CACHE_PATH:-/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_train}"
 
 # ---- simscale mix (same rationale as the goal-free OPD run: the student must
@@ -59,8 +59,8 @@ USE_SIMSCALE="${USE_SIMSCALE:-1}"
 SIM_ROUNDS="${SIM_ROUNDS:-0,1}"
 SIM_REPEAT="${SIM_REPEAT:-1}"
 SIM_AGENT_CACHE_ROOT="${SIM_AGENT_CACHE_ROOT:-/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim}"
-SIM_QUALITY_CACHE_ROOT="${SIM_QUALITY_CACHE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/new_vlm_quality_views}"
-SIMSCALE_BUCKET_ROOT="${SIMSCALE_BUCKET_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale}"
+SIM_QUALITY_CACHE_ROOT="${SIM_QUALITY_CACHE_ROOT:-/workspace/datasets/simscale/20260709}"
+SIMSCALE_BUCKET_ROOT="${SIMSCALE_BUCKET_ROOT:-/workspace/datasets/simscale/20260709/data/simscale}"
 
 TOKEN_JSON_LIST=("${TOKEN_TO_BUCKET_JSON}")
 EXTRA_CACHE_LIST=()
@@ -102,7 +102,7 @@ echo "[scene-router-goal] STUDENT_CKPT=${STUDENT_CKPT}"
 echo "[scene-router-goal] CACHE_PATH=${CACHE_PATH}"
 echo "[scene-router-goal] LOG_FILE=${LOG_FILE}"
 
-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
+/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
   --nnodes="${NNODES}" \
   --node_rank="${RANK}" \
   --master_addr="${MASTER_ADDR}" \

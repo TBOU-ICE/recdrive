@@ -21,11 +21,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-${REPO_ROOT}}"
 
-export PATH="${CONDA_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin}:$PATH"
+export PATH="${CONDA_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin}:$PATH"
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
-export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0}"
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp}"
-export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export HYDRA_FULL_ERROR=1
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
@@ -63,17 +63,17 @@ SAMPLE_TIME="${SAMPLE_TIME:-8}"
 BC_COEFF="${BC_COEFF:-0.1}"
 
 # ---- new-vlm-VIT representation (VLM must match caches AND init ckpt) ----
-VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_vit_merged}"
+VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-bd-su01/nby/recdrive/vlm_simscale_lora_vit_merged}"
 VIT_CACHE_ROOT="${VIT_CACHE_ROOT:-/workspace/datasets/simscale/20260709/new_vlm_vit_hidden_state_nav_sim}"
 NAV_CACHE_PATH="${NAV_CACHE_PATH:-${VIT_CACHE_ROOT}/recogdrive_agent_cache_dir_train}"
-INIT_CKPT="${INIT_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_newvlm-vit/version_0/checkpoints/epoch=199-step=312200.ckpt}"
+INIT_CKPT="${INIT_CKPT:-/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm-vit/version_0/checkpoints/epoch=199-step=312200.ckpt}"
 REF_CKPT="${REF_CKPT:-${INIT_CKPT}}"
 
 # ---- reward-side metric caches ----
-V2_METRIC_CACHE="${V2_METRIC_CACHE:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/metric_cache_train_v2}"
+V2_METRIC_CACHE="${V2_METRIC_CACHE:-/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cache_train_v2}"
 SIMSCALE_METRIC_ROOT="${SIMSCALE_METRIC_ROOT:-/workspace/datasets/simscale/20260709}"
-SIMSCALE_BUCKET_ROOT="${SIMSCALE_BUCKET_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale}"
-NAVTRAIN_OUTPUT_DIR="${NAVTRAIN_OUTPUT_DIR:-/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain}"
+SIMSCALE_BUCKET_ROOT="${SIMSCALE_BUCKET_ROOT:-/workspace/datasets/simscale/20260709/data/simscale}"
+NAVTRAIN_OUTPUT_DIR="${NAVTRAIN_OUTPUT_DIR:-/workspace/datasets/simscale/20260709/data/navtrain_scene/output/navtrain}"
 PAIR_TABLE="${PAIR_TABLE:-${REPO_ROOT}/data/epdms/navtrain_adjacent_pairs.json}"
 MANIFEST_DIR="${MANIFEST_DIR:-${REPO_ROOT}/data/epdms/manifests}"
 NAV_MANIFEST="${NAV_MANIFEST:-${MANIFEST_DIR}/nav_train_vit.json}"
@@ -95,7 +95,7 @@ for r in "${ROUND_LIST[@]}"; do
 done
 
 # per-expert workspace: union CSV of the (v1) SimScale metric caches for this bucket
-MIX_ROOT="${MIX_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/epdms_rl_workspace/${BUCKET_NAME}}"
+MIX_ROOT="${MIX_ROOT:-/workspace/datasets/simscale/20260709/data/simscale/epdms_rl_workspace/${BUCKET_NAME}}"
 UNION_METRIC_DIR="${MIX_ROOT}/sim_metric_union"
 mkdir -p "${UNION_METRIC_DIR}/metadata"
 
@@ -103,8 +103,8 @@ IFS=','; export PREP_SIM_METRIC_DIRS="${SIM_METRIC_DIRS[*]}"; unset IFS
 IFS=','; export PREP_SIM_TOKEN_LISTS="${SIM_TOKEN_LISTS[*]}"; unset IFS
 export PREP_UNION_METRIC_DIR="${UNION_METRIC_DIR}"
 
-PYTHON_BIN="${PYTHON_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/python}"
-TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
+PYTHON_BIN="${PYTHON_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python}"
+TORCHRUN_BIN="${TORCHRUN_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun}"
 
 "${PYTHON_BIN}" - <<'PYPREP'
 import csv, json, os

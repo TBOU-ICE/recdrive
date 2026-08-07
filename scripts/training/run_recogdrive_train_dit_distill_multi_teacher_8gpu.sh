@@ -5,12 +5,12 @@
 # teacher RL DiT: frozen, PDMS-oriented
 set -euo pipefail
 
-export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH"
+export PATH="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
-export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/code}"
-export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
+export NUPLAN_MAPS_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/exp"
+export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1}"
+export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export HYDRA_FULL_ERROR=1
@@ -27,12 +27,12 @@ MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS="${GPUS:-8}"
 
 # epoch=2 checkpoint: more IL training → better logvar calibration → stable distillation start
-CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
+CHECKPOINT="${CHECKPOINT:-/workspace/models/recdrive/v1.0.0/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
 TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/model/SGDrive-2B-stage3_rl.ckpt}"
-TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
+TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recdrive_rl_with_SGDrive_rl}"
-CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
-LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/log/training_recdrive_rl_with_SGDrive_rl}"
+CACHE_PATH="${CACHE_PATH:-/workspace/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train}"
+LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/recdrive/log/training_recdrive_rl_with_SGDrive_rl}"
 
 echo "[8gpu] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
 echo "[8gpu] NAVSIM_DEVKIT_ROOT=${NAVSIM_DEVKIT_ROOT}"
@@ -40,7 +40,7 @@ echo "[8gpu] CHECKPOINT=${CHECKPOINT}"
 echo "[8gpu] TEACHER_IL_CKPT=${TEACHER_IL_CKPT}"
 echo "[8gpu] TEACHER_RL_CKPT=${TEACHER_RL_CKPT}"
 
-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
+/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
   --nnodes="${NNODES}" \
   --node_rank="${RANK}" \
   --master_addr="${MASTER_ADDR}" \

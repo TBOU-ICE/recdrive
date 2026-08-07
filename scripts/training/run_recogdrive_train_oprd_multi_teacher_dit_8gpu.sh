@@ -3,12 +3,12 @@
 # Additive script: no original training file is modified.
 set -euo pipefail
 
-export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH"
+export PATH="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
-export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/code}"
-export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
+export NUPLAN_MAPS_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/exp"
+export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1}"
+export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export HYDRA_FULL_ERROR=1
@@ -24,10 +24,10 @@ export MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-23459}"
 GPUS="${GPUS:-8}"
 
-CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
-TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
-TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
-CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
+CHECKPOINT="${CHECKPOINT:-/workspace/models/recdrive/v1.0.0/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
+TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
+TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
+CACHE_PATH="${CACHE_PATH:-/workspace/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_oprd_multi_teacher_dit_2b_v2}"
 LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_oprd_multi_teacher_dit_2b_v2}"
 
@@ -56,7 +56,7 @@ echo "[oprd-mt-dit] TEACHER_RL_CKPT=${TEACHER_RL_CKPT}"
 echo "[oprd-mt-dit] weights: MID_IL=${OPRD_MID_IL_WEIGHT} LAST_IL=${OPRD_LAST_IL_WEIGHT} LAST_RL=${OPRD_LAST_RL_WEIGHT} FINAL=${OPRD_FINAL_REPR_WEIGHT} TRAJ_IL=${OPRD_TRAJ_IL_WEIGHT} TRAJ_RL=${OPRD_TRAJ_RL_WEIGHT}"
 echo "[oprd-mt-dit] PAIR_BATCH_SIZE=${PAIR_BATCH_SIZE} (real batch = $((PAIR_BATCH_SIZE * 2)))"
 
-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
+/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
   --nnodes="${NNODES}" \
   --node_rank="${RANK}" \
   --master_addr="${MASTER_ADDR}" \

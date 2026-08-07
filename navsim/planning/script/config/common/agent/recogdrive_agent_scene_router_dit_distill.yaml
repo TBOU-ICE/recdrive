@@ -10,10 +10,10 @@ trajectory_sampling:
 # student init = new-vlm IL base (representation-consistent with the caches/teachers;
 # same 199-epoch base the experts were RL'd from, == ExOPD ref). The old-vlm
 # training_recogdrive_vlm_il/epoch=2 is a DIFFERENT representation - do not use here.
-checkpoint_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_newvlm/2026.07.20.14.31.06/lightning_logs/version_0/checkpoints/epoch=199-step=312200.ckpt'
+checkpoint_path: '/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.20.14.31.06/lightning_logs/version_0/checkpoints/epoch=199-step=312200.ckpt'
 
 # new representation (must match the caches that produced the teachers)
-vlm_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_merged'
+vlm_path: '/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged'
 cam_type: 'single'
 vlm_type: 'internvl'
 dit_type: 'small'
@@ -28,13 +28,13 @@ grpo: false
 lr: 1e-4
 
 # four scenario-expert teachers (new-vlm RL experts)
-teacher_ckpt_progress_curbside_stopgo: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_progress_curbside_stopgo_rl_newvlm/2026.07.24.05.09.01/lightning_logs/version_0/checkpoints/ckpt/epoch=14-step=2385.ckpt'
-teacher_ckpt_rule_intersection: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_rule_intersection_rl_newvlm/2026.07.24.04.59.12/lightning_logs/version_0/checkpoints/ckpt/epoch=14-step=2115.ckpt'
-teacher_ckpt_safety_dynamics_interaction: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_safety_dynamics_interaction_rl_newvlm/2026.07.24.09.41.09/lightning_logs/version_0/checkpoints/epoch=33-step=4284.ckpt'
-teacher_ckpt_general_or_no_tag: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_general_or_no_tag_rl_newvlm/2026.07.23.22.12.41/lightning_logs/version_0/checkpoints/epoch=11-step=2100.ckpt'
+teacher_ckpt_progress_curbside_stopgo: '/workspace/models/recdrive/v1.0.0/training_teacher_progress_curbside_stopgo_rl_newvlm/2026.07.24.05.09.01/lightning_logs/version_0/checkpoints/ckpt/epoch=14-step=2385.ckpt'
+teacher_ckpt_rule_intersection: '/workspace/models/recdrive/v1.0.0/training_teacher_rule_intersection_rl_newvlm/2026.07.24.04.59.12/lightning_logs/version_0/checkpoints/ckpt/epoch=14-step=2115.ckpt'
+teacher_ckpt_safety_dynamics_interaction: '/workspace/models/recdrive/v1.0.0/training_teacher_safety_dynamics_interaction_rl_newvlm/2026.07.24.09.41.09/lightning_logs/version_0/checkpoints/epoch=33-step=4284.ckpt'
+teacher_ckpt_general_or_no_tag: '/workspace/models/recdrive/v1.0.0/training_teacher_general_or_no_tag_rl_newvlm/2026.07.23.22.12.41/lightning_logs/version_0/checkpoints/epoch=11-step=2100.ckpt'
 
 # token -> scenario bucket map ({token: bucket})
-token_to_bucket_json: '/workspace/volumes/ad-e2e-al-sh01/nby/data/navtrain_scene/output/navtrain/exclusive_token_to_bucket.json'
+token_to_bucket_json: '/workspace/datasets/simscale/20260709/data/navtrain_scene/output/navtrain/exclusive_token_to_bucket.json'
 
 # v1 knobs
 teacher_select: 'scene_route'
@@ -42,7 +42,7 @@ match_target: 'x0'
 
 # ExOPD reward extrapolation: target = ref + lambda * (expert - ref)
 # ref = experts' pre-RL IL base (199-epoch new-vlm IL). lambda=1.0 disables.
-exopd_ref_checkpoint: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_newvlm/2026.07.20.14.31.06/lightning_logs/version_0/checkpoints/epoch=199-step=312200.ckpt'
+exopd_ref_checkpoint: '/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.20.14.31.06/lightning_logs/version_0/checkpoints/epoch=199-step=312200.ckpt'
 exopd_lambda: 1.25
 
 scene_router_min_sigma: 0.04

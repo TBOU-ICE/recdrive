@@ -4,12 +4,12 @@
 # All original code is untouched; only new files are used.
 set -euo pipefail
 
-export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH"
+export PATH="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
-export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/code}"
-export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
+export NUPLAN_MAPS_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/exp"
+export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1}"
+export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export HYDRA_FULL_ERROR=1
@@ -26,11 +26,11 @@ MASTER_PORT="${MASTER_PORT:-23458}"
 GPUS="${GPUS:-8}"
 
 # Student: IL checkpoint (epoch=2 for better logvar calibration)
-CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
+CHECKPOINT="${CHECKPOINT:-/workspace/models/recdrive/v1.0.0/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
 # Teachers: IL (EC-oriented) + RL (PDMS-oriented), both frozen
-TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_temporal_multi_teacher_dit_opd_2b/2026.06.08.15.56.15/checkpoints/temporal-mt-epochepoch=033-stepstep=00075000.ckpt}"
-TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_temporal_rl_loss_2w2_continue/2026.06.07.16.32.32/checkpoints/temporal-rl-epochepoch=017-stepstep=00040000.ckpt}"
-CACHE_PATH="${CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
+TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/workspace/models/recdrive/v1.0.0/training_temporal_multi_teacher_dit_opd_2b/2026.06.08.15.56.15/checkpoints/temporal-mt-epochepoch=033-stepstep=00075000.ckpt}"
+TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/workspace/models/recdrive/v1.0.0/training_temporal_rl_loss_2w2_continue/2026.06.07.16.32.32/checkpoints/temporal-rl-epochepoch=017-stepstep=00040000.ckpt}"
+CACHE_PATH="${CACHE_PATH:-/workspace/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_mini_difference_comparation4}"
 LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_mini_difference_comparation4}"
 
@@ -56,7 +56,7 @@ echo "[temporal-mt-dit] TEACHER_RL_CKPT=${TEACHER_RL_CKPT}"
 echo "[temporal-mt-dit] IL_WEIGHT=${IL_WEIGHT} RL_WEIGHT=${RL_WEIGHT} TEMPORAL_WEIGHT=${TEMPORAL_WEIGHT}"
 echo "[temporal-mt-dit] PAIR_BATCH_SIZE=${PAIR_BATCH_SIZE} (real batch = $((PAIR_BATCH_SIZE * 2)))"
 
-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
+/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
   --nnodes="${NNODES}" \
   --node_rank="${RANK}" \
   --master_addr="${MASTER_ADDR}" \

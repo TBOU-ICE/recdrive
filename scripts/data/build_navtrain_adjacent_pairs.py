@@ -8,7 +8,7 @@ and both tokens have cached agent features (so they can actually be trained on).
 Usage:
   python build_navtrain_adjacent_pairs.py \
       --agent-cache /workspace/datasets/simscale/20260709/new_vlm_vit_hidden_state_nav_sim/recogdrive_agent_cache_dir_train \
-      --out /workspace/recdrive-multi-opd-v1/data/epdms/navtrain_adjacent_pairs.json
+      --out /workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1/data/epdms/navtrain_adjacent_pairs.json
 """
 
 import argparse
@@ -17,7 +17,7 @@ import pickle
 import time
 from pathlib import Path
 
-LOGS_DIR = "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/navsim_logs/trainval"
+LOGS_DIR = "/workspace/datasets/recdrive/20260513/nby/recdrive/download/navsim_logs/trainval"
 MAX_DT_S = 0.55
 
 
@@ -32,7 +32,7 @@ def main() -> None:
         "--agent-cache",
         default="/workspace/datasets/simscale/20260709/new_vlm_vit_hidden_state_nav_sim/recogdrive_agent_cache_dir_train",
     )
-    parser.add_argument("--out", default="/workspace/recdrive-multi-opd-v1/data/epdms/navtrain_adjacent_pairs.json")
+    parser.add_argument("--out", default="/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1/data/epdms/navtrain_adjacent_pairs.json")
     args = parser.parse_args()
 
     t0 = time.time()

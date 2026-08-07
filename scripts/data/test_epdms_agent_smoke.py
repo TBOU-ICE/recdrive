@@ -4,7 +4,7 @@ Uses: the vit agent cache (features), the (possibly partially built) navtrain
 v2 metric cache, one SimScale round-0 token with its v1 metric cache, and the
 vit IL checkpoint. Verifies forward reward assembly + backward.
 
-Run:  PYTHONPATH=/workspace/recdrive-multi-opd-v1 python test_epdms_agent_smoke.py
+Run:  PYTHONPATH=/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1 python test_epdms_agent_smoke.py
 """
 
 import json
@@ -22,11 +22,11 @@ from navsim.planning.training.epdms_pair_mixed_dataset import epdms_pair_collate
 VIT_CACHE = Path("/workspace/datasets/simscale/20260709/new_vlm_vit_hidden_state_nav_sim")
 NAV_CACHE = VIT_CACHE / "recogdrive_agent_cache_dir_train"
 SIM_CACHE = VIT_CACHE / "recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-0"
-V2_METRIC = "/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/metric_cache_train_v2"
+V2_METRIC = "/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cache_train_v2"
 SIM_METRIC = "/workspace/datasets/simscale/20260709/metric_cache_synthetic_reaction_pdm_v1.0-0"
-PAIR_TABLE = "/workspace/recdrive-multi-opd-v1/data/epdms/navtrain_adjacent_pairs.json"
+PAIR_TABLE = "/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1/data/epdms/navtrain_adjacent_pairs.json"
 INIT_CKPT = (
-    "/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_newvlm-vit/"
+    "/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm-vit/"
     "version_0/checkpoints/epoch=199-step=312200.ckpt"
 )
 
