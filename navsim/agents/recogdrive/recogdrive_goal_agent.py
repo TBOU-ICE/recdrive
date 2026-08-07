@@ -102,6 +102,42 @@ class ReCogDriveGoalAgent(ReCogDriveAgent):
 
     # ------------------------------------------------------------------ overrides
 
+    def initialize(self) -> None:
+        """Refuse to load a checkpoint whose goal branch does not fit this goal_mode.
+
+        The base loader uses ``strict=False`` and pre-filters checkpoint keys, so
+        loading e.g. a channel-trained checkpoint into an adaln-configured agent
+        silently drops ``goal_channel_proj`` and routes the trained goal encoder
+        into a conditioning pathway it never saw -- no error, but the PDM score
+        collapses (observed: cross ckpt 0.46 / channel ckpt 0.54 under
+        goal_mode=adaln, vs 0.92 for a matched adaln ckpt).  Catch it here.
+        Loading a goal-FREE checkpoint into a goal agent stays allowed: that is
+        the intended warm start.
+        """
+        if self.checkpoint_path:
+            ckpt = torch.load(self.checkpoint_path, map_location="cpu", weights_only=False)["state_dict"]
+            ckpt_goal_keys = {
+                (k[len("agent."):] if k.startswith("agent.") else k)
+                for k in ckpt
+                if "goal_" in k
+            }
+            model_goal_keys = {k for k in self.state_dict() if "goal_" in k}
+            # A goal-free checkpoint (no goal keys at all) is a legitimate warm
+            # start.  A goal checkpoint must match this agent's goal layout
+            # exactly: extra ckpt keys mean the ckpt was trained with a "bigger"
+            # mode (channel/cross into adaln); missing ones mean the opposite
+            # (adaln into channel/cross), which leaves the zero-init projection
+            # untouched and silently disables the goal.
+            if ckpt_goal_keys and ckpt_goal_keys != model_goal_keys:
+                raise RuntimeError(
+                    f"goal_mode={self.goal_mode!r} does not match the checkpoint at "
+                    f"{self.checkpoint_path!r}. Goal weights only in checkpoint: "
+                    f"{sorted(ckpt_goal_keys - model_goal_keys)}; only in model: "
+                    f"{sorted(model_goal_keys - ckpt_goal_keys)}. Set agent.goal_mode "
+                    "to the mode the checkpoint was trained with."
+                )
+        super().initialize()
+
     def forward(self, features: Dict[str, torch.Tensor], targets=None, tokens_list=None):
         """Bind the ground-truth goal for the duration of the base forward pass."""
         goal = self._goal_from_targets(targets)

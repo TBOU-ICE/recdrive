@@ -5,9 +5,10 @@ set -x
 # - worker=sequential: no local Ray cluster (faster startup; matches single-process eval).
 # - PYTHONUNBUFFERED: stage timing logs appear immediately in terminal + log.txt.
 
-TRAIN_TEST_SPLIT=navtest_rule_intersection
+TRAIN_TEST_SPLIT=navtest
+#navtest_rule_intersection navtest_safety_dynamics_interaction navtest_progress_curbside_stopgo navtest_general_or_no_tag
 export PYTHONUNBUFFERED=1
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-3}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-7}"
 
 export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH" #nby
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
@@ -21,14 +22,20 @@ export NCCL_IB_DISABLE=0
 export NCCL_P2P_DISABLE=0
 export NCCL_SHM_DISABLE=0
 
-MASTER_PORT=${MASTER_PORT:-62660}
-PORT=${PORT:-62661}
+MASTER_PORT=${MASTER_PORT:-62668}
+PORT=${PORT:-62669}
 export MASTER_PORT=${MASTER_PORT}
 export PORT=${PORT}
 
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
-CHECKPOINT="/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_teacher_rule_intersection_il_goal_adaln_newvlm/2026.08.02.16.39.57/lightning_logs/version_0/checkpoints/epoch=199-step=62800.ckpt"
+CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_goal_cross_newvlm/2026.08.03.14.13.15/lightning_logs/version_0/checkpoints/epoch=199-step=312200.ckpt}"
+# GOAL_MODE must match the mode the checkpoint was TRAINED with (adaln / channel /
+# cross).  A mismatch does not crash -- the checkpoint is loaded with strict=False,
+# the mode-specific projection weights are silently dropped, and the goal encoder
+# feeds a conditioning pathway it was never trained for -- but it wrecks the score
+# (cross ckpt scored 0.46 under goal_mode=adaln vs its true goal-conditioned score).
+GOAL_MODE="${GOAL_MODE:-cross}"
 # PDMS on navtest must use caches built for that split; metric_cache_train tokens won't match navtest.
 METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
 
@@ -38,7 +45,7 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
     "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_pdm_score_recogdrive_goal.py" \
     train_test_split="${TRAIN_TEST_SPLIT}" \
     agent=recogdrive_goal_agent \
-    agent.goal_mode="adaln" \
+    agent.goal_mode="${GOAL_MODE}" \
     agent.checkpoint_path="'$CHECKPOINT'" \
     agent.vlm_path='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_merged' \
     agent.cam_type='single' \
@@ -50,5 +57,5 @@ METRIC_CACHE_PATH="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache"
     agent.sampling_method="ddim" \
     metric_cache_path="${METRIC_CACHE_PATH}" \
     agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-    experiment_name=eval-pdms-teacher-rule-il-goal-adaln-199epoch-goal-rule-scene \
+    experiment_name="${EXPERIMENT_NAME:-eval-pdms-teacher-il-199epoch-${GOAL_MODE}-navtest}" \
     worker=sequential
