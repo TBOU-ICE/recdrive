@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
+import json
 import logging
 import pickle
 import gzip
@@ -42,6 +43,7 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         feature_builders: List[AbstractFeatureBuilder],
         target_builders: List[AbstractTargetBuilder],
         log_names: Optional[List[str]] = None,
+        manifest_path: Optional[str] = None,
     ):
         """
         Initializes the dataset module.
@@ -49,24 +51,37 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         :param feature_builders: list of feature builders
         :param target_builders: list of target builders
         :param log_names: optional list of log folder to consider, defaults to None
+        :param manifest_path: optional prebuilt token index JSON; when set, skips
+            the slow directory walk over Alluxio/CPFS cache roots
         """
         super().__init__()
         assert Path(cache_path).is_dir(), f"Cache path {cache_path} does not exist!"
         self._cache_path = Path(cache_path)
-
-        if log_names is not None:
-            self.log_names = [Path(log_name) for log_name in log_names if (self._cache_path / log_name).is_dir()]
-        else:
-            self.log_names = [log_name for log_name in self._cache_path.iterdir()]
-
         self._feature_builders = feature_builders
         self._target_builders = target_builders
-        self._valid_cache_paths: Dict[str, Path] = self._load_valid_caches(
-            cache_path=self._cache_path,
-            feature_builders=self._feature_builders,
-            target_builders=self._target_builders,
-            log_names=self.log_names,
-        )
+
+        if manifest_path:
+            self._valid_cache_paths: Dict[str, Path] = self._load_from_manifest(
+                cache_path=self._cache_path,
+                feature_builders=self._feature_builders,
+                target_builders=self._target_builders,
+                log_names=log_names,
+                manifest_path=manifest_path,
+            )
+            # Derive log set from the filtered index (no Alluxio iterdir).
+            self.log_names = sorted({Path(p).parent.name for p in self._valid_cache_paths.values()})
+        else:
+            if log_names is not None:
+                self.log_names = [Path(log_name) for log_name in log_names if (self._cache_path / log_name).is_dir()]
+            else:
+                self.log_names = [log_name for log_name in self._cache_path.iterdir()]
+
+            self._valid_cache_paths = self._load_valid_caches(
+                cache_path=self._cache_path,
+                feature_builders=self._feature_builders,
+                target_builders=self._target_builders,
+                log_names=self.log_names,
+            )
         self.tokens = list(self._valid_cache_paths.keys())
 
     def __len__(self) -> int:
@@ -82,6 +97,38 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         :return: tuple of feature and target dictionary
         """
         return self._load_scene_with_token(self.tokens[idx])
+
+    @staticmethod
+    def _load_from_manifest(
+        cache_path: Path,
+        feature_builders: List[AbstractFeatureBuilder],
+        target_builders: List[AbstractTargetBuilder],
+        log_names: Optional[List[str]],
+        manifest_path: str,
+    ) -> Dict[str, Path]:
+        """Load token -> token_dir from a prebuilt JSON manifest (seconds, not hours)."""
+        path = Path(manifest_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"cache manifest not found: {manifest_path}")
+        manifest = json.loads(path.read_text())
+        if manifest.get("cache_path") != str(cache_path):
+            raise ValueError(
+                f"manifest {manifest_path} was built for {manifest.get('cache_path')}, not {cache_path}"
+            )
+        builder_names = sorted(b.get_unique_name() for b in list(feature_builders) + list(target_builders))
+        if sorted(manifest.get("builders", [])) != builder_names:
+            raise ValueError(
+                f"manifest {manifest_path} builders mismatch: {manifest.get('builders')} vs {builder_names}"
+            )
+        wanted = set(log_names) if log_names is not None else None
+        valid_cache_paths: Dict[str, Path] = {}
+        for token, rel in manifest["tokens"].items():
+            log_name = rel.split("/", 1)[0]
+            if wanted is not None and log_name not in wanted:
+                continue
+            valid_cache_paths[token] = cache_path / rel
+        logger.info("loaded cache manifest %s: %d tokens", manifest_path, len(valid_cache_paths))
+        return valid_cache_paths
 
     @staticmethod
     def _load_valid_caches(

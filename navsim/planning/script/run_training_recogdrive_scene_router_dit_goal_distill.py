@@ -163,6 +163,9 @@ def main(cfg: DictConfig) -> None:
         assert not cfg.force_cache_computation
         assert cfg.cache_path is not None
 
+        nav_manifest = cfg.get("scene_router_cache_manifest", None)
+        extra_cache_manifests = list(cfg.get("scene_router_extra_cache_manifests", []) or [])
+
         # navtrain full cache (filtered by train/val log split)
         train_datasets = [
             CacheOnlyDataset(
@@ -170,6 +173,7 @@ def main(cfg: DictConfig) -> None:
                 feature_builders=feature_builders,
                 target_builders=target_builders,
                 log_names=cfg.train_logs,
+                manifest_path=nav_manifest,
             )
         ]
         # optional extra caches (e.g. simscale rounds). Repeat each `rep` times to
@@ -180,11 +184,13 @@ def main(cfg: DictConfig) -> None:
         for i, extra_path in enumerate(extra_cache_paths):
             rep = int(extra_cache_repeats[i]) if i < len(extra_cache_repeats) else 1
             rep = max(rep, 1)
+            extra_manifest = extra_cache_manifests[i] if i < len(extra_cache_manifests) else None
             extra_ds = CacheOnlyDataset(
                 cache_path=extra_path,
                 feature_builders=feature_builders,
                 target_builders=target_builders,
                 log_names=None,
+                manifest_path=extra_manifest,
             )
             # token-filter to the (quality) bucket tokens for this cache, matching how
             # the experts consumed simscale (full cache linked only for quality-bucket tokens).
@@ -195,8 +201,8 @@ def main(cfg: DictConfig) -> None:
                 _token_filter_cache_dataset(extra_ds, allowed)
                 filtered = True
             logger.info(
-                "Extra cache %s: %d samples (filtered=%s) x repeat %d",
-                extra_path, len(extra_ds), filtered, rep,
+                "Extra cache %s: %d samples (filtered=%s, manifest=%s) x repeat %d",
+                extra_path, len(extra_ds), filtered, bool(extra_manifest), rep,
             )
             if len(extra_ds) > 0:
                 train_datasets.extend([extra_ds] * rep)
@@ -209,6 +215,7 @@ def main(cfg: DictConfig) -> None:
             feature_builders=feature_builders,
             target_builders=target_builders,
             log_names=cfg.val_logs,
+            manifest_path=nav_manifest,
         )
     else:
         logger.info("Building SceneLoader")

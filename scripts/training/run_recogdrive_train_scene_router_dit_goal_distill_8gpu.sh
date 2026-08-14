@@ -52,6 +52,10 @@ TOKEN_TO_BUCKET_JSON="${TOKEN_TO_BUCKET_JSON:-/workspace/datasets/simscale/20260
 VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 CACHE_PATH="${CACHE_PATH:-/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_train}"
 
+# ---- prebuilt token indexes (skip multi-hour Alluxio cache walks) ----
+MANIFEST_DIR="${MANIFEST_DIR:-${REPO_ROOT}/data/epdms/manifests}"
+NAV_MANIFEST="${NAV_MANIFEST:-${MANIFEST_DIR}/nav_train_newvlm.json}"
+
 # ---- simscale mix (same rationale as the goal-free OPD run: the student must
 #      visit those scenario states on-policy; simscale caches carry GT
 #      trajectory targets, so the privileged goal is available there too) ----
@@ -66,6 +70,7 @@ TOKEN_JSON_LIST=("${TOKEN_TO_BUCKET_JSON}")
 EXTRA_CACHE_LIST=()
 EXTRA_REPEAT_LIST=()
 EXTRA_TOKEN_JSON_LIST=()
+EXTRA_MANIFEST_LIST=()
 if [[ "${USE_SIMSCALE}" == "1" ]]; then
   IFS=',' read -r -a _sim_rounds <<< "${SIM_ROUNDS}"
   for r in "${_sim_rounds[@]}"; do
@@ -75,12 +80,14 @@ if [[ "${USE_SIMSCALE}" == "1" ]]; then
     qcache="${SIM_QUALITY_CACHE_ROOT}/recogdrive_agent_cache_dir_${ds}_quality"
     fcache="${SIM_AGENT_CACHE_ROOT}/recogdrive_agent_cache_dir_${ds}"
     if [[ -d "${qcache}" ]]; then cache="${qcache}"; elif [[ -d "${fcache}" ]]; then cache="${fcache}"; else cache=""; fi
+    manifest="${MANIFEST_DIR}/sim_round${r}_quality_newvlm.json"
     if [[ -n "${cache}" && -f "${qjson}" ]]; then
       EXTRA_CACHE_LIST+=("${cache}")
       EXTRA_REPEAT_LIST+=("${SIM_REPEAT}")
       EXTRA_TOKEN_JSON_LIST+=("${qjson}")
+      EXTRA_MANIFEST_LIST+=("${manifest}")
       TOKEN_JSON_LIST+=("${qjson}")
-      echo "[scene-router-goal] + simscale round ${r}: cache=${cache}"
+      echo "[scene-router-goal] + simscale round ${r}: cache=${cache} manifest=${manifest}"
     else
       echo "[scene-router-goal] ! skip simscale round ${r} (missing cache or quality bucket json)"
     fi
@@ -91,6 +98,19 @@ TOKEN_JSONS_ARG="$(join_hydra ${TOKEN_JSON_LIST[@]+"${TOKEN_JSON_LIST[@]}"})"
 EXTRA_CACHES_ARG="$(join_hydra ${EXTRA_CACHE_LIST[@]+"${EXTRA_CACHE_LIST[@]}"})"
 EXTRA_REPEATS_ARG="$(join_hydra ${EXTRA_REPEAT_LIST[@]+"${EXTRA_REPEAT_LIST[@]}"})"
 EXTRA_TOKEN_JSONS_ARG="$(join_hydra ${EXTRA_TOKEN_JSON_LIST[@]+"${EXTRA_TOKEN_JSON_LIST[@]}"})"
+EXTRA_MANIFESTS_ARG="$(join_hydra ${EXTRA_MANIFEST_LIST[@]+"${EXTRA_MANIFEST_LIST[@]}"})"
+
+if [[ ! -f "${NAV_MANIFEST}" ]]; then
+  echo "[scene-router-goal] ERROR: nav manifest missing: ${NAV_MANIFEST}" >&2
+  echo "  build with: scripts/data/build_newvlm_cache_manifests_for_goal_opd.py" >&2
+  exit 1
+fi
+for m in "${EXTRA_MANIFEST_LIST[@]+"${EXTRA_MANIFEST_LIST[@]}"}"; do
+  if [[ ! -f "${m}" ]]; then
+    echo "[scene-router-goal] ERROR: sim manifest missing: ${m}" >&2
+    exit 1
+  fi
+done
 
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_scene_router_dit_goal_opd_v3}"
 LOG_FILE="${LOG_FILE:-${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}/run_scene_router_dit_goal_opd.log}"
@@ -100,6 +120,8 @@ echo "[scene-router-goal] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR
 echo "[scene-router-goal] teacher_goal_mode=${TEACHER_GOAL_MODE} match_target=${MATCH_TARGET} exopd_lambda=${EXOPD_LAMBDA}"
 echo "[scene-router-goal] STUDENT_CKPT=${STUDENT_CKPT}"
 echo "[scene-router-goal] CACHE_PATH=${CACHE_PATH}"
+echo "[scene-router-goal] NAV_MANIFEST=${NAV_MANIFEST}"
+echo "[scene-router-goal] EXTRA_MANIFESTS=${EXTRA_MANIFESTS_ARG}"
 echo "[scene-router-goal] LOG_FILE=${LOG_FILE}"
 
 /workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
@@ -121,6 +143,8 @@ echo "[scene-router-goal] LOG_FILE=${LOG_FILE}"
   "+scene_router_extra_cache_paths=${EXTRA_CACHES_ARG}" \
   "+scene_router_extra_cache_repeats=${EXTRA_REPEATS_ARG}" \
   "+scene_router_extra_cache_token_json=${EXTRA_TOKEN_JSONS_ARG}" \
+  "+scene_router_cache_manifest='${NAV_MANIFEST}'" \
+  "+scene_router_extra_cache_manifests=${EXTRA_MANIFESTS_ARG}" \
   agent.teacher_select='scene_route' \
   "agent.match_target='${MATCH_TARGET}'" \
   agent.exopd_lambda="${EXOPD_LAMBDA}" \
