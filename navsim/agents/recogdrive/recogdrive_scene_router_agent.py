@@ -132,16 +132,23 @@ class ReCogDriveSceneRouterAgent(ReCogDriveAgent):
         if missing:
             raise ValueError(f"Missing scenario-teacher checkpoint(s): {missing}")
 
-        self.teacher_planners = torch.nn.ModuleDict()
+        # Plain dict (NOT ModuleDict): frozen teachers must stay outside the DDP
+        # module tree. With ModuleDict + find_unused_parameters, the first backward
+        # can desync NCCL collectives across ranks (SeqNum skew / ALLREDUCE timeout).
+        teacher_planners = {}
         for name, path in teacher_ckpt_paths.items():
-            self.teacher_planners[name] = self._build_and_load_planner(path, f"teacher[{name}]")
+            teacher_planners[name] = self._build_and_load_planner(path, f"teacher[{name}]")
+        self.teacher_planners = teacher_planners
 
         # ExOPD reference planner (frozen IL base) - only needed when extrapolating.
+        # Store via __dict__ so nn.Module does not register it as a child either.
         self.exopd_ref_planner = None
         if abs(self.exopd_lambda - 1.0) > 1e-6:
             if not exopd_ref_checkpoint:
                 raise ValueError("exopd_lambda != 1.0 requires exopd_ref_checkpoint (IL base).")
-            self.exopd_ref_planner = self._build_and_load_planner(exopd_ref_checkpoint, "exopd_ref")
+            self.__dict__["exopd_ref_planner"] = self._build_and_load_planner(
+                exopd_ref_checkpoint, "exopd_ref"
+            )
 
         self.token_to_bucket: Dict[str, str] = self._load_token_to_bucket(token_to_bucket_json)
 

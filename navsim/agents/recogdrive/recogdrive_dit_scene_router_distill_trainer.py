@@ -219,8 +219,14 @@ class ReCogDriveDiTSceneRouterDistillTrainer:
         pred_traj_s = student_planner.denorm_odo(last_student_x0.float())
         smooth_loss = self._jerk_loss(pred_traj_s)
         loss = distill_loss + self.smooth_weight * smooth_loss
+        # Under match_target=x0, sigma/eta is detached from the regression target, so
+        # eta_logit would be an unused DDP parameter. Keep it in the graph with a
+        # zero coefficient so ranks stay collective-symmetric without find_unused.
+        if hasattr(student_planner, "eta") and hasattr(student_planner.eta, "eta_logit"):
+            loss = loss + student_planner.eta.eta_logit.sum() * 0.0
         if not torch.isfinite(loss):
-            loss = loss.new_zeros(())
+            # Keep a live grad graph (zeros(()) would skip DDP reductions on this rank).
+            loss = last_student_x0.float().sum() * 0.0
 
         data = {
             "loss": loss,

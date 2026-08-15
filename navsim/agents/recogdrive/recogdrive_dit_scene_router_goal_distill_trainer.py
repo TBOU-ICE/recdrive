@@ -247,8 +247,11 @@ class ReCogDriveDiTSceneRouterGoalDistillTrainer(ReCogDriveDiTSceneRouterDistill
         pred_traj_s = student_planner.denorm_odo(last_student_x0.float())
         smooth_loss = self._jerk_loss(pred_traj_s)
         loss = distill_loss + self.smooth_weight * smooth_loss
+        # See base trainer: keep detached eta/sigma path inside the DDP graph.
+        if hasattr(student_planner, "eta") and hasattr(student_planner.eta, "eta_logit"):
+            loss = loss + student_planner.eta.eta_logit.sum() * 0.0
         if not torch.isfinite(loss):
-            loss = loss.new_zeros(())
+            loss = last_student_x0.float().sum() * 0.0
 
         # -------- student-vs-GT quality (student never saw the goal) --------
         with torch.no_grad():

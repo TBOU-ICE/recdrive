@@ -2,12 +2,11 @@
 
 Extends ``AgentLightningSceneRouter`` with:
 * logging of the goal-distillation diagnostics emitted by
-  ``ReCogDriveDiTSceneRouterGoalDistillTrainer`` (global scalars with
-  ``sync_dist=True``; per-bucket / per-step keys rank-locally, see the DDP
-  deadlock note in the base lightning module);
-* periodic BEV visualisation (rank 0): GT trajectory + goal point, the routed
-  teacher's final x0 and the student's final trajectory, one subplot per
-  sample, written as png under the trainer log dir and to TensorBoard.
+  ``ReCogDriveDiTSceneRouterGoalDistillTrainer`` (only ``loss`` uses
+  ``sync_dist=True``; other scalars / per-bucket keys are rank-local to avoid
+  NCCL SeqNum skew with DDP);
+* periodic BEV visualisation (rank 0, ``on_train_batch_end``): GT trajectory +
+  goal point, the routed teacher's final x0 and the student's final trajectory.
 """
 
 import os
@@ -21,7 +20,7 @@ from navsim.planning.training.agent_lightning_module_scene_router import (
     AgentLightningSceneRouter,
 )
 
-# Global scalars: identical key set on every rank every step -> sync_dist=True.
+# Global scalars: logged rank-locally (sync_dist=False); only loss is synced.
 _GOAL_GLOBAL_KEYS = (
     "x0_gap_m",
     "x0_gap_final_m",
@@ -48,6 +47,9 @@ class AgentLightningSceneRouterGoal(AgentLightningSceneRouter):
         output = self.agent.compute_loss(features, targets, prediction)
 
         loss = output.loss if hasattr(output, "loss") else output
+        # Only sync the training objective across ranks. Extra sync_dist=True
+        # reductions interleaved with DDP backward have caused SeqNum skew /
+        # ALLREDUCE timeouts on the first step of this job.
         self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
         if not isinstance(output, torch.Tensor):
@@ -70,7 +72,7 @@ class AgentLightningSceneRouterGoal(AgentLightningSceneRouter):
                         on_step=True,
                         on_epoch=True,
                         prog_bar=key in ("distill_loss", "student_fde_gt_m"),
-                        sync_dist=True,
+                        sync_dist=False,
                     )
             for key in list(output.keys()):
                 if key.startswith(("kl_", "n_samples_") + _GOAL_LOCAL_PREFIXES):
@@ -83,16 +85,19 @@ class AgentLightningSceneRouterGoal(AgentLightningSceneRouter):
                         sync_dist=False,
                     )
 
-        if logging_prefix == "train":
-            self._maybe_visualize()
-
         return loss
+
+    def on_train_batch_end(self, outputs, batch, batch_idx: int) -> None:
+        # Rank-0 viz after the optimizer step so it cannot sit between
+        # training_step logging collectives and DDP gradient allreduce.
+        self._maybe_visualize()
 
     # ------------------------------------------------------------------- viz
     def _maybe_visualize(self) -> None:
         if self.viz_interval_steps <= 0 or self.global_rank != 0:
             return
-        if self.global_step % self.viz_interval_steps != 0:
+        # Skip step 0: first-batch I/O + CUDA warmup is already the slowest path.
+        if self.global_step <= 0 or self.global_step % self.viz_interval_steps != 0:
             return
         trainer_obj = getattr(self.agent, "scene_router_trainer", None)
         viz = getattr(trainer_obj, "last_viz", None)
