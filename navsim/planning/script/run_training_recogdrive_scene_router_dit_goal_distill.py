@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import random
+import signal
 
 import hydra
 from hydra.utils import instantiate
@@ -65,22 +66,58 @@ def _token_filter_cache_dataset(dataset, allowed_tokens: Set[str]):
 
 
 class ResilientCacheDataset(torch.utils.data.Dataset):
-    """Wrap a cache dataset so a few corrupt .gz shards cannot kill the job.
+    """Wrap a cache dataset so bad .gz shards cannot kill the distributed job.
 
-    Cache shards on Alluxio/CPFS are occasionally truncated or written with null
-    bytes (``pickle.load`` -> ``UnpicklingError: invalid load key, '\\x00'``).
-    Rather than crashing an 8-GPU run on the first bad file, resample a different
-    random index (bounded retries) and log the failure so the offending token can
-    be re-fetched / purged offline. Additive: leaves ``dataset.py`` untouched.
+    Cache shards live behind an Alluxio-FUSE cache. When a cached block is
+    corrupt, a read either (a) raises a gzip/pickle decode error
+    (``invalid load key '\\x00'``, ``invalid bit length repeat``, CRC failure),
+    or (b) *hangs* the read indefinitely. Both are fatal under DDP: a raised
+    error would abort the run, and a hang leaves that rank out of the next NCCL
+    collective so every other rank dies with a 600s watchdog timeout (observed
+    as rank0/rank4 silently stalling while the rest time out on BROADCAST).
+
+    This wrapper guards each load with BOTH a try/except AND a hard per-attempt
+    timeout (SIGALRM, which fires in the DataLoader worker's main thread and
+    interrupts a blocked FUSE read), then resamples a different random index.
+    ``max_retries * load_timeout_s`` is kept below the NCCL watchdog (600s) so a
+    pathological run of bad shards still cannot exceed the collective timeout.
+    Additive: leaves ``dataset.py`` untouched.
     """
 
-    def __init__(self, base: torch.utils.data.Dataset, max_retries: int = 20):
+    def __init__(
+        self,
+        base: torch.utils.data.Dataset,
+        max_retries: int = 8,
+        load_timeout_s: int = 60,
+    ):
         super().__init__()
         self.base = base
         self.max_retries = int(max_retries)
+        self.load_timeout_s = int(load_timeout_s)
 
     def __len__(self) -> int:
         return len(self.base)
+
+    def _load_one(self, j: int):
+        """Load ``base[j]`` with a hard timeout so a hung read becomes skippable."""
+        if self.load_timeout_s <= 0:
+            return self.base[j]
+
+        def _on_timeout(signum, frame):
+            raise TimeoutError(f"cache load exceeded {self.load_timeout_s}s")
+
+        # SIGALRM only installs in a process main thread (true for DataLoader
+        # workers and for num_workers=0). If it cannot be installed, load plainly.
+        try:
+            previous = signal.signal(signal.SIGALRM, _on_timeout)
+        except (ValueError, OSError):
+            return self.base[j]
+        try:
+            signal.alarm(self.load_timeout_s)
+            return self.base[j]
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous)
 
     def __getitem__(self, idx: int):
         n = len(self.base)
@@ -88,8 +125,8 @@ class ResilientCacheDataset(torch.utils.data.Dataset):
         for attempt in range(self.max_retries):
             j = idx if attempt == 0 else random.randrange(n)
             try:
-                return self.base[j]
-            except Exception as exc:  # noqa: BLE001 - any decode/IO failure is skippable
+                return self._load_one(j)
+            except Exception as exc:  # noqa: BLE001 - any decode/IO/timeout is skippable
                 last_exc = exc
                 logger.warning(
                     "Skipping unreadable cache sample idx=%d (attempt %d/%d): %r",
