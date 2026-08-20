@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import json
 import logging
 import os
+import random
 
 import hydra
 from hydra.utils import instantiate
@@ -61,6 +62,42 @@ def _token_filter_cache_dataset(dataset, allowed_tokens: Set[str]):
     dataset._valid_cache_paths = kept
     dataset.tokens = list(kept.keys())
     return dataset
+
+
+class ResilientCacheDataset(torch.utils.data.Dataset):
+    """Wrap a cache dataset so a few corrupt .gz shards cannot kill the job.
+
+    Cache shards on Alluxio/CPFS are occasionally truncated or written with null
+    bytes (``pickle.load`` -> ``UnpicklingError: invalid load key, '\\x00'``).
+    Rather than crashing an 8-GPU run on the first bad file, resample a different
+    random index (bounded retries) and log the failure so the offending token can
+    be re-fetched / purged offline. Additive: leaves ``dataset.py`` untouched.
+    """
+
+    def __init__(self, base: torch.utils.data.Dataset, max_retries: int = 20):
+        super().__init__()
+        self.base = base
+        self.max_retries = int(max_retries)
+
+    def __len__(self) -> int:
+        return len(self.base)
+
+    def __getitem__(self, idx: int):
+        n = len(self.base)
+        last_exc: Optional[Exception] = None
+        for attempt in range(self.max_retries):
+            j = idx if attempt == 0 else random.randrange(n)
+            try:
+                return self.base[j]
+            except Exception as exc:  # noqa: BLE001 - any decode/IO failure is skippable
+                last_exc = exc
+                logger.warning(
+                    "Skipping unreadable cache sample idx=%d (attempt %d/%d): %r",
+                    j, attempt + 1, self.max_retries, exc,
+                )
+        raise RuntimeError(
+            f"Could not load a valid cache sample after {self.max_retries} retries"
+        ) from last_exc
 
 
 def custom_collate_fn(
@@ -220,6 +257,11 @@ def main(cfg: DictConfig) -> None:
     else:
         logger.info("Building SceneLoader")
         train_data, val_data = build_datasets(cfg, agent)
+
+    # Tolerate occasional corrupt cache shards (truncated / null-byte .gz) so a
+    # single bad file cannot abort the whole distributed run.
+    train_data = ResilientCacheDataset(train_data)
+    val_data = ResilientCacheDataset(val_data)
 
     train_dataloader = DataLoader(train_data, collate_fn=custom_collate_fn, shuffle=True, **cfg.dataloader.params)
     val_dataloader = DataLoader(val_data, collate_fn=custom_collate_fn, shuffle=False, **cfg.dataloader.params)
