@@ -22,6 +22,10 @@ export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/d
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export HYDRA_FULL_ERROR=1
+# Known-bad Alluxio cache shards to skip up-front (see data/epdms/bad_cache_shards_newvlm.txt).
+# The dataloader drops these tokens before training so a corrupt/hanging read is
+# never attempted; new bad shards are still caught at runtime by the resilient loader.
+export SCENE_ROUTER_BAD_CACHE_LIST="${SCENE_ROUTER_BAD_CACHE_LIST:-${REPO_ROOT}/data/epdms/bad_cache_shards_newvlm.txt}"
 
 TRAIN_TEST_SPLIT="${TRAIN_TEST_SPLIT:-navtrain}"
 NNODES="${WORLD_SIZE:-1}"

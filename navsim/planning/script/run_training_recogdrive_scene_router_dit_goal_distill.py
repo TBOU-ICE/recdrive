@@ -137,6 +137,47 @@ class ResilientCacheDataset(torch.utils.data.Dataset):
         ) from last_exc
 
 
+def _load_bad_token_dirs(list_path: str) -> Set[str]:
+    """Read a bad-shard list (one ``<path.gz>[\\t<err>]`` per line) into a set of
+    token directories to drop. Matches both the raw and realpath'd dir so it works
+    whether the job sees ``/workspace/...`` or the resolved ``/mnt/...`` mount."""
+    bad_dirs: Set[str] = set()
+    with open(list_path, "r", encoding="utf-8") as f:
+        for line in f:
+            gz = line.split("\t", 1)[0].strip()
+            if not gz:
+                continue
+            d = os.path.dirname(gz)
+            bad_dirs.add(d)
+            try:
+                bad_dirs.add(os.path.realpath(d))
+            except OSError:
+                pass
+    return bad_dirs
+
+
+def _prune_bad_tokens(dataset, bad_dirs: Set[str]) -> int:
+    """Drop tokens whose cache dir is in ``bad_dirs`` from a CacheOnlyDataset (or
+    every CacheOnlyDataset inside a ConcatDataset). Returns the number dropped."""
+    if not bad_dirs:
+        return 0
+    if isinstance(dataset, ConcatDataset):
+        removed = sum(_prune_bad_tokens(d, bad_dirs) for d in dataset.datasets)
+        dataset.cumulative_sizes = ConcatDataset.cumsum(dataset.datasets)
+        return removed
+    valid = getattr(dataset, "_valid_cache_paths", None)
+    if not isinstance(valid, dict):
+        return 0
+    drop = [
+        tok for tok, path in valid.items()
+        if str(path) in bad_dirs or os.path.realpath(str(path)) in bad_dirs
+    ]
+    for tok in drop:
+        valid.pop(tok, None)
+    dataset.tokens = list(valid.keys())
+    return len(drop)
+
+
 def custom_collate_fn(
     batch: List[Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], str]]
 ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Tuple[str, ...]]:
@@ -295,8 +336,24 @@ def main(cfg: DictConfig) -> None:
         logger.info("Building SceneLoader")
         train_data, val_data = build_datasets(cfg, agent)
 
-    # Tolerate occasional corrupt cache shards (truncated / null-byte .gz) so a
-    # single bad file cannot abort the whole distributed run.
+    # Proactively drop KNOWN-bad shards (from a scan list) so the dataloader never
+    # touches them. This is safer than relying on the runtime timeout for shards
+    # whose Alluxio read can hang uninterruptibly. Point SCENE_ROUTER_BAD_CACHE_LIST
+    # at a file with one "<path.gz>[<TAB><err>]" per line (e.g. bad_gz_list.txt).
+    bad_list_path = os.environ.get("SCENE_ROUTER_BAD_CACHE_LIST", "").strip()
+    if bad_list_path and os.path.isfile(bad_list_path):
+        bad_dirs = _load_bad_token_dirs(bad_list_path)
+        n_train = _prune_bad_tokens(train_data, bad_dirs)
+        n_val = _prune_bad_tokens(val_data, bad_dirs)
+        logger.info(
+            "Pruned known-bad shards from %s: %d bad dirs, dropped %d train + %d val tokens",
+            bad_list_path, len(bad_dirs), n_train, n_val,
+        )
+    elif bad_list_path:
+        logger.warning("SCENE_ROUTER_BAD_CACHE_LIST set but not found: %s", bad_list_path)
+
+    # Still wrap in the resilient loader: it catches decode errors AND hangs
+    # (via a per-sample timeout) for any NEW bad shard not in the prune list.
     train_data = ResilientCacheDataset(train_data)
     val_data = ResilientCacheDataset(val_data)
 
