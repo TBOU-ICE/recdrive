@@ -137,10 +137,19 @@ class ResilientCacheDataset(torch.utils.data.Dataset):
         ) from last_exc
 
 
+# The datasets/simscale root is exposed under both a /workspace symlink and the
+# resolved /mnt Alluxio-FUSE mount. Expand bad paths across both prefixes with a
+# pure string swap so pruning never needs a per-token realpath() (which would fire
+# 100k+ slow FUSE metadata lookups and can itself hang).
+_MOUNT_ALIASES = (
+    ("/workspace/datasets/", "/mnt/datasets/"),
+    ("/mnt/datasets/", "/workspace/datasets/"),
+)
+
+
 def _load_bad_token_dirs(list_path: str) -> Set[str]:
     """Read a bad-shard list (one ``<path.gz>[\\t<err>]`` per line) into a set of
-    token directories to drop. Matches both the raw and realpath'd dir so it works
-    whether the job sees ``/workspace/...`` or the resolved ``/mnt/...`` mount."""
+    token directories to drop, expanded across the /workspace and /mnt aliases."""
     bad_dirs: Set[str] = set()
     with open(list_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -149,16 +158,18 @@ def _load_bad_token_dirs(list_path: str) -> Set[str]:
                 continue
             d = os.path.dirname(gz)
             bad_dirs.add(d)
-            try:
-                bad_dirs.add(os.path.realpath(d))
-            except OSError:
-                pass
+            for src, dst in _MOUNT_ALIASES:
+                if d.startswith(src):
+                    bad_dirs.add(dst + d[len(src):])
     return bad_dirs
 
 
 def _prune_bad_tokens(dataset, bad_dirs: Set[str]) -> int:
     """Drop tokens whose cache dir is in ``bad_dirs`` from a CacheOnlyDataset (or
-    every CacheOnlyDataset inside a ConcatDataset). Returns the number dropped."""
+    every CacheOnlyDataset inside a ConcatDataset). Returns the number dropped.
+
+    Membership is a pure O(1) set lookup on the stored path string -- no syscalls,
+    so this stays instant even for hundreds of thousands of tokens on Alluxio."""
     if not bad_dirs:
         return 0
     if isinstance(dataset, ConcatDataset):
@@ -168,10 +179,7 @@ def _prune_bad_tokens(dataset, bad_dirs: Set[str]) -> int:
     valid = getattr(dataset, "_valid_cache_paths", None)
     if not isinstance(valid, dict):
         return 0
-    drop = [
-        tok for tok, path in valid.items()
-        if str(path) in bad_dirs or os.path.realpath(str(path)) in bad_dirs
-    ]
+    drop = [tok for tok, path in valid.items() if str(path) in bad_dirs]
     for tok in drop:
         valid.pop(tok, None)
     dataset.tokens = list(valid.keys())
