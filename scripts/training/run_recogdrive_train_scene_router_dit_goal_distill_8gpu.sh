@@ -116,8 +116,8 @@ for m in "${EXTRA_MANIFEST_LIST[@]+"${EXTRA_MANIFEST_LIST[@]}"}"; do
   fi
 done
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_scene_router_dit_goal_opd_v3}"
-LOG_FILE="${LOG_FILE:-${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}/run_scene_router_dit_goal_opd.log}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_scene_router_dit_goal_opd_v4}"
+LOG_FILE="${LOG_FILE:-${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}/run_scene_router_dit_goal_opd_v4.log}"
 mkdir -p "$(dirname "${LOG_FILE}")"
 
 echo "[scene-router-goal] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"

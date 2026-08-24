@@ -247,9 +247,16 @@ class ReCogDriveDiTSceneRouterGoalDistillTrainer(ReCogDriveDiTSceneRouterDistill
         pred_traj_s = student_planner.denorm_odo(last_student_x0.float())
         smooth_loss = self._jerk_loss(pred_traj_s)
         loss = distill_loss + self.smooth_weight * smooth_loss
-        # See base trainer: keep detached eta/sigma path inside the DDP graph.
+        # See base trainer: keep the eta parameter inside the DDP graph with a
+        # zero coefficient. eta_logit is initialised to atanh(1.0)=+inf whenever
+        # base_eta==max_eta (EtaFixed), and that inf is carried in the student
+        # checkpoint, so a plain ``eta_logit.sum() * 0.0`` would be ``inf * 0 =
+        # NaN`` and silently poison every step's loss into the zero fallback
+        # below (observed: the student never trained for a full run). nan_to_num
+        # keeps the graph edge while guaranteeing a finite zero contribution.
         if hasattr(student_planner, "eta") and hasattr(student_planner.eta, "eta_logit"):
-            loss = loss + student_planner.eta.eta_logit.sum() * 0.0
+            eta_logit = student_planner.eta.eta_logit
+            loss = loss + torch.nan_to_num(eta_logit, nan=0.0, posinf=0.0, neginf=0.0).sum() * 0.0
         if not torch.isfinite(loss):
             loss = last_student_x0.float().sum() * 0.0
 

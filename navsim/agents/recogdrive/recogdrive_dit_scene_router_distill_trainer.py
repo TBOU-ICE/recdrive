@@ -222,8 +222,13 @@ class ReCogDriveDiTSceneRouterDistillTrainer:
         # Under match_target=x0, sigma/eta is detached from the regression target, so
         # eta_logit would be an unused DDP parameter. Keep it in the graph with a
         # zero coefficient so ranks stay collective-symmetric without find_unused.
+        # NB: eta_logit is atanh(1.0)=+inf when base_eta==max_eta (EtaFixed) and that
+        # inf lives in the student checkpoint, so a plain ``* 0.0`` gives inf*0=NaN and
+        # trips the finite-guard below every step (student silently never trains).
+        # nan_to_num keeps the graph edge while contributing a guaranteed finite zero.
         if hasattr(student_planner, "eta") and hasattr(student_planner.eta, "eta_logit"):
-            loss = loss + student_planner.eta.eta_logit.sum() * 0.0
+            eta_logit = student_planner.eta.eta_logit
+            loss = loss + torch.nan_to_num(eta_logit, nan=0.0, posinf=0.0, neginf=0.0).sum() * 0.0
         if not torch.isfinite(loss):
             # Keep a live grad graph (zeros(()) would skip DDP reductions on this rank).
             loss = last_student_x0.float().sum() * 0.0
