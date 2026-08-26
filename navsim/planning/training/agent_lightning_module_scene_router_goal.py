@@ -29,6 +29,18 @@ _GOAL_GLOBAL_KEYS = (
     "student_fde_gt_m",
     "student_ade_gt_m",
     "teacher_goal_effect_m",
+    # GoalBridge diagnostics
+    "reverse_kl_loss",
+    "goal_loss",
+    "weighted_goal_loss",
+    "anchor_loss",
+    "weighted_anchor_loss",
+    "goal_fde_m",
+    "recoverability_mean",
+    "recoverability_min",
+    "recoverability_max",
+    "pred_goal_x_mean",
+    "pred_goal_y_mean",
 )
 # Data-dependent or per-step keys: rank-local logging (sync_dist=False).
 _GOAL_LOCAL_PREFIXES = ("fde_gt_", "goal_effect_", "entropy_step_")
