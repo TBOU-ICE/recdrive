@@ -108,6 +108,7 @@ class ReCogDriveSceneRouterAgent(ReCogDriveAgent):
         exopd_lambda: float = 1.0,
         scene_router_min_sigma: float = 0.04,
         scene_router_smooth_weight: float = 0.02,
+        student_adaln_bound: float = 8.0,
         **kwargs,
     ):
         # Force dit_distill off so the base agent does NOT build IL/RL teachers.
@@ -154,6 +155,19 @@ class ReCogDriveSceneRouterAgent(ReCogDriveAgent):
 
         for param in self.action_head.parameters():
             param.requires_grad = True
+
+        # Soft-bound only the trainable student DiT. Frozen teachers keep the
+        # original unbounded adaLN, so OPD targets do not change.
+        # S*tanh(x/S) is ~identity for |x|≪S (IL/early-OPD gates are O(1)).
+        self.student_adaln_bound = float(student_adaln_bound)
+        student_dit = getattr(self.action_head, "model", None)
+        if student_dit is not None and hasattr(student_dit, "set_adaln_bound"):
+            student_dit.set_adaln_bound(self.student_adaln_bound)
+            if self.student_adaln_bound > 0:
+                print(
+                    f"[SceneRouter-OPD] student adaLN soft-bound={self.student_adaln_bound:g} "
+                    "(teachers unbound; OPD loss unchanged)"
+                )
 
         self.scene_router_trainer = ReCogDriveDiTSceneRouterDistillTrainer(
             bucket_names=BUCKET_NAMES,
@@ -289,7 +303,19 @@ class ReCogDriveSceneRouterAgent(ReCogDriveAgent):
     ) -> torch.Tensor:
         if self.training:
             return predictions
-        pred = torch.nan_to_num(predictions["pred_traj"], nan=0.0, posinf=0.0, neginf=0.0)
+        pred = predictions["pred_traj"]
+        # nan_to_num turns a dead (NaN-weight) student into the zero trajectory.
+        # That is what made val/loss look like a stable 4.42 after the v4 crash
+        # while train/* was already NaN. Keep the sanitizer so val does not
+        # itself NaN-poison logging, but do not hide the failure.
+        nonfinite = ~torch.isfinite(pred)
+        if bool(nonfinite.any()):
+            print(
+                f"[SceneRouter-OPD] get_action pred non-finite: "
+                f"frac={float(nonfinite.float().mean()):.4f} "
+                f"(NaN weights or DDIM overflow — not a real L1 of 4.x)"
+            )
+        pred = torch.nan_to_num(pred, nan=0.0, posinf=0.0, neginf=0.0)
         tgt = torch.nan_to_num(targets["trajectory"], nan=0.0, posinf=0.0, neginf=0.0)
         return torch.nn.functional.l1_loss(pred, tgt)
 

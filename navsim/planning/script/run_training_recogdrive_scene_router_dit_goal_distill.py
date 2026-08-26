@@ -378,10 +378,14 @@ def main(cfg: DictConfig) -> None:
         save_last=True,
     )
     trainer = pl.Trainer(**cfg.trainer.params, callbacks=[checkpoint_cb])
+    ckpt_path = cfg.get("ckpt_path", None) or None
+    if ckpt_path:
+        logger.info("Resuming full trainer state from %s", ckpt_path)
     trainer.fit(
         model=lightning_module,
         train_dataloaders=train_dataloader,
         val_dataloaders=val_dataloader,
+        ckpt_path=ckpt_path,
     )
 
 

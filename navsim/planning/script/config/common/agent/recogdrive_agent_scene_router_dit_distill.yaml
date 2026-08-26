@@ -47,3 +47,4 @@ exopd_lambda: 1.25
 
 scene_router_min_sigma: 0.04
 scene_router_smooth_weight: 0.02
+student_adaln_bound: 8.0

@@ -65,6 +65,29 @@ class AgentLightningSceneRouter(pl.LightningModule):
 
         return loss
 
+    def on_before_optimizer_step(self, optimizer, *args, **kwargs) -> None:
+        # bf16-mixed has no GradScaler skip. One NaN/Inf grad all-reduced
+        # across DDP would latch NaN into every student weight (goal-OPD v4
+        # died at epoch 25 this way). Zero the step instead of writing it.
+        skip = False
+        for group in optimizer.param_groups:
+            for param in group["params"]:
+                grad = param.grad
+                if grad is not None and not torch.isfinite(grad).all():
+                    skip = True
+                    break
+            if skip:
+                break
+        if skip:
+            optimizer.zero_grad(set_to_none=True)
+        self.log(
+            "train/skipped_nonfinite_grad",
+            1.0 if skip else 0.0,
+            on_step=True,
+            on_epoch=True,
+            sync_dist=True,
+        )
+
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         filtered_sd = {
             k: v

@@ -258,7 +258,9 @@ class ReCogDriveDiTSceneRouterGoalDistillTrainer(ReCogDriveDiTSceneRouterDistill
             eta_logit = student_planner.eta.eta_logit
             loss = loss + torch.nan_to_num(eta_logit, nan=0.0, posinf=0.0, neginf=0.0).sum() * 0.0
         if not torch.isfinite(loss):
-            loss = last_student_x0.float().sum() * 0.0
+            # last_student_x0 is already NaN in the crash we observed; NaN*0
+            # stays NaN and poisons AdamW under bf16-mixed. Anchor on params.
+            loss = self._finite_anchor_loss(student_planner)
 
         # -------- student-vs-GT quality (student never saw the goal) --------
         with torch.no_grad():

@@ -46,6 +46,7 @@ exopd_lambda: 1.0
 
 scene_router_min_sigma: 0.04
 scene_router_smooth_weight: 0.02
+student_adaln_bound: 8.0
 
 # research variant: manifold anchor toward a frozen goal-free base policy.
 # anchor = official ReCogDrive-2B IL diffusion planner (small DiT, D=384,

@@ -350,7 +350,7 @@ class ReCogDriveGoalDistillResearchTrainer(ReCogDriveDiTSceneRouterGoalDistillTr
             eta_logit = student_planner.eta.eta_logit
             loss = loss + torch.nan_to_num(eta_logit, nan=0.0, posinf=0.0, neginf=0.0).sum() * 0.0
         if not torch.isfinite(loss):
-            loss = last_student_x0.float().sum() * 0.0
+            loss = self._finite_anchor_loss(student_planner)
 
         with torch.no_grad():
             err_xy = (pred_traj_s[..., :2] - gt_traj[..., :2]).norm(dim=-1)  # (B, H)

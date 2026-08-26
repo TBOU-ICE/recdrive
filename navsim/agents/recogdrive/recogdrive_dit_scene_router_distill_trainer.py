@@ -69,6 +69,26 @@ class ReCogDriveDiTSceneRouterDistillTrainer:
         return (0.5 * logvar.float().clamp(-20.0, 20.0)).exp().clamp(min=min_sigma).to(dtype)
 
     @staticmethod
+    def _finite_anchor_loss(student_planner) -> torch.Tensor:
+        """Finite 0-loss that still touches every trainable student param.
+
+        Used when the real objective is non-finite. ``x0.sum() * 0`` is *not*
+        safe: if ``x0`` is already NaN then ``NaN * 0`` stays NaN, bf16-mixed
+        has no GradScaler skip, and AdamW writes NaN into the weights (the
+        epoch-25 latch on goal-OPD v4). ``zeros(())`` would drop the DDP
+        graph and desynchronize ranks under find_unused_parameters.
+        """
+        acc = None
+        for param in student_planner.parameters():
+            if not param.requires_grad:
+                continue
+            term = torch.nan_to_num(param.float(), nan=0.0, posinf=0.0, neginf=0.0).sum() * 0.0
+            acc = term if acc is None else acc + term
+        if acc is None:
+            raise RuntimeError("student planner has no trainable parameters")
+        return acc
+
+    @staticmethod
     def _jerk_loss(traj: torch.Tensor) -> torch.Tensor:
         if traj.shape[1] < 4:
             return traj.new_zeros(())
@@ -230,8 +250,7 @@ class ReCogDriveDiTSceneRouterDistillTrainer:
             eta_logit = student_planner.eta.eta_logit
             loss = loss + torch.nan_to_num(eta_logit, nan=0.0, posinf=0.0, neginf=0.0).sum() * 0.0
         if not torch.isfinite(loss):
-            # Keep a live grad graph (zeros(()) would skip DDP reductions on this rank).
-            loss = last_student_x0.float().sum() * 0.0
+            loss = self._finite_anchor_loss(student_planner)
 
         data = {
             "loss": loss,

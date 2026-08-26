@@ -6,7 +6,9 @@
 #   teacher_select      = scene_route (per-token bucket -> single expert)
 #   match_target        = x0
 #   exopd_lambda        = 1.0 (pure OPD; ref planner is not even loaded)
-# Additive: does not modify any existing file.
+#   RESUME_CKPT         = Lightning ckpt to restore (weights+Adam+epoch).
+#                         Default: v4 epoch=22 (best val/loss before the NaN).
+#                         Set RESUME_CKPT= to start from STUDENT_CKPT only.
 #
 # Representation contract: CACHE_PATH / VLM_PATH must be the new-VLM
 # (vlm_simscale_lora_merged) representation that produced the teachers.
@@ -34,8 +36,11 @@ MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-23471}"
 GPUS="${GPUS:-8}"
 
-# ---- student init = new-vlm IL base (representation-consistent) ----
+# ---- student init = new-vlm IL base (overwritten if RESUME_CKPT is set) ----
 STUDENT_CKPT="${STUDENT_CKPT:-/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
+# Full Lightning resume (epoch/Adam/LR). Empty = train from STUDENT_CKPT.
+RESUME_CKPT="${RESUME_CKPT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp/training_scene_router_dit_goal_opd_v4/2026.08.24.06.12.01/lightning_logs/version_0/checkpoints/epoch=22-step=65228.ckpt}"
+STUDENT_ADALN_BOUND="${STUDENT_ADALN_BOUND:-8.0}"
 
 # ---- four goal-conditioned scenario teachers (adaln IL experts, epoch=199) ----
 # TEACHER_GOAL_MODE must match the mode the checkpoints were TRAINED with.
@@ -116,13 +121,30 @@ for m in "${EXTRA_MANIFEST_LIST[@]+"${EXTRA_MANIFEST_LIST[@]}"}"; do
   fi
 done
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_scene_router_dit_goal_opd_v4}"
-LOG_FILE="${LOG_FILE:-${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}/run_scene_router_dit_goal_opd_v4.log}"
+if [[ -n "${RESUME_CKPT}" ]]; then
+  EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_scene_router_dit_goal_opd_v4_resume22}"
+  LOG_FILE="${LOG_FILE:-${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}/run_scene_router_dit_goal_opd_v4_resume22.log}"
+else
+  EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_scene_router_dit_goal_opd_v4}"
+  LOG_FILE="${LOG_FILE:-${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}/run_scene_router_dit_goal_opd_v4.log}"
+fi
 mkdir -p "$(dirname "${LOG_FILE}")"
+
+HYDRA_RESUME=()
+if [[ -n "${RESUME_CKPT}" ]]; then
+  if [[ ! -f "${RESUME_CKPT}" ]]; then
+    echo "[scene-router-goal] ERROR: RESUME_CKPT not found: ${RESUME_CKPT}" >&2
+    exit 1
+  fi
+  HYDRA_RESUME+=("+ckpt_path='${RESUME_CKPT}'")
+fi
 
 echo "[scene-router-goal] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
 echo "[scene-router-goal] teacher_goal_mode=${TEACHER_GOAL_MODE} match_target=${MATCH_TARGET} exopd_lambda=${EXOPD_LAMBDA}"
 echo "[scene-router-goal] STUDENT_CKPT=${STUDENT_CKPT}"
+echo "[scene-router-goal] RESUME_CKPT=${RESUME_CKPT:-<none>}"
+echo "[scene-router-goal] STUDENT_ADALN_BOUND=${STUDENT_ADALN_BOUND}"
+echo "[scene-router-goal] EXPERIMENT_NAME=${EXPERIMENT_NAME}"
 echo "[scene-router-goal] CACHE_PATH=${CACHE_PATH}"
 echo "[scene-router-goal] NAV_MANIFEST=${NAV_MANIFEST}"
 echo "[scene-router-goal] EXTRA_MANIFESTS=${EXTRA_MANIFESTS_ARG}"
@@ -154,7 +176,9 @@ echo "[scene-router-goal] LOG_FILE=${LOG_FILE}"
   agent.exopd_lambda="${EXOPD_LAMBDA}" \
   agent.scene_router_smooth_weight=0.02 \
   agent.scene_router_min_sigma=0.04 \
+  agent.student_adaln_bound="${STUDENT_ADALN_BOUND}" \
   agent.viz_interval_steps=0 \
+  ${HYDRA_RESUME[@]+"${HYDRA_RESUME[@]}"} \
   agent.lr=1e-4 \
   agent.grpo=False \
   agent.cache_hidden_state=True \
