@@ -18,6 +18,11 @@ from torch.utils.data import DataLoader
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.planning.training.agent_lightning_module import AgentLightningModule
 from navsim.planning.training.dataset import CacheOnlyDataset
+from navsim.planning.script.run_training_recogdrive_scene_router_dit_goal_distill import (
+    ResilientCacheDataset,
+    _load_bad_token_dirs,
+    _prune_bad_tokens,
+)
 
 logger = logging.getLogger(__name__)
 CONFIG_PATH = "config/training"
@@ -131,9 +136,30 @@ def main(cfg: DictConfig) -> None:
     )
     _filter_cache_dataset(train_data, allowed)
     _filter_cache_dataset(val_data, allowed)
+
+    # Drop known-corrupt Alluxio shards before the loader ever touches them.
+    bad_list_path = os.environ.get("SCENE_ROUTER_BAD_CACHE_LIST", "").strip()
+    if bad_list_path and os.path.isfile(bad_list_path):
+        bad_dirs = _load_bad_token_dirs(bad_list_path)
+        n_train = _prune_bad_tokens(train_data, bad_dirs)
+        n_val = _prune_bad_tokens(val_data, bad_dirs)
+        logger.info(
+            "Pruned known-bad shards from %s: %d bad dirs, dropped %d train + %d val tokens",
+            bad_list_path,
+            len(bad_dirs),
+            n_train,
+            n_val,
+        )
+    elif bad_list_path:
+        logger.warning("SCENE_ROUTER_BAD_CACHE_LIST set but not found: %s", bad_list_path)
+
     logger.info("Robust goal teacher: %d train / %d val bucket samples", len(train_data), len(val_data))
     if len(train_data) == 0:
         raise RuntimeError("Bucket filtering produced zero training samples.")
+
+    # Catch gzip/pickle decode errors and hung FUSE reads on any NEW bad shard.
+    train_data = ResilientCacheDataset(train_data)
+    val_data = ResilientCacheDataset(val_data)
 
     train_loader = DataLoader(train_data, collate_fn=custom_collate_fn, shuffle=True, **cfg.dataloader.params)
     val_loader = DataLoader(val_data, collate_fn=custom_collate_fn, shuffle=False, **cfg.dataloader.params)
