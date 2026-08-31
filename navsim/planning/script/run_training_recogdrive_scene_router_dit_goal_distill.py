@@ -142,8 +142,8 @@ class ResilientCacheDataset(torch.utils.data.Dataset):
 # pure string swap so pruning never needs a per-token realpath() (which would fire
 # 100k+ slow FUSE metadata lookups and can itself hang).
 _MOUNT_ALIASES = (
-    ("/workspace/datasets/", "/mnt/datasets/"),
-    ("/mnt/datasets/", "/workspace/datasets/"),
+    ("/mnt/datasets/", "/mnt/datasets/"),
+    ("/mnt/datasets/", "/mnt/datasets/"),
 )
 
 

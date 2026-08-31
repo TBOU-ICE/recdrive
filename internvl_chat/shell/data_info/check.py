@@ -68,7 +68,7 @@ def main() -> int:
         "pretrain_json",
         type=Path,
         nargs="?",
-        default=Path("/workspace/recogdrive/internvl_chat/shell/data_info/recogdrive_pretrain.json"),
+        default=Path("/mnt/recogdrive/internvl_chat/shell/data_info/recogdrive_pretrain.json"),
         help="recogdrive_pretrain.json 路径",
     )
     ap.add_argument("--fix", action="store_true", help="执行替换（nuscenessamples -> nuscenes/samples）并备份 .bak")

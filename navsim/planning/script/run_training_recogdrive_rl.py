@@ -122,7 +122,7 @@ def build_pl_logger(cfg: DictConfig):
     if logger_type == "tensorboard":
         from pytorch_lightning.loggers import TensorBoardLogger
         logger_cfg = cfg.get("logger", {})
-        save_dir = str(logger_cfg.get("save_dir", "/workspace/output/tensorboard"))
+        save_dir = str(logger_cfg.get("save_dir", "/mnt/output/tensorboard"))
         name = str(logger_cfg.get("name", cfg.get("experiment_name", "recdrive")))
         return TensorBoardLogger(save_dir=save_dir, name=name, version="")
 

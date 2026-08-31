@@ -8,7 +8,7 @@ Outputs (under data/epdms/manifests/):
   - sim_round1_quality_newvlm.json
 
 Run:
-  /workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python \\
+  /mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python \\
     scripts/data/build_newvlm_cache_manifests_for_goal_opd.py
 """
 
@@ -20,27 +20,27 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-OUT_DIR = Path("/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1/data/epdms/manifests")
+OUT_DIR = Path("/mnt/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1/data/epdms/manifests")
 
 # Matches the goal-distill 8gpu launch script defaults.
 CACHES = [
     (
         Path(
-            "/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim/"
+            "/mnt/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim/"
             "recogdrive_agent_cache_dir_train"
         ),
         "nav_train_newvlm.json",
     ),
     (
         Path(
-            "/workspace/datasets/simscale/20260709/"
+            "/mnt/datasets/simscale/20260709/"
             "recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-0_quality"
         ),
         "sim_round0_quality_newvlm.json",
     ),
     (
         Path(
-            "/workspace/datasets/simscale/20260709/"
+            "/mnt/datasets/simscale/20260709/"
             "recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-1_quality"
         ),
         "sim_round1_quality_newvlm.json",

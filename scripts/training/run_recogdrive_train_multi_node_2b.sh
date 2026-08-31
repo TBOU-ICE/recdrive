@@ -1,9 +1,9 @@
-export PATH="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH" #nby
+export PATH="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH" #nby
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
-export NAVSIM_EXP_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/exp"
-export NAVSIM_DEVKIT_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1"
-export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download"
+export NUPLAN_MAPS_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/exp"
+export NAVSIM_DEVKIT_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1"
+export OPENSCENE_DATA_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 TRAIN_TEST_SPLIT=navtrain
 export NCCL_IB_DISABLE=0
@@ -28,7 +28,7 @@ export CUDA_LAUNCH_BLOCKING=0
 
 
 
-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
     --nnodes=${NNODES} \
     --node_rank=${RANK} \
     --master_addr=${MASTER_ADDR} \
@@ -38,7 +38,7 @@ export CUDA_LAUNCH_BLOCKING=0
     agent=recogdrive_agent \
     agent.lr=1e-4 \
     agent.grpo=False \
-    agent.vlm_path='/workspace/models/recdrive/v1.0.0/ReCogDrive-VLM-2B' \
+    agent.vlm_path='/mnt/models/recdrive/v1.0.0/ReCogDrive-VLM-2B' \
     agent.cam_type='single' \
     agent.cache_hidden_state=True \
     agent.vlm_type="internvl" \
@@ -50,7 +50,7 @@ export CUDA_LAUNCH_BLOCKING=0
     trainer.params.devices=${GPUS} \
     experiment_name=training_recogdrive_vlm_nby \
     train_test_split=$TRAIN_TEST_SPLIT \
-    cache_path="/workspace/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train" \
+    cache_path="/mnt/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train" \
     use_cache_without_dataset=True \
     force_cache_computation=False \
     hydra/job_logging=stdout \

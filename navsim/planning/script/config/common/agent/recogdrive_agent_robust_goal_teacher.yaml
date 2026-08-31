@@ -7,8 +7,8 @@ trajectory_sampling:
   time_horizon: 4
   interval_length: 0.5
 
-checkpoint_path: '/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt'
-vlm_path: '/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged'
+checkpoint_path: '/mnt/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt'
+vlm_path: '/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged'
 cam_type: 'single'
 vlm_type: 'internvl'
 dit_type: 'small'

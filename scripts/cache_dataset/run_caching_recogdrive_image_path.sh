@@ -10,9 +10,9 @@ export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-$REPO_ROOT}"
 
 TRAIN_TEST_SPLIT=navtrain
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
-export NAVSIM_EXP_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/exp"
-export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download"
+export NUPLAN_MAPS_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/exp"
+export OPENSCENE_DATA_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download"
 
 # Separate cache dir from the hidden-state cache
 CACHE_PATH=$NAVSIM_EXP_ROOT/recogdrive_agent_cache_dir_opd
@@ -39,7 +39,7 @@ echo "NNODES: ${NNODES}"
 echo "NODE_RANK: ${NODE_RANK}"
 echo "GPUS_PER_NODE: ${GPUS_PER_NODE}"
 
-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
     --nnodes=${NNODES} \
     --node_rank=${NODE_RANK} \
     --master_addr=${MASTER_ADDR} \

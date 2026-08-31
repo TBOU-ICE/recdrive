@@ -106,8 +106,8 @@ class ResilientCacheDataset(Dataset):
 def load_bad_token_dirs(path: str) -> Set[str]:
     """Load bad token directories with both /workspace and /mnt mount aliases."""
     aliases = (
-        ("/workspace/datasets/", "/mnt/datasets/"),
         ("/mnt/datasets/", "/workspace/datasets/"),
+        ("/workspace/datasets/", "/mnt/datasets/"),
     )
     bad_dirs: Set[str] = set()
     with open(path, "r", encoding="utf-8") as file:

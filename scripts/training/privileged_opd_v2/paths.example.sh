@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copy to paths.local.sh and fill these for your cluster. Scripts never edit old code.
 
-export CONDA_BIN=/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin
+export CONDA_BIN=/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin
 export VLM_PATH=/PATH/TO/vlm_simscale_lora_merged
 
 # Stage-1 common IL fullmix checkpoint (NAV full + SimScale).

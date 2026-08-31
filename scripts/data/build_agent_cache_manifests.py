@@ -5,7 +5,7 @@ rank; with a manifest the dataset resolves tokens in seconds. A token is listed
 when its dir contains all builder files (recogdrive_feature.gz / trajectory
 target share one file, matching CacheOnlyDataset's validity rule).
 
-Run:  PYTHONPATH=/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1 python build_agent_cache_manifests.py
+Run:  PYTHONPATH=/mnt/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1 python build_agent_cache_manifests.py
 """
 
 import json
@@ -13,8 +13,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-VIT_ROOT = Path("/workspace/datasets/simscale/20260709/new_vlm_vit_hidden_state_nav_sim")
-OUT_DIR = Path("/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1/data/epdms/manifests")
+VIT_ROOT = Path("/mnt/datasets/simscale/20260709/new_vlm_vit_hidden_state_nav_sim")
+OUT_DIR = Path("/mnt/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1/data/epdms/manifests")
 
 # builder unique names for ReCogDriveFeatureBuilder + TrajectoryTargetBuilder
 BUILDERS = ["recogdrive_feature", "trajectory_target"]

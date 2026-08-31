@@ -8,15 +8,15 @@ if [[ -f "${PATHS_FILE}" ]]; then source "${PATHS_FILE}"; fi
 
 # Cluster defaults. Every value remains overridable by the AIJob environment or
 # OPD_V2_PATHS_FILE, but the checked-in launchers do not depend on paths.local.sh.
-export CONDA_BIN="${CONDA_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin}"
-export VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
-export NAV_CACHE="${NAV_CACHE:-/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_train}"
-export NAV_BUCKET_ROOT="${NAV_BUCKET_ROOT:-/workspace/datasets/simscale/20260709/data/navtrain_scene/output/navtrain}"
+export CONDA_BIN="${CONDA_BIN:-/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin}"
+export VLM_PATH="${VLM_PATH:-/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
+export NAV_CACHE="${NAV_CACHE:-/mnt/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_train}"
+export NAV_BUCKET_ROOT="${NAV_BUCKET_ROOT:-/mnt/datasets/simscale/20260709/data/navtrain_scene/output/navtrain}"
 export TOKEN_TO_BUCKET_NAV="${TOKEN_TO_BUCKET_NAV:-${NAV_BUCKET_ROOT}/exclusive_token_to_bucket.json}"
 
 MANIFEST_DIR="${MANIFEST_DIR:-${NAVSIM_DEVKIT_ROOT}/data/epdms/manifests}"
 if [[ ! -d "${MANIFEST_DIR}" ]]; then
-  LEGACY_MANIFEST_DIR="/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1-gpt/data/epdms/manifests"
+  LEGACY_MANIFEST_DIR="/mnt/volumes/ad-e2e-bd-su01/nby/recdrive-multi-opd-v1-gpt/data/epdms/manifests"
   if [[ -d "${LEGACY_MANIFEST_DIR}" ]]; then MANIFEST_DIR="${LEGACY_MANIFEST_DIR}"; fi
 fi
 export MANIFEST_DIR
@@ -25,18 +25,18 @@ if [[ -z "${NAV_MANIFEST}" && -f "${MANIFEST_DIR}/nav_train_newvlm.json" ]]; the
   export NAV_MANIFEST="${MANIFEST_DIR}/nav_train_newvlm.json"
 fi
 
-export SIM_CACHE_R0="${SIM_CACHE_R0:-/workspace/datasets/simscale/20260709/recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-0_quality}"
-export SIM_CACHE_R1="${SIM_CACHE_R1:-/workspace/datasets/simscale/20260709/recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-1_quality}"
+export SIM_CACHE_R0="${SIM_CACHE_R0:-/mnt/datasets/simscale/20260709/recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-0_quality}"
+export SIM_CACHE_R1="${SIM_CACHE_R1:-/mnt/datasets/simscale/20260709/recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-1_quality}"
 export SIM_MANIFEST_R0="${SIM_MANIFEST_R0:-${MANIFEST_DIR}/sim_round0_quality_newvlm.json}"
 export SIM_MANIFEST_R1="${SIM_MANIFEST_R1:-${MANIFEST_DIR}/sim_round1_quality_newvlm.json}"
-export SIM_BUCKET_ROOT="${SIM_BUCKET_ROOT:-/workspace/datasets/simscale/20260709/data/simscale}"
+export SIM_BUCKET_ROOT="${SIM_BUCKET_ROOT:-/mnt/datasets/simscale/20260709/data/simscale}"
 export SIM_BUCKET_R0_ROOT="${SIM_BUCKET_R0_ROOT:-${SIM_BUCKET_ROOT}/scene_buckets_synthetic_reaction_pdm_v1.0-0_quality}"
 export SIM_BUCKET_R1_ROOT="${SIM_BUCKET_R1_ROOT:-${SIM_BUCKET_ROOT}/scene_buckets_synthetic_reaction_pdm_v1.0-1_quality}"
 
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
-export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
-export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download}"
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/volumes/ad-e2e-bd-su01/nby/exp}"
 export SCENE_ROUTER_BAD_CACHE_LIST="${SCENE_ROUTER_BAD_CACHE_LIST:-${NAVSIM_DEVKIT_ROOT}/data/epdms/bad_cache_shards_newvlm.txt}"
 export CACHE_LOAD_MAX_RETRIES="${CACHE_LOAD_MAX_RETRIES:-8}"
 export CACHE_LOAD_TIMEOUT_SEC="${CACHE_LOAD_TIMEOUT_SEC:-60}"

@@ -6,7 +6,7 @@ from transformers import AutoModel, AutoTokenizer
 
 def main():
     parser = argparse.ArgumentParser(description='Check whether generate() returns prompt+completion or completion-only.')
-    parser.add_argument('--model_path', default='/workspace/models/recdrive/v1.0.0/ReCogDrive-VLM-2B')
+    parser.add_argument('--model_path', default='/mnt/models/recdrive/v1.0.0/ReCogDrive-VLM-2B')
     parser.add_argument('--prompt', default='Hello, please output three words.')
     parser.add_argument('--max_new_tokens', type=int, default=32)
     parser.add_argument('--use_inputs_embeds', action='store_true')

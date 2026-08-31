@@ -13,7 +13,7 @@ set -euo pipefail
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
 _TRAIN_PY="navsim/planning/script/run_training_recogdrive_temporal_multi_teacher_dit_distill.py"
-_CLUSTER_DEVKIT="/workspace/volumes/ad-e2e-bd-su01/nby/recdrive"
+_CLUSTER_DEVKIT="/mnt/volumes/ad-e2e-bd-su01/nby/recdrive"
 
 if [ -n "${NAVSIM_DEVKIT_ROOT:-}" ]; then
   export NAVSIM_DEVKIT_ROOT
@@ -28,15 +28,15 @@ if [ ! -f "$NAVSIM_DEVKIT_ROOT/$_TRAIN_PY" ]; then
   exit 2
 fi
 
-export PATH="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:${PATH:-}"
+export PATH="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:${PATH:-}"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export HYDRA_FULL_ERROR=1
 
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
-export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp}"
-export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/volumes/ad-e2e-bd-su01/nby/exp}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download}"
 
 TRAIN_TEST_SPLIT="${TRAIN_TEST_SPLIT:-navtrain}"
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-0}"
@@ -52,12 +52,12 @@ GPUS=1
 NNODES=1
 RANK=0
 
-CHECKPOINT="${CHECKPOINT:-/workspace/models/recdrive/v1.0.0/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
-TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
-TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
-CACHE_PATH="${CACHE_PATH:-/workspace/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train}"
+CHECKPOINT="${CHECKPOINT:-/mnt/models/recdrive/v1.0.0/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
+TEACHER_IL_CKPT="${TEACHER_IL_CKPT:-/mnt/models/recdrive/v1.0.0/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt}"
+TEACHER_RL_CKPT="${TEACHER_RL_CKPT:-/mnt/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
+CACHE_PATH="${CACHE_PATH:-/mnt/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_temporal_multi_teacher_dit_opd_2b_1gpu_debug}"
-LOG_ROOT="${LOG_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/training_temporal_multi_teacher_dit_opd_2b_1gpu_debug}"
+LOG_ROOT="${LOG_ROOT:-/mnt/volumes/ad-e2e-al-sh01/nby/training_temporal_multi_teacher_dit_opd_2b_1gpu_debug}"
 
 IL_WEIGHT="${IL_WEIGHT:-0.75}"
 RL_WEIGHT="${RL_WEIGHT:-0.25}"
@@ -84,7 +84,7 @@ echo "[1gpu-temporal-mt] IL_WEIGHT=${IL_WEIGHT} RL_WEIGHT=${RL_WEIGHT} TEMPORAL_
 echo "[1gpu-temporal-mt] PAIR_BATCH_SIZE=${PAIR_BATCH_SIZE} (real batch = $((PAIR_BATCH_SIZE * 2)))"
 echo "[1gpu-temporal-mt] LOG_ROOT=${LOG_ROOT}"
 
-_TORCHRUN_NBY="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun"
+_TORCHRUN_NBY="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun"
 _TORCHRUN_VOL="/mnt/volumes/nby/conda_envs/recdrive/bin/torchrun"
 if [ -x "$_TORCHRUN_NBY" ]; then
   TORCHRUN="$_TORCHRUN_NBY"

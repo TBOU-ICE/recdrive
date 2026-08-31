@@ -8,7 +8,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
 _TRAIN_PY="navsim/planning/script/run_training_recogdrive.py"
-_CLUSTER_DEVKIT="/workspace/volumes/ad-e2e-bd-su01/nby/recdrive"
+_CLUSTER_DEVKIT="/mnt/volumes/ad-e2e-bd-su01/nby/recdrive"
 
 if [ -n "${NAVSIM_DEVKIT_ROOT:-}" ]; then
   export NAVSIM_DEVKIT_ROOT
@@ -26,9 +26,9 @@ fi
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
-export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp}"
-export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/volumes/ad-e2e-bd-su01/nby/exp}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download}"
 
 TRAIN_TEST_SPLIT=navtrain
 export NCCL_IB_DISABLE=0
@@ -50,7 +50,7 @@ export TORCH_NCCL_ASYNC_ERROR_HANDLING="${TORCH_NCCL_ASYNC_ERROR_HANDLING:-1}"
 echo "1-GPU debug: CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} MASTER_ADDR=${MASTER_ADDR} MASTER_PORT=${MASTER_PORT}"
 export CUDA_LAUNCH_BLOCKING=1
 
-_TORCHRUN_NBY="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun"
+_TORCHRUN_NBY="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun"
 _TORCHRUN_VOL="/mnt/volumes/nby/conda_envs/recdrive/bin/torchrun"
 if [ -x "$_TORCHRUN_NBY" ]; then
   TORCHRUN="$_TORCHRUN_NBY"
@@ -73,7 +73,7 @@ fi
     agent=recogdrive_agent \
     agent.lr=1e-4 \
     agent.grpo=False \
-    agent.vlm_path='/workspace/models/recdrive/v1.0.0/ReCogDrive-VLM-2B' \
+    agent.vlm_path='/mnt/models/recdrive/v1.0.0/ReCogDrive-VLM-2B' \
     agent.cam_type='single' \
     agent.cache_hidden_state=True \
     agent.vlm_type="internvl" \

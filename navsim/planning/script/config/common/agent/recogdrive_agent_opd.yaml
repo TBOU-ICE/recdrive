@@ -8,18 +8,18 @@ trajectory_sampling:
   interval_length: 0.5
 
 # Student VLM (2B, trainable LLM part)
-vlm_path: '/workspace/models/recdrive/v1.0.0/ReCogDrive-VLM-2B'
+vlm_path: '/mnt/models/recdrive/v1.0.0/ReCogDrive-VLM-2B'
 vlm_type: 'internvl'
 vlm_size: 'small'
 dit_type: 'small'
 sampling_method: 'ddim'
 
 # DiT checkpoint (Stage 3 RL, frozen in OPD mode)
-checkpoint_path: '/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+checkpoint_path: '/mnt/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
 
 # OPD mode — Teacher-TopK Local Support Matching (arXiv:2603.25562)
 opd: True
-teacher_vlm_path: '/workspace/models/recdrive/v1.0.0/ReCogDrive-VLM-8B'
+teacher_vlm_path: '/mnt/models/recdrive/v1.0.0/ReCogDrive-VLM-8B'
 opd_topk: 32
 opd_group_size: 6
 opd_max_new_tokens: 256

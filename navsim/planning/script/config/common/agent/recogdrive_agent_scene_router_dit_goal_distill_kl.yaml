@@ -10,9 +10,9 @@ trajectory_sampling:
   time_horizon: 4
   interval_length: 0.5
 
-checkpoint_path: '/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt'
+checkpoint_path: '/mnt/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt'
 
-vlm_path: '/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged'
+vlm_path: '/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged'
 cam_type: 'single'
 vlm_type: 'internvl'
 dit_type: 'small'
@@ -27,23 +27,23 @@ grpo: false
 lr: 1e-4
 
 teacher_goal_mode: 'adaln'
-teacher_ckpt_progress_curbside_stopgo: '/workspace/models/recdrive/v1.0.0/training_teacher_progress_curbside_stopgo_il_goal_adaln_newvlm/2026.08.04.10.54.30/lightning_logs/version_0/checkpoints/epoch=199-step=92800.ckpt'
-teacher_ckpt_rule_intersection: '/workspace/models/recdrive/v1.0.0/training_teacher_rule_intersection_il_goal_adaln_newvlm/2026.08.02.16.39.57/lightning_logs/version_0/checkpoints/epoch=199-step=62800.ckpt'
-teacher_ckpt_safety_dynamics_interaction: '/workspace/models/recdrive/v1.0.0/training_teacher_safety_dynamics_interaction_il_goal_adaln_newvlm/2026.08.04.10.25.26/lightning_logs/version_0/checkpoints/epoch=199-step=38800.ckpt'
-teacher_ckpt_general_or_no_tag: '/workspace/models/recdrive/v1.0.0/training_teacher_general_or_no_tag_il_goal_adaln_newvlm/2026.08.04.10.44.01/lightning_logs/version_0/checkpoints/epoch=199-step=118000.ckpt'
+teacher_ckpt_progress_curbside_stopgo: '/mnt/models/recdrive/v1.0.0/training_teacher_progress_curbside_stopgo_il_goal_adaln_newvlm/2026.08.04.10.54.30/lightning_logs/version_0/checkpoints/epoch=199-step=92800.ckpt'
+teacher_ckpt_rule_intersection: '/mnt/models/recdrive/v1.0.0/training_teacher_rule_intersection_il_goal_adaln_newvlm/2026.08.02.16.39.57/lightning_logs/version_0/checkpoints/epoch=199-step=62800.ckpt'
+teacher_ckpt_safety_dynamics_interaction: '/mnt/models/recdrive/v1.0.0/training_teacher_safety_dynamics_interaction_il_goal_adaln_newvlm/2026.08.04.10.25.26/lightning_logs/version_0/checkpoints/epoch=199-step=38800.ckpt'
+teacher_ckpt_general_or_no_tag: '/mnt/models/recdrive/v1.0.0/training_teacher_general_or_no_tag_il_goal_adaln_newvlm/2026.08.04.10.44.01/lightning_logs/version_0/checkpoints/epoch=199-step=118000.ckpt'
 
 goal_sincos_dim: 128
 goal_hidden_dim: 1024
 goal_use_heading: false
 
-token_to_bucket_json: '/workspace/datasets/simscale/20260709/data/navtrain_scene/output/navtrain/exclusive_token_to_bucket.json'
+token_to_bucket_json: '/mnt/datasets/simscale/20260709/data/navtrain_scene/output/navtrain/exclusive_token_to_bucket.json'
 
 teacher_select: 'scene_route'
 # 方案一: logprob-KL == match the transition mean. (The trainer also forces this
 # internally for distill_variant=kl, so it is robust to run-script overrides.)
 match_target: 'mu'
 
-exopd_ref_checkpoint: '/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt'
+exopd_ref_checkpoint: '/mnt/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt'
 exopd_lambda: 1.0
 
 scene_router_min_sigma: 0.04

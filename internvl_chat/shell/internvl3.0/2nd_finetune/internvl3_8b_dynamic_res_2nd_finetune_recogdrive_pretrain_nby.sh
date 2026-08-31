@@ -22,7 +22,7 @@ internvl_sanitize_path() {
   done
   printf '%s' "$_out"
 }
-_REC_DRIVE_BIN="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin"
+_REC_DRIVE_BIN="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin"
 export PATH="${_REC_DRIVE_BIN}:$(internvl_sanitize_path "$PATH")"
 
 # 验证（可选，调试用）
@@ -61,7 +61,7 @@ if command -v x86_64-conda-linux-gnu-gcc >/dev/null 2>&1 && command -v x86_64-co
   export CUDAHOSTCXX="${CUDAHOSTCXX:-x86_64-conda-linux-gnu-g++}"
 fi
 
-OUTPUT_DIR='/workspace/volumes/ad-e2e-bd-su01/nby/recdrive/outputs/ReCogDrive_pretrain/all_data'
+OUTPUT_DIR='/mnt/volumes/ad-e2e-bd-su01/nby/recdrive/outputs/ReCogDrive_pretrain/all_data'
 
 if [ ! -d "$OUTPUT_DIR" ]; then
   mkdir -p "$OUTPUT_DIR"
@@ -87,14 +87,14 @@ fi
   # --node_rank=$MLP_ROLE_INDEX \
   # --master_addr=$MLP_WORKER_0_HOST \
   # --master_port=$MLP_WORKER_0_PORT \
-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
   --nnodes=${NNODES} \
   --node_rank=${RANK} \
   --master_addr=${MASTER_ADDR} \
   --master_port=${MASTER_PORT} \
   --nproc_per_node=${GPUS} \
   internvl/train/internvl_chat_finetune.py \
-  --model_name_or_path "/workspace/models/recdrive/v1.0.0/InternVL3-2B" \
+  --model_name_or_path "/mnt/models/recdrive/v1.0.0/InternVL3-2B" \
   --conv_style "internvl2_5" \
   --use_fast_tokenizer False \
   --output_dir ${OUTPUT_DIR} \

@@ -59,10 +59,10 @@ or directly:
 ```bash
 python -m navsim.planning.script.run_training_recogdrive_rl \
   agent=recogdrive_agent_dit_opd \
-  output_dir=/workspace/outputs/recogdrive_dit_opd \
+  output_dir=/mnt/outputs/recogdrive_dit_opd \
   use_cache_without_dataset=true \
   force_cache_computation=false \
-  cache_path=/workspace/volumes/ad-e2e-bd-su01/nby/recdrive/training_cache_recogdrive
+  cache_path=/mnt/volumes/ad-e2e-bd-su01/nby/recdrive/training_cache_recogdrive
 ```
 
 
