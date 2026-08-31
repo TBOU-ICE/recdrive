@@ -11,7 +11,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-export PATH="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH"
+export PATH="/opt/conda/envs/recdrive/bin:$PATH"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/exp"
@@ -107,7 +107,7 @@ echo "[scene-router-v1] CACHE_PATH=${CACHE_PATH}"
 echo "[scene-router-v1] TOKEN_TO_BUCKET_JSON=${TOKEN_TO_BUCKET_JSON}"
 echo "[scene-router-v1] LOG_FILE=${LOG_FILE}"
 
-/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/opt/conda/envs/recdrive/bin/torchrun \
   --nnodes="${NNODES}" \
   --node_rank="${RANK}" \
   --master_addr="${MASTER_ADDR}" \

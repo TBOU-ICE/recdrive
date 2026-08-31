@@ -3,7 +3,7 @@
 # Additive script: no original training file is modified.
 set -euo pipefail
 
-export PATH="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH"
+export PATH="/opt/conda/envs/recdrive/bin:$PATH"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/exp"
@@ -56,7 +56,7 @@ echo "[oprd-mt-dit] TEACHER_RL_CKPT=${TEACHER_RL_CKPT}"
 echo "[oprd-mt-dit] weights: MID_IL=${OPRD_MID_IL_WEIGHT} LAST_IL=${OPRD_LAST_IL_WEIGHT} LAST_RL=${OPRD_LAST_RL_WEIGHT} FINAL=${OPRD_FINAL_REPR_WEIGHT} TRAJ_IL=${OPRD_TRAJ_IL_WEIGHT} TRAJ_RL=${OPRD_TRAJ_RL_WEIGHT}"
 echo "[oprd-mt-dit] PAIR_BATCH_SIZE=${PAIR_BATCH_SIZE} (real batch = $((PAIR_BATCH_SIZE * 2)))"
 
-/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/opt/conda/envs/recdrive/bin/torchrun \
   --nnodes="${NNODES}" \
   --node_rank="${RANK}" \
   --master_addr="${MASTER_ADDR}" \

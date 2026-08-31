@@ -8,7 +8,7 @@ Outputs (under data/epdms/manifests/):
   - sim_round1_quality_newvlm.json
 
 Run:
-  /mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python \\
+  /opt/conda/envs/recdrive/bin/python \\
     scripts/data/build_newvlm_cache_manifests_for_goal_opd.py
 """
 

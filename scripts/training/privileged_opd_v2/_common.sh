@@ -8,7 +8,7 @@ if [[ -f "${PATHS_FILE}" ]]; then source "${PATHS_FILE}"; fi
 
 # Cluster defaults. Every value remains overridable by the AIJob environment or
 # OPD_V2_PATHS_FILE, but the checked-in launchers do not depend on paths.local.sh.
-export CONDA_BIN="${CONDA_BIN:-/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin}"
+export CONDA_BIN="${CONDA_BIN:-/opt/conda/envs/recdrive/bin}"
 export VLM_PATH="${VLM_PATH:-/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 export NAV_CACHE="${NAV_CACHE:-/mnt/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_train}"
 export NAV_BUCKET_ROOT="${NAV_BUCKET_ROOT:-/mnt/datasets/simscale/20260709/data/navtrain_scene/output/navtrain}"

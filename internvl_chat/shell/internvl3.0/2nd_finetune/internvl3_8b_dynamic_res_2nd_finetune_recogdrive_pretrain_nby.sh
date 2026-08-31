@@ -22,7 +22,7 @@ internvl_sanitize_path() {
   done
   printf '%s' "$_out"
 }
-_REC_DRIVE_BIN="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin"
+_REC_DRIVE_BIN="/opt/conda/envs/recdrive/bin"
 export PATH="${_REC_DRIVE_BIN}:$(internvl_sanitize_path "$PATH")"
 
 # 验证（可选，调试用）
@@ -87,7 +87,7 @@ fi
   # --node_rank=$MLP_ROLE_INDEX \
   # --master_addr=$MLP_WORKER_0_HOST \
   # --master_port=$MLP_WORKER_0_PORT \
-/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/opt/conda/envs/recdrive/bin/torchrun \
   --nnodes=${NNODES} \
   --node_rank=${RANK} \
   --master_addr=${MASTER_ADDR} \

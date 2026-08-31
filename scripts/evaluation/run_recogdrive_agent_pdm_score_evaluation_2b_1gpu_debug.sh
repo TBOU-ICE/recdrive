@@ -9,7 +9,7 @@ TRAIN_TEST_SPLIT=navtest
 export PYTHONUNBUFFERED=1
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 
-export PATH="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH" #nby
+export PATH="/opt/conda/envs/recdrive/bin:$PATH" #nby
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/exp"
@@ -35,7 +35,7 @@ echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 METRIC_CACHE_PATH="/mnt/datasets/recdrive/20260513/nby/recdrive/metric_cache"
 
 # Hydra treats "=" in override values as syntax; Lightning names like epoch=4-step=6650.ckpt must be quoted.
-/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/opt/conda/envs/recdrive/bin/torchrun \
     --nproc_per_node=1 \
     --master_port="${MASTER_PORT}" \
     "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_pdm_score_recogdrive.py" \

@@ -50,7 +50,7 @@ export TORCH_NCCL_ASYNC_ERROR_HANDLING="${TORCH_NCCL_ASYNC_ERROR_HANDLING:-1}"
 echo "1-GPU debug: CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} MASTER_ADDR=${MASTER_ADDR} MASTER_PORT=${MASTER_PORT}"
 export CUDA_LAUNCH_BLOCKING=1
 
-_TORCHRUN_NBY="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun"
+_TORCHRUN_NBY="/opt/conda/envs/recdrive/bin/torchrun"
 _TORCHRUN_VOL="/mnt/volumes/nby/conda_envs/recdrive/bin/torchrun"
 if [ -x "$_TORCHRUN_NBY" ]; then
   TORCHRUN="$_TORCHRUN_NBY"

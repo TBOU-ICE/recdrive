@@ -39,7 +39,7 @@ echo "NNODES: ${NNODES}"
 echo "NODE_RANK: ${NODE_RANK}"
 echo "GPUS_PER_NODE: ${GPUS_PER_NODE}"
 
-/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/opt/conda/envs/recdrive/bin/torchrun \
     --nnodes=${NNODES} \
     --node_rank=${NODE_RANK} \
     --master_addr=${MASTER_ADDR} \

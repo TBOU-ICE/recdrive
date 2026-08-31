@@ -2,7 +2,7 @@ set -x
 
 TRAIN_TEST_SPLIT=navtest
 export OPENBLAS_CORETYPE=Haswell
-export PATH="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH" #nby
+export PATH="/opt/conda/envs/recdrive/bin:$PATH" #nby
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/exp"
@@ -36,7 +36,7 @@ METRIC_CACHE_PATH="/mnt/datasets/recdrive/20260513/nby/recdrive/metric_cache"
 # 3. Set agent.vlm_path and agent.checkpoint_path CHECKPOINT
 
 
-/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/opt/conda/envs/recdrive/bin/torchrun \
     --nproc_per_node=8 \
     $NAVSIM_DEVKIT_ROOT/navsim/planning/script/run_pdm_score_recogdrive.py \
     train_test_split=$TRAIN_TEST_SPLIT \

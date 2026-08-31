@@ -22,7 +22,7 @@ esac
 AGENT_CFG="recogdrive_agent_scene_router_dit_goal_distill_${VARIANT}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-export PATH="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH"
+export PATH="/opt/conda/envs/recdrive/bin:$PATH"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/exp"
@@ -144,7 +144,7 @@ EXTRA_OVERRIDES=()
 [[ -n "${PHF_FLOW_WEIGHT}" ]] && EXTRA_OVERRIDES+=("agent.phf_flow_weight=${PHF_FLOW_WEIGHT}")
 [[ -n "${ANCHOR_CKPT}" ]]     && EXTRA_OVERRIDES+=("agent.anchor_checkpoint='${ANCHOR_CKPT}'")
 
-/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/opt/conda/envs/recdrive/bin/torchrun \
   --nnodes="${NNODES}" \
   --node_rank="${RANK}" \
   --master_addr="${MASTER_ADDR}" \

@@ -10,7 +10,7 @@
 #   bash scripts/data/run_metric_caching_navtrain_v2.sh
 set -euo pipefail
 
-export PATH="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:${PATH}"
+export PATH="/opt/conda/envs/recdrive/bin:${PATH}"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
 export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/exp"
@@ -28,7 +28,7 @@ mkdir -p "${CACHE_PATH}"
 # repo makes them import that repo's (v1) caching module and crash.
 cd "${NAVSIM_DEVKIT_ROOT}"
 
-/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python \
+/opt/conda/envs/recdrive/bin/python \
   "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_metric_caching.py" \
   train_test_split=navtrain \
   metric_cache_path="${CACHE_PATH}" \

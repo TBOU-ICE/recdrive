@@ -32,7 +32,7 @@ fi
 OUTPUT_DIR=${OUTPUT_DIR:-'/mnt/volumes/ad-e2e-bd-su01/nby/recdrive/outputs/ReCogDrive_pretrain/all_data_1gpu_smoke'}
 mkdir -p "$OUTPUT_DIR"
 
-/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/opt/conda/envs/recdrive/bin/torchrun \
   --standalone \
   --nnodes=${NNODES} \
   --nproc_per_node=${GPUS} \

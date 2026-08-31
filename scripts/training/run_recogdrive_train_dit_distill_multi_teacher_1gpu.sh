@@ -29,7 +29,7 @@ if [ ! -f "$NAVSIM_DEVKIT_ROOT/$_TRAIN_PY" ]; then
   exit 2
 fi
 
-export PATH="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:${PATH:-}"
+export PATH="/opt/conda/envs/recdrive/bin:${PATH:-}"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export HYDRA_FULL_ERROR=1
@@ -73,7 +73,7 @@ echo "[1gpu] TEACHER_IL_CKPT=${TEACHER_IL_CKPT}"
 echo "[1gpu] TEACHER_RL_CKPT=${TEACHER_RL_CKPT}"
 echo "[1gpu] LOG_ROOT=${LOG_ROOT}"
 
-_TORCHRUN_NBY="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun"
+_TORCHRUN_NBY="/opt/conda/envs/recdrive/bin/torchrun"
 _TORCHRUN_VOL="/mnt/volumes/nby/conda_envs/recdrive/bin/torchrun"
 if [ -x "$_TORCHRUN_NBY" ]; then
   TORCHRUN="$_TORCHRUN_NBY"

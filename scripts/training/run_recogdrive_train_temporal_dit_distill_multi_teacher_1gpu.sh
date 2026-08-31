@@ -28,7 +28,7 @@ if [ ! -f "$NAVSIM_DEVKIT_ROOT/$_TRAIN_PY" ]; then
   exit 2
 fi
 
-export PATH="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:${PATH:-}"
+export PATH="/opt/conda/envs/recdrive/bin:${PATH:-}"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export HYDRA_FULL_ERROR=1
@@ -84,7 +84,7 @@ echo "[1gpu-temporal-mt] IL_WEIGHT=${IL_WEIGHT} RL_WEIGHT=${RL_WEIGHT} TEMPORAL_
 echo "[1gpu-temporal-mt] PAIR_BATCH_SIZE=${PAIR_BATCH_SIZE} (real batch = $((PAIR_BATCH_SIZE * 2)))"
 echo "[1gpu-temporal-mt] LOG_ROOT=${LOG_ROOT}"
 
-_TORCHRUN_NBY="/mnt/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun"
+_TORCHRUN_NBY="/opt/conda/envs/recdrive/bin/torchrun"
 _TORCHRUN_VOL="/mnt/volumes/nby/conda_envs/recdrive/bin/torchrun"
 if [ -x "$_TORCHRUN_NBY" ]; then
   TORCHRUN="$_TORCHRUN_NBY"
