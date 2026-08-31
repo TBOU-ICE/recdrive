@@ -6,7 +6,7 @@ need CONDA_BIN; need NAVSIM_EXP_ROOT
 
 BUCKET_NAME="${BUCKET_NAME:-general_or_no_tag}"
 BASE_RL_CKPT="${BASE_RL_CKPT:-}"
-need BASE_RL_CKPT; need VLM_PATH; need NAV_CACHE; need NAV_MANIFEST; need NAV_BUCKET_ROOT
+need BASE_RL_CKPT; need VLM_PATH; need NAV_CACHE; need NAV_BUCKET_ROOT
 
 GOAL_INJECTION="${GOAL_INJECTION:-gated_cross}"
 GOAL_POINT_MODE="${GOAL_POINT_MODE:-final}"
@@ -21,7 +21,12 @@ GPUS="${GPUS:-8}"; NNODES="${NNODES:-1}"; NODE_RANK="${NODE_RANK:-0}"
 MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"; MASTER_PORT="${MASTER_PORT:-23631}"
 
 NAV_TOKENS="${NAV_BUCKET_ROOT}/exclusive_${BUCKET_NAME}_tokens.json"
-[[ -f "$NAV_TOKENS" ]] || { echo "missing $NAV_TOKENS" >&2; exit 2; }
+need_exec "${CONDA_BIN}/torchrun"
+need_file "${BASE_RL_CKPT}"
+need_dir "${VLM_PATH}"
+need_dir "${NAV_CACHE}"
+need_file "${NAV_TOKENS}"
+if [[ -n "${NAV_MANIFEST:-}" ]]; then need_file "${NAV_MANIFEST}"; fi
 
 SIM_PATHS=(); SIM_MANIFESTS=(); SIM_TOKENS=()
 for r in 0 1; do
@@ -29,8 +34,10 @@ for r in 0 1; do
   eval manifest="\${SIM_MANIFEST_R${r}:-}"
   eval root="\${SIM_BUCKET_R${r}_ROOT:-}"
   tok="${root:-}/exclusive_${BUCKET_NAME}_tokens.json"
-  if [[ -n "${cache:-}" && -d "$cache" && -n "${manifest:-}" && -f "$manifest" && -f "$tok" ]]; then
-    SIM_PATHS+=("$cache"); SIM_MANIFESTS+=("$manifest"); SIM_TOKENS+=("$tok")
+  if [[ -n "${cache:-}" && -d "$cache" && -f "$tok" ]]; then
+    SIM_PATHS+=("$cache")
+    if [[ -n "${manifest:-}" && -f "$manifest" ]]; then SIM_MANIFESTS+=("$manifest"); else SIM_MANIFESTS+=("null"); fi
+    SIM_TOKENS+=("$tok")
   fi
 done
 join(){ if [[ $# -eq 0 ]]; then echo '[]'; else local IFS=,; echo "[$*]"; fi; }
@@ -44,6 +51,12 @@ mkdir -p "$(dirname "$LOG_FILE")"
 
 echo "[stage3] bucket=$BUCKET_NAME init=$BASE_RL_CKPT"
 echo "[stage3] goal=$GOAL_POINT_MODE/$GOAL_INJECTION epochs=$MAX_EPOCHS sim_ratio=$SIM_RATIO last_blocks=$TRAIN_LAST_N_DIT_BLOCKS"
+echo "[stage3] nav_cache=$NAV_CACHE nav_manifest=${NAV_MANIFEST:-<directory-scan>}"
+echo "[stage3] sim_sources=${#SIM_PATHS[@]} conda=$CONDA_BIN"
+if [[ "${PREFLIGHT_ONLY:-0}" == "1" ]]; then
+  echo "[stage3] preflight passed"
+  exit 0
+fi
 
 "${CONDA_BIN}/torchrun" \
   --nnodes="$NNODES" --node_rank="$NODE_RANK" --master_addr="$MASTER_ADDR" \
