@@ -8,6 +8,14 @@ set -euo pipefail
 # Agent: recogdrive_agent (no privileged goal).
 # Init: weight-only load from CKPT_PATH (default: new-VLM fullmix IL epoch=2).
 # Optional RESUME_CKPT: Lightning full-state resume of THIS teacher.
+#
+# GPU idle kill: Alluxio symlink prep can exceed the ~1h low-util timeout.
+# Prefer building views+indexes once on CPU, then train with the JSON indexes:
+#   bash scripts/training/prep_all_bucket_il_newvlm.sh
+#   SKIP_PREP=true GPUS=8 bash scripts/training/run_recogdrive_bucket_expert_rule_il_newvlm.sh
+#   GPU_KEEPALIVE=true  occupy GPUs during unexpected on-the-fly prep
+#   PREP_ONLY=true      build this bucket's views/index and exit
+#   SKIP_PREP=true      skip linking when MIX_ROOT already has a summary + caches
 
 if [[ -z "${BUCKET_NAME:-}" || -z "${BUCKET_FILE:-}" ]]; then
   echo "[ERROR] BUCKET_NAME and BUCKET_FILE must be set." >&2
@@ -109,11 +117,60 @@ MIX_INFO_DIR="${MIX_INFO_DIR:-${MIX_ROOT}/metadata}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_teacher_2epoch_base_${BUCKET_NAME}_il_newvlm}"
 TORCHRUN_BIN="${TORCHRUN_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun}"
 PYTHON_BIN="${PYTHON_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python}"
+PREP_ONLY="${PREP_ONLY:-false}"
+SKIP_PREP="${SKIP_PREP:-false}"
+GPU_KEEPALIVE="${GPU_KEEPALIVE:-true}"
+KEEPALIVE_PID=""
 
+stop_gpu_keepalive() {
+  if [[ -n "${KEEPALIVE_PID}" ]] && kill -0 "${KEEPALIVE_PID}" 2>/dev/null; then
+    echo "[teacher-il] stopping GPU keepalive pid=${KEEPALIVE_PID}"
+    kill "${KEEPALIVE_PID}" 2>/dev/null || true
+    wait "${KEEPALIVE_PID}" 2>/dev/null || true
+  fi
+  KEEPALIVE_PID=""
+}
+trap stop_gpu_keepalive EXIT
+
+start_gpu_keepalive() {
+  if [[ "${GPU_KEEPALIVE}" != "true" ]]; then
+    echo "[teacher-il] GPU keepalive disabled (GPU_KEEPALIVE=${GPU_KEEPALIVE})"
+    return 0
+  fi
+  if [[ "${PREP_ONLY}" == "true" ]]; then
+    echo "[teacher-il] PREP_ONLY=true; skip GPU keepalive"
+    return 0
+  fi
+  echo "[teacher-il] starting GPU keepalive on ${GPUS} device(s) to avoid idle eviction"
+  GPU_KEEPALIVE_N="${GPUS}" "${PYTHON_BIN}" - <<'PYKEEP' &
+import os
+import time
+import torch
+
+n = max(1, int(os.environ.get("GPU_KEEPALIVE_N", "1")))
+n = min(n, torch.cuda.device_count()) if torch.cuda.is_available() else 0
+if n == 0:
+    raise SystemExit(0)
+bufs = []
+for i in range(n):
+    t = torch.ones((2048, 2048), device=f"cuda:{i}", dtype=torch.float32)
+    bufs.append(t)
+print(f"[gpu-keepalive] holding {n} GPU(s)", flush=True)
+while True:
+    for t in bufs:
+        t.mul_(1.0000001)
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    time.sleep(3)
+PYKEEP
+  KEEPALIVE_PID="$!"
+}
+
+start_gpu_keepalive
 mkdir -p "${NAV_BUCKET_CACHE_PATH}" "${SIM_BUCKET_CACHE_PATH}" "${MIX_INFO_DIR}"
 
-if [[ ! -d "${NAV_CACHE_PATH}" ]] || [[ -z "$(ls -A "${NAV_CACHE_PATH}" 2>/dev/null || true)" ]]; then
-  echo "[ERROR] NAV_CACHE_PATH missing or empty: ${NAV_CACHE_PATH}" >&2
+if [[ ! -d "${NAV_CACHE_PATH}" ]]; then
+  echo "[ERROR] NAV_CACHE_PATH does not exist: ${NAV_CACHE_PATH}" >&2
   exit 1
 fi
 if [[ ! -d "${VLM_PATH}" ]]; then
@@ -129,145 +186,38 @@ if [[ -z "${RESUME_CKPT}" && -n "${CKPT_PATH}" && ! -f "${CKPT_PATH}" ]]; then
   exit 1
 fi
 
-export MIX_NAVTRAIN_OUTPUT_DIR="${NAVTRAIN_OUTPUT_DIR}"
-export MIX_NAV_CACHE_PATH="${NAV_CACHE_PATH}"
-export MIX_NAV_BUCKET_CACHE_PATH="${NAV_BUCKET_CACHE_PATH}"
-export MIX_SIM_BUCKET_CACHE_PATH="${SIM_BUCKET_CACHE_PATH}"
-export MIX_INFO_DIR="${MIX_INFO_DIR}"
-export MIX_BUCKET_FILE="${BUCKET_FILE}"
+PREP_PY="${NAVSIM_DEVKIT_ROOT}/scripts/data/prep_bucket_il_newvlm.py"
+TRAIN_INDEX_PATH="${TRAIN_INDEX_PATH:-${MIX_INFO_DIR}/train_index.json}"
+VAL_INDEX_PATH="${VAL_INDEX_PATH:-/workspace/datasets/simscale/20260709/data/simscale/il_training_newvlm/navtrain_cache_index.json}"
+SUMMARY_JSON="${MIX_INFO_DIR}/bucket_il_sources_summary.json"
 
-IFS=','; export MIX_SIM_CACHE_PATHS="${SIM_CACHE_PATHS[*]}"; unset IFS
-IFS=','; export MIX_SIM_BUCKET_DIRS="${SIM_BUCKET_DIRS[*]}"; unset IFS
+if [[ "${SKIP_PREP}" == "true" ]]; then
+  if [[ ! -f "${SUMMARY_JSON}" ]]; then
+    echo "[ERROR] SKIP_PREP=true but summary missing: ${SUMMARY_JSON}" >&2
+    exit 1
+  fi
+  echo "[teacher-il] SKIP_PREP=true; reuse existing bucket views at ${MIX_ROOT}"
+elif [[ -f "${SUMMARY_JSON}" && -f "${TRAIN_INDEX_PATH}" ]]; then
+  echo "[teacher-il] bucket views + train index already present; skip linking"
+else
+  echo "[teacher-il] building bucket symlinks + train index via ${PREP_PY}"
+  "${PYTHON_BIN}" "${PREP_PY}" \
+    --bucket-file "${BUCKET_FILE}" \
+    --navtrain-output-dir "${NAVTRAIN_OUTPUT_DIR}" \
+    --nav-cache "${NAV_CACHE_PATH}" \
+    --sim-agent-cache-root "${SIM_AGENT_CACHE_ROOT}" \
+    --sim-quality-cache-root "${SIM_QUALITY_CACHE_ROOT}" \
+    --simscale-bucket-root "${SIMSCALE_BUCKET_ROOT}" \
+    --mix-root-parent "$(dirname "${MIX_ROOT}")" \
+    --sim-rounds "${SIM_ROUNDS}" \
+    --nav-index-path "${VAL_INDEX_PATH}" \
+    --workers "${PREP_WORKERS:-16}"
+fi
 
-"${PYTHON_BIN}" - <<'PYPREP'
-import json
-import os
-from pathlib import Path
-
-navtrain_output_dir = Path(os.environ["MIX_NAVTRAIN_OUTPUT_DIR"])
-sim_bucket_dirs = [Path(p) for p in os.environ["MIX_SIM_BUCKET_DIRS"].split(",") if p.strip()]
-nav_cache = Path(os.environ["MIX_NAV_CACHE_PATH"])
-sim_caches = [Path(p) for p in os.environ["MIX_SIM_CACHE_PATHS"].split(",") if p.strip()]
-nav_bucket_cache = Path(os.environ["MIX_NAV_BUCKET_CACHE_PATH"])
-sim_bucket_cache = Path(os.environ["MIX_SIM_BUCKET_CACHE_PATH"])
-info_dir = Path(os.environ["MIX_INFO_DIR"])
-bucket_file = os.environ["MIX_BUCKET_FILE"]
-
-if len(sim_bucket_dirs) != len(sim_caches):
-    raise RuntimeError(
-        "SimScale round lists must have equal length: "
-        f"buckets={len(sim_bucket_dirs)} caches={len(sim_caches)}"
-    )
-
-
-def load_json(path):
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def save_json(obj, path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=2)
-
-
-def normalize_token(token):
-    token = str(token).strip().lower()
-    base, sep, suffix = token.rpartition("-")
-    if sep and suffix.isdigit() and len(suffix) == 3 and base:
-        return token
-    return token.replace("-", "")
-
-
-def load_token_to_log(path):
-    data = load_json(path)
-    out = {}
-    for token, meta in data.items():
-        if not isinstance(meta, dict):
-            continue
-        log_name = meta.get("log_name")
-        norm = normalize_token(token)
-        if norm and log_name:
-            out[norm] = log_name
-    return out
-
-
-def link_token(src_root, dst_root, log_name, token):
-    src = src_root / log_name / token
-    if not src.is_dir():
-        return False
-    dst_log = dst_root / log_name
-    dst_log.mkdir(parents=True, exist_ok=True)
-    dst = dst_log / token
-    if dst.exists() or dst.is_symlink():
-        return True
-    dst.symlink_to(src, target_is_directory=True)
-    return True
-
-
-nav_token_to_log = load_token_to_log(navtrain_output_dir / "navtrain_token_to_buckets.json")
-nav_bucket_tokens = [normalize_token(t) for t in load_json(navtrain_output_dir / bucket_file)]
-nav_bucket_tokens = [t for t in nav_bucket_tokens if t in nav_token_to_log]
-
-linked_nav_bucket = 0
-for token in nav_bucket_tokens:
-    linked_nav_bucket += int(link_token(nav_cache, nav_bucket_cache, nav_token_to_log[token], token))
-
-if linked_nav_bucket == 0:
-    raise RuntimeError(
-        f"No navtrain bucket cache entries were linked for {bucket_file}. "
-        f"Check NAV_CACHE_PATH={nav_cache} matches the new-VLM representation."
-    )
-
-sim_bucket_tokens = []
-linked_sim_bucket = 0
-linked_sim_by_round = {}
-for sim_bucket_dir, sim_cache in zip(sim_bucket_dirs, sim_caches):
-    token_map_path = sim_bucket_dir / "simscale_token_to_buckets.json"
-    rule_path = sim_bucket_dir / bucket_file
-    if not token_map_path.is_file():
-        raise RuntimeError(f"Missing SimScale token map: {token_map_path}")
-    if not rule_path.is_file():
-        raise RuntimeError(f"Missing SimScale bucket file: {rule_path}")
-    if not sim_cache.is_dir():
-        raise RuntimeError(f"Missing SimScale agent cache: {sim_cache}")
-
-    sim_token_to_log = load_token_to_log(token_map_path)
-    round_tokens = [normalize_token(t) for t in load_json(rule_path)]
-    round_tokens = [t for t in round_tokens if t in sim_token_to_log]
-    sim_bucket_tokens.extend(round_tokens)
-
-    linked_round = 0
-    for token in round_tokens:
-        linked_round += int(link_token(sim_cache, sim_bucket_cache, sim_token_to_log[token], token))
-    linked_sim_bucket += linked_round
-    linked_sim_by_round[str(sim_bucket_dir)] = {
-        "bucket_tokens": len(round_tokens),
-        "linked": linked_round,
-        "agent_cache": str(sim_cache),
-    }
-
-if linked_sim_bucket == 0:
-    raise RuntimeError(
-        "No SimScale bucket cache entries were linked. "
-        "Check SIM_AGENT_CACHE_ROOT matches the new-VLM representation."
-    )
-
-summary = {
-    "stage": "il",
-    "bucket_file": bucket_file,
-    "nav_bucket_tokens": len(nav_bucket_tokens),
-    "sim_bucket_tokens": len(sim_bucket_tokens),
-    "sim_bucket_tokens_unique": len(set(sim_bucket_tokens)),
-    "linked_nav_bucket": linked_nav_bucket,
-    "linked_sim_bucket": linked_sim_bucket,
-    "linked_sim_by_round": linked_sim_by_round,
-    "nav_bucket_cache": str(nav_bucket_cache),
-    "sim_bucket_cache": str(sim_bucket_cache),
-}
-save_json(summary, info_dir / "bucket_il_sources_summary.json")
-print(json.dumps(summary, indent=2, ensure_ascii=False))
-PYPREP
+if [[ "${PREP_ONLY}" == "true" ]]; then
+  echo "[teacher-il] PREP_ONLY=true; bucket views ready at ${MIX_ROOT}. Exiting before torchrun."
+  exit 0
+fi
 
 echo "======================================================================"
 echo "[teacher-il] BUCKET_NAME=${BUCKET_NAME}  BUCKET_FILE=${BUCKET_FILE}"
@@ -281,10 +231,27 @@ echo "[teacher-il] SIM_AGENT_CACHE_ROOT=${SIM_AGENT_CACHE_ROOT}"
 echo "[teacher-il] SIM_QUALITY_CACHE_ROOT=${SIM_QUALITY_CACHE_ROOT}  SIM_ROUNDS=${SIM_ROUNDS}"
 for _p in "${SIM_CACHE_PATHS[@]}"; do echo "[teacher-il] SIM_CACHE=${_p}"; done
 echo "[teacher-il] MIX_ROOT=${MIX_ROOT}"
+echo "[teacher-il] TRAIN_INDEX_PATH=${TRAIN_INDEX_PATH}"
+echo "[teacher-il] VAL_INDEX_PATH=${VAL_INDEX_PATH}"
 echo "[teacher-il] LR=${LR}  MAX_EPOCHS=${MAX_EPOCHS}  BATCH_SIZE=${BATCH_SIZE}"
 echo "[teacher-il] EXPERIMENT_NAME=${EXPERIMENT_NAME}"
 echo "[teacher-il] NAVSIM_DEVKIT_ROOT=${NAVSIM_DEVKIT_ROOT}"
 echo "======================================================================"
+
+if [[ ! -f "${TRAIN_INDEX_PATH}" ]]; then
+  echo "[ERROR] train index missing: ${TRAIN_INDEX_PATH}" >&2
+  echo "  Build it first: bash scripts/training/prep_all_bucket_il_newvlm.sh" >&2
+  exit 1
+fi
+
+INDEX_ARGS=( "mixed_cache.index_path='${TRAIN_INDEX_PATH}'" )
+if [[ -f "${VAL_INDEX_PATH}" ]]; then
+  INDEX_ARGS+=( "cache_index_path='${VAL_INDEX_PATH}'" )
+else
+  echo "[teacher-il] WARN: val index missing (${VAL_INDEX_PATH}); validation will walk NAV_CACHE_PATH"
+fi
+
+stop_gpu_keepalive
 
 "${TORCHRUN_BIN}" \
   --nnodes="${NNODES}" \
@@ -322,5 +289,6 @@ echo "======================================================================"
   mixed_cache.paths="[${NAV_BUCKET_CACHE_PATH},${SIM_BUCKET_CACHE_PATH}]" \
   mixed_cache.names="[navtrain_bucket,simscale_bucket]" \
   mixed_cache.fullmix=true \
+  "${INDEX_ARGS[@]}" \
   hydra/job_logging=stdout \
   hydra.output_subdir=null

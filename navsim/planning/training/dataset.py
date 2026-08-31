@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 import errno
+import json
 import logging
 import pickle
 import gzip
@@ -96,6 +97,7 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         feature_builders: List[AbstractFeatureBuilder],
         target_builders: List[AbstractTargetBuilder],
         log_names: Optional[List[str]] = None,
+        index_path: Optional[str] = None,
     ):
         """
         Initializes the dataset module.
@@ -103,18 +105,26 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         :param feature_builders: list of feature builders
         :param target_builders: list of target builders
         :param log_names: optional list of log folder to consider, defaults to None
+        :param index_path: optional prebuilt JSON index; skips walking the cache tree
         """
         super().__init__()
-        assert Path(cache_path).is_dir(), f"Cache path {cache_path} does not exist!"
         self._cache_path = Path(cache_path)
+        self._feature_builders = feature_builders
+        self._target_builders = target_builders
+
+        if index_path:
+            self._valid_cache_paths = self._load_from_index(index_path, log_names)
+            self.log_names = sorted({path.parent.name for path in self._valid_cache_paths.values()})
+            self.tokens = list(self._valid_cache_paths.keys())
+            return
+
+        assert Path(cache_path).is_dir(), f"Cache path {cache_path} does not exist!"
 
         if log_names is not None:
             self.log_names = [Path(log_name) for log_name in log_names if (self._cache_path / log_name).is_dir()]
         else:
             self.log_names = [log_name for log_name in self._cache_path.iterdir()]
 
-        self._feature_builders = feature_builders
-        self._target_builders = target_builders
         self._valid_cache_paths: Dict[str, Path] = self._load_valid_caches(
             cache_path=self._cache_path,
             feature_builders=self._feature_builders,
@@ -167,6 +177,28 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
 
         return valid_cache_paths
 
+    @staticmethod
+    def _load_from_index(index_path: str, log_names: Optional[List[str]]) -> Dict[str, Path]:
+        index_file = Path(index_path)
+        assert index_file.is_file(), f"Cache index does not exist: {index_path}"
+        with index_file.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+        cache_path = Path(payload.get("cache_path", ""))
+        allowed_logs = {str(name) for name in log_names} if log_names is not None else None
+        valid_cache_paths: Dict[str, Path] = {}
+        for token, rel in payload.get("tokens", {}).items():
+            rel = str(rel).strip()
+            if not rel:
+                continue
+            log_name = rel.split("/", 1)[0]
+            if allowed_logs is not None and log_name not in allowed_logs:
+                continue
+            token_path = cache_path / rel if cache_path else Path(rel)
+            valid_cache_paths[str(token)] = token_path
+        assert valid_cache_paths, f"No samples left after applying log filter to {index_path}"
+        logger.info("Loaded %d cache samples from index %s", len(valid_cache_paths), index_path)
+        return valid_cache_paths
+
     def _load_scene_with_token(self, token: str) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """
         Helper method to load sample tensors given token
@@ -200,6 +232,7 @@ class MixedCacheOnlyDataset(torch.utils.data.Dataset):
         cache_names: List[str],
         feature_builders: List[AbstractFeatureBuilder],
         target_builders: List[AbstractTargetBuilder],
+        index_path: Optional[str] = None,
     ):
         super().__init__()
         assert len(cache_paths) == len(cache_names), "cache_paths and cache_names must have the same length!"
@@ -209,6 +242,10 @@ class MixedCacheOnlyDataset(torch.utils.data.Dataset):
         self._target_builders = target_builders
         self.samples: List[Dict[str, object]] = []
         self.source_counts: Dict[str, int] = {}
+
+        if index_path:
+            self._load_from_index(index_path)
+            return
 
         for cache_name, cache_path in zip(cache_names, cache_paths):
             root_path = Path(cache_path)
@@ -247,6 +284,27 @@ class MixedCacheOnlyDataset(torch.utils.data.Dataset):
             targets.update(data_dict)
 
         return features, targets, f"{sample['source']}:{sample['token']}"
+
+    def _load_from_index(self, index_path: str) -> None:
+        index_file = Path(index_path)
+        assert index_file.is_file(), f"Mixed cache index does not exist: {index_path}"
+        with index_file.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+        samples = payload.get("samples", [])
+        assert samples, f"Mixed cache index is empty: {index_path}"
+        for sample in samples:
+            source = str(sample["source"])
+            token = str(sample["token"])
+            path = Path(sample["path"])
+            self.samples.append({"source": source, "token": token, "path": path})
+            self.source_counts[source] = self.source_counts.get(source, 0) + 1
+        self.tokens = [f"{sample['source']}:{sample['token']}" for sample in self.samples]
+        logger.info(
+            "Loaded mixed cache index %s: %d samples %s",
+            index_path,
+            len(self.samples),
+            self.source_counts,
+        )
 
     def get_sample_weights(self, sample_ratios: List[float]) -> torch.DoubleTensor:
         """Build per-sample weights so each source is sampled by the requested ratio."""

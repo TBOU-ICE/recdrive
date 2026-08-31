@@ -32,6 +32,11 @@ mixed_cache:
   # When true, train on the union of all cached samples with uniform per-sample
   # probability (natural navtrain/simscale proportion). Ignores sample_ratios.
   fullmix: false
+  # Optional prebuilt JSON index for MixedCacheOnlyDataset. Empty = walk caches.
+  index_path: null
+
+# Optional prebuilt JSON index for CacheOnlyDataset validation/train cache walks.
+cache_index_path: null
 
 seed: 0
 

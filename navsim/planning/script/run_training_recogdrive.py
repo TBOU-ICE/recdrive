@@ -164,11 +164,15 @@ def main(cfg: DictConfig) -> None:
                     "mixed_cache.paths, mixed_cache.names, and mixed_cache.sample_ratios must have the same length"
                 )
             logger.info("Using mixed cache training data: %s", dict(zip(mixed_cache_names, mixed_cache_paths)))
+            mixed_index_path = cfg.mixed_cache.get("index_path", None) or None
+            if mixed_index_path in ("", "null", "None"):
+                mixed_index_path = None
             train_data = MixedCacheOnlyDataset(
                 cache_paths=mixed_cache_paths,
                 cache_names=mixed_cache_names,
                 feature_builders=agent.get_feature_builders(),
                 target_builders=agent.get_target_builders(),
+                index_path=mixed_index_path,
             )
             logger.info("Mixed cache source counts: %s", train_data.source_counts)
             if cfg.mixed_cache.get("fullmix", False):
@@ -209,11 +213,15 @@ def main(cfg: DictConfig) -> None:
         assert (
             cfg.cache_path is not None
         ), "cache_path must point to the navtrain cache used for validation"
+        val_index_path = cfg.get("cache_index_path", None) or None
+        if val_index_path in ("", "null", "None"):
+            val_index_path = None
         val_data = CacheOnlyDataset(
             cache_path=cfg.cache_path,
             feature_builders=agent.get_feature_builders(),
             target_builders=agent.get_target_builders(),
             log_names=cfg.val_logs,
+            index_path=val_index_path,
         )
     else:
         logger.info("Building SceneLoader")
