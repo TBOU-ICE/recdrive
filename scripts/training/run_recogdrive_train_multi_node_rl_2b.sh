@@ -1,9 +1,9 @@
-export PATH="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin:$PATH" #nby
+export PATH="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH" #nby
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0"
-export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp"
-export NAVSIM_DEVKIT_ROOT="/workspace/code"
-export OPENSCENE_DATA_ROOT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download"
+export NUPLAN_MAPS_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/exp"
+export NAVSIM_DEVKIT_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-scene"
+export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download"
 
 
 TRAIN_TEST_SPLIT=navtrain
@@ -12,7 +12,7 @@ export NCCL_P2P_DISABLE=0
 export NCCL_SHM_DISABLE=0
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1  #nby
 
-export PYTHONPATH="/workspace/code:${PYTHONPATH:-}"
+export PYTHONPATH="/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-scene:${PYTHONPATH:-}"
 # MASTER_PORT=${MASTER_PORT:-63669}
 # PORT=${PORT:-63665}
 # GPUS=${GPUS:-8}
@@ -42,11 +42,11 @@ echo "Master Addr: ${MASTER_ADDR}"
 export CUDA_LAUNCH_BLOCKING=0
 
 #CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/training_recogdrive_agent/2026.03.03.07.42.42/lightning_logs/version_0/checkpoints/epoch-196_step-32899.ckpt"
-CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_nby/2026.04.04.00.28.46/lightning_logs/version_0/checkpoints/epoch=199-step=133000.ckpt"
+CHECKPOINT="/workspace/models/recdrive/v1.0.0/training_recogdrive_vlm_nby/2026.04.04.00.28.46/lightning_logs/version_0/checkpoints/epoch=199-step=133000.ckpt"
 
 
 
-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
+/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
     --nnodes=${NNODES} \
     --node_rank=${RANK} \
     --master_addr=${MASTER_ADDR} \
@@ -64,7 +64,7 @@ CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm
     agent.dit_type="small" \
     agent.vlm_size="small" \
     agent.sampling_method="ddim" \
-    agent.metric_cache_path="/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache_train" \
+    agent.metric_cache_path="/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cache_train" \
     agent.reference_policy_checkpoint="'$CHECKPOINT'" \
     trainer.params.max_epochs=10 \
     trainer.params.num_nodes=${NNODES} \
@@ -72,7 +72,7 @@ CHECKPOINT="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm
     dataloader.params.batch_size=8 \
     experiment_name=training_recogdrive_agent_rl \
     train_test_split=$TRAIN_TEST_SPLIT \
-    cache_path="/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train" \
+    cache_path="/workspace/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train" \
     use_cache_without_dataset=True \
     force_cache_computation=False \
     hydra/job_logging=stdout \

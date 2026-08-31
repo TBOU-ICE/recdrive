@@ -4,34 +4,34 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-${REPO_ROOT}}"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}:${PYTHONPATH:-}"
-export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download}"
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp}"
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
-export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD="${TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD:-1}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 
-PYTHON_BIN="${PYTHON_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/python}"
+PYTHON_BIN="${PYTHON_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python}"
 DIAG_ROOT="${DIAG_ROOT:-${REPO_ROOT}/exp/vlm_diag_rule_intersection}"
 OUT_DIR="${OUT_DIR:-${DIAG_ROOT}/swap}"
 LIMIT="${LIMIT:-20}"
 TAG="${TAG:-rl_45_45}"
 
-VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
-METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recdrive/exp/metric_cache}"
+VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/ReCogDrive-VLM-2B}"
+METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cache}"
 
 case "${TAG}" in
   rl_45_45)
-    CKPT="${CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_rule_rl_10nav_45navbucket_45simbucket/2026.07.13.12.11.00/lightning_logs/version_0/checkpoints/epoch=4-step=705.ckpt}"
+    CKPT="${CKPT:-/workspace/models/recdrive/v1.0.0/training_recogdrive_rule_rl_10nav_45navbucket_45simbucket/2026.07.13.12.11.00/lightning_logs/version_0/checkpoints/epoch=4-step=705.ckpt}"
     ;;
   rl_40_30)
-    CKPT="${CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_rule_rl_40nav_30navbucket_30simbucket/2026.07.10.04.16.16/lightning_logs/version_0/checkpoints/epoch=13-step=1848.ckpt}"
+    CKPT="${CKPT:-/workspace/models/recdrive/v1.0.0/training_recogdrive_rule_rl_40nav_30navbucket_30simbucket/2026.07.10.04.16.16/lightning_logs/version_0/checkpoints/epoch=13-step=1848.ckpt}"
     ;;
   il99)
-    CKPT="${CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_round01_quality/2026.07.12.03.07.49/lightning_logs/version_0/checkpoints/epoch=99-step=156100.ckpt}"
+    CKPT="${CKPT:-/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_round01_quality/2026.07.12.03.07.49/lightning_logs/version_0/checkpoints/epoch=99-step=156100.ckpt}"
     ;;
   fuxian)
-    CKPT="${CKPT:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
+    CKPT="${CKPT:-/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
     ;;
   *)
     echo "Unknown TAG=${TAG}; set CKPT explicitly" >&2

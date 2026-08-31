@@ -20,12 +20,12 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-export PATH="${CONDA_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin}:$PATH"
+export PATH="${CONDA_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin}:$PATH"
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
-export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0}"
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp}"
 export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-${REPO_ROOT}}"
-export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download}"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD="${TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD:-1}"
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
@@ -34,10 +34,10 @@ export CACHE_READ_RETRY_BASE_SEC="${CACHE_READ_RETRY_BASE_SEC:-0.5}"
 
 # ---- cache locations (NEW VLM) ----
 # Full hidden-state caches (read-only for prep) live on Alluxio under OUT_ROOT.
-OUT_ROOT="${OUT_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/new_vlm_vit_hidden_state_nav_sim}"
+OUT_ROOT="${OUT_ROOT:-/workspace/datasets/simscale/20260709/data/new_vlm_vit_hidden_state_nav_sim}"
 SRC_CACHE_ROOT="${SRC_CACHE_ROOT:-${OUT_ROOT}}"
 # Quality symlink tree is written to CPFS (not Alluxio) to avoid FUSE EIO.
-QUALITY_CACHE_ROOT="${QUALITY_CACHE_ROOT:-/workspace/volumes/ad-e2e-al-sh01/nby/data/simscale/new_vlm_vit_quality_views}"
+QUALITY_CACHE_ROOT="${QUALITY_CACHE_ROOT:-/workspace/datasets/simscale/20260709/data/simscale/new_vlm_vit_quality_views}"
 # Backward-compat: CACHE_ROOT overrides where quality views live when set.
 CACHE_ROOT="${CACHE_ROOT:-${QUALITY_CACHE_ROOT}}"
 ALLOWLIST_ROOT="${ALLOWLIST_ROOT:-/workspace/datasets/simscale/20260709}"
@@ -69,7 +69,7 @@ fi
 # Weight-only warm start (agent.initialize). Empty = random-init DiT.
 BASE_CKPT="${BASE_CKPT:-}"
 # New merged VLM (LoRA on SimScale). MUST match what produced the caches above.
-VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/vlm_simscale_lora_vit_merged}"
+VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-bd-su01/nby/recdrive/vlm_simscale_lora_vit_merged}"
 
 NNODES="${WORLD_SIZE:-1}"
 RANK="${RANK:-0}"
@@ -77,13 +77,13 @@ MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-23461}"
 GPUS="${GPUS:-8}"
 
-TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
+TORCHRUN_BIN="${TORCHRUN_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_dit_il_fullmix_simscale_newvlm}"
 MAX_EPOCHS="${MAX_EPOCHS:-200}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
 LR="${LR:-1e-4}"
-PYTHON_BIN="${PYTHON_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/python}"
+PYTHON_BIN="${PYTHON_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python}"
 # FRESH training by default (do NOT resume the old-VLM DiT). Set CKPT_PATH to resume.
 CKPT_PATH="${CKPT_PATH:-}"
 

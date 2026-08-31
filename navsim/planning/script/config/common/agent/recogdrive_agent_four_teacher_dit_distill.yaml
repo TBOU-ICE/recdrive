@@ -7,7 +7,7 @@ trajectory_sampling:
   time_horizon: 4
   interval_length: 0.5
 
-checkpoint_path: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt'
+checkpoint_path: '/workspace/models/recdrive/v1.0.0/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt'
 vlm_path: ''
 vlm_weights_path: ''
 cam_type: 'single'
@@ -23,10 +23,10 @@ train_backbone: false
 grpo: false
 lr: 1e-4
 
-teacher_dit_checkpoint_progress: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_progress_rl/2026.07.01.12.37.06/lightning_logs/version_0/checkpoints/epoch=9-step=9350.ckpt'
-teacher_dit_checkpoint_rule: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_rule_rl/2026.07.01.12.27.25/lightning_logs/version_0/checkpoints/epoch=9-step=10670.ckpt'
-teacher_dit_checkpoint_safety: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_recogdrive_bucket_safety_rl/2026.07.01.13.17.33/lightning_logs/version_0/checkpoints/epoch=9-step=11580.ckpt'
-teacher_dit_checkpoint_general: '/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+teacher_dit_checkpoint_progress: '/workspace/models/recdrive/v1.0.0/training_recogdrive_bucket_progress_rl/2026.07.01.12.37.06/lightning_logs/version_0/checkpoints/epoch=9-step=9350.ckpt'
+teacher_dit_checkpoint_rule: '/workspace/models/recdrive/v1.0.0/training_recogdrive_bucket_rule_rl/2026.07.01.12.27.25/lightning_logs/version_0/checkpoints/epoch=9-step=10670.ckpt'
+teacher_dit_checkpoint_safety: '/workspace/models/recdrive/v1.0.0/training_recogdrive_bucket_safety_rl/2026.07.01.13.17.33/lightning_logs/version_0/checkpoints/epoch=9-step=11580.ckpt'
+teacher_dit_checkpoint_general: '/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
 
 teacher_weight_progress: 0.25
 teacher_weight_rule: 0.25

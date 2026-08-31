@@ -14,11 +14,11 @@ DATASET_NAME="synthetic_reaction_pdm_v1.0-${ROUND}"
 SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-NAV_CACHE="${NAV_CACHE:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
+NAV_CACHE="${NAV_CACHE:-/workspace/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train}"
 SIM_CACHE="${SIM_CACHE:-${SIMSCALE_ROOT}/recogdrive_agent_cache_dir_${DATASET_NAME}}"
 OUTPUT_DIR="${OUTPUT_DIR:-${SIMSCALE_ROOT}/hidden_state_diag_${DATASET_NAME}}"
 
-CONDA_PYTHON_ROOT="${CONDA_PYTHON_ROOT:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive}"
+CONDA_PYTHON_ROOT="${CONDA_PYTHON_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive}"
 PYTHON_BIN="${PYTHON_BIN:-${CONDA_PYTHON_ROOT}/bin/python}"
 
 MAX_NAV_SAMPLES="${MAX_NAV_SAMPLES:-4000}"

@@ -3,6 +3,8 @@ from pathlib import Path
 import logging
 import math
 import os
+import random
+import signal
 import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
@@ -22,6 +24,94 @@ logger = logging.getLogger(__name__)
 
 CONFIG_PATH = "config/training"
 CONFIG_NAME = "default_training"
+
+
+class ResilientCacheDataset(torch.utils.data.Dataset):
+    """Resample when a cached feature is corrupt or its FUSE read stalls."""
+
+    def __init__(self, base, max_retries: int = 8, load_timeout_s: int = 60):
+        self.base = base
+        self.max_retries = int(max_retries)
+        self.load_timeout_s = int(load_timeout_s)
+
+    def __len__(self):
+        return len(self.base)
+
+    def _load_one(self, idx: int):
+        if self.load_timeout_s <= 0:
+            return self.base[idx]
+
+        def on_timeout(signum, frame):
+            raise TimeoutError(f"cache load exceeded {self.load_timeout_s}s")
+
+        try:
+            previous = signal.signal(signal.SIGALRM, on_timeout)
+        except (ValueError, OSError):
+            return self.base[idx]
+        try:
+            signal.alarm(self.load_timeout_s)
+            return self.base[idx]
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous)
+
+    def __getitem__(self, idx):
+        size = len(self.base)
+        last_error = None
+        for attempt in range(self.max_retries):
+            candidate = idx if attempt == 0 else random.randrange(size)
+            try:
+                return self._load_one(candidate)
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "Skipping unreadable cache sample idx=%d (attempt %d/%d): %r",
+                    candidate,
+                    attempt + 1,
+                    self.max_retries,
+                    exc,
+                )
+        raise RuntimeError(
+            f"Could not load a valid cache sample after {self.max_retries} retries"
+        ) from last_error
+
+
+def load_bad_tokens(path: str) -> set:
+    """Read one '<shard path>[TAB<error>]' entry per line."""
+    bad_tokens = set()
+    with open(path, "r", encoding="utf-8") as file:
+        for line in file:
+            shard = line.split("\t", 1)[0].strip()
+            if shard:
+                bad_tokens.add(Path(shard).parent.name)
+    return bad_tokens
+
+
+def prune_bad_tokens(dataset, bad_tokens: set) -> int:
+    """Remove known-bad token IDs from indexed cache datasets."""
+    if not bad_tokens:
+        return 0
+    if isinstance(dataset, MixedCacheOnlyDataset):
+        before = len(dataset.samples)
+        dataset.samples = [
+            sample for sample in dataset.samples if str(sample["token"]) not in bad_tokens
+        ]
+        dataset.tokens = [
+            f"{sample['source']}:{sample['token']}" for sample in dataset.samples
+        ]
+        dataset.source_counts = {}
+        for sample in dataset.samples:
+            source = str(sample["source"])
+            dataset.source_counts[source] = dataset.source_counts.get(source, 0) + 1
+        return before - len(dataset.samples)
+    valid = getattr(dataset, "_valid_cache_paths", None)
+    if isinstance(valid, dict):
+        drop = [token for token in valid if str(token) in bad_tokens]
+        for token in drop:
+            valid.pop(token, None)
+        dataset.tokens = list(valid.keys())
+        return len(drop)
+    return 0
 
 
 
@@ -144,6 +234,14 @@ def main(cfg: DictConfig) -> None:
     )
 
     train_sampler = None
+    bad_list_path = os.environ.get("BAD_CACHE_LIST", "").strip()
+    bad_tokens = set()
+    if bad_list_path and os.path.isfile(bad_list_path):
+        bad_tokens = load_bad_tokens(bad_list_path)
+        logger.info("Loaded %d known-bad cache tokens from %s", len(bad_tokens), bad_list_path)
+    elif bad_list_path:
+        logger.warning("BAD_CACHE_LIST set but not found: %s", bad_list_path)
+
     if cfg.use_cache_without_dataset:
         logger.info("Using cached data without building SceneLoader")
         assert (
@@ -174,6 +272,9 @@ def main(cfg: DictConfig) -> None:
                 target_builders=agent.get_target_builders(),
                 index_path=mixed_index_path,
             )
+            dropped = prune_bad_tokens(train_data, bad_tokens)
+            if dropped:
+                logger.info("Pruned %d known-bad training samples", dropped)
             logger.info("Mixed cache source counts: %s", train_data.source_counts)
             if cfg.mixed_cache.get("fullmix", False):
                 logger.info(
@@ -209,6 +310,9 @@ def main(cfg: DictConfig) -> None:
                 target_builders=agent.get_target_builders(),
                 log_names=cfg.train_logs,
             )
+            dropped = prune_bad_tokens(train_data, bad_tokens)
+            if dropped:
+                logger.info("Pruned %d known-bad training samples", dropped)
 
         assert (
             cfg.cache_path is not None
@@ -223,9 +327,31 @@ def main(cfg: DictConfig) -> None:
             log_names=cfg.val_logs,
             index_path=val_index_path,
         )
+        dropped = prune_bad_tokens(val_data, bad_tokens)
+        if dropped:
+            logger.info("Pruned %d known-bad validation samples", dropped)
     else:
         logger.info("Building SceneLoader")
         train_data, val_data = build_datasets(cfg, agent)
+
+    if os.environ.get("RESILIENT_CACHE_LOADING", "0") == "1":
+        max_retries = int(os.environ.get("CACHE_LOAD_MAX_RETRIES", "8"))
+        load_timeout_s = int(os.environ.get("CACHE_LOAD_TIMEOUT_SEC", "60"))
+        train_data = ResilientCacheDataset(
+            train_data,
+            max_retries=max_retries,
+            load_timeout_s=load_timeout_s,
+        )
+        val_data = ResilientCacheDataset(
+            val_data,
+            max_retries=max_retries,
+            load_timeout_s=load_timeout_s,
+        )
+        logger.info(
+            "Enabled resilient cache loading: retries=%d timeout=%ds",
+            max_retries,
+            load_timeout_s,
+        )
 
     logger.info("Building Datasets")
     if train_sampler is not None:

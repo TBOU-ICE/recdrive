@@ -11,8 +11,8 @@ set -euo pipefail
 #
 # Example:
 #   bash shell/internvl3.0/2nd_finetune/merge_simscale_lora.sh \
-#       /workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/vlm_simscale_lora \
-#       /workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/vlm_simscale_lora_merged
+#       /workspace/models/recdrive/v1.0.0/vlm_simscale_lora \
+#       /workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged
 # ---------------------------------------------------------------------------
 
 if [ "$#" -ne 2 ]; then
@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INTERNVL_CHAT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 cd "${INTERNVL_CHAT_ROOT}"
 
-RECDRIVE_CONDA_BIN="${RECDRIVE_CONDA_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin}"
+RECDRIVE_CONDA_BIN="${RECDRIVE_CONDA_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin}"
 export PATH="${RECDRIVE_CONDA_BIN}:${PATH}"
 export PYTHONPATH="${PYTHONPATH:+"${PYTHONPATH}:"}$(pwd)"
 PYTHON_BIN="${PYTHON_BIN:-${RECDRIVE_CONDA_BIN}/python}"
@@ -49,7 +49,7 @@ mkdir -p "${OUTPUT_DIR}"
 # trainer.save_model does NOT emit those .py, so copy them from INPUT_DIR and, failing
 # that, from the original base model (BASE_MODEL_PATH). Without this the merged dir
 # fails to load in navsim eval/caching.
-BASE_MODEL_PATH="${BASE_MODEL_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
+BASE_MODEL_PATH="${BASE_MODEL_PATH:-/workspace/models/recdrive/v1.0.0/ReCogDrive-VLM-2B}"
 for f in modeling_intern_vit.py modeling_internvl_chat.py configuration_intern_vit.py \
          configuration_internvl_chat.py conversation.py preprocessor_config.json \
          tokenizer_config.json tokenizer.model vocab.json merges.txt \

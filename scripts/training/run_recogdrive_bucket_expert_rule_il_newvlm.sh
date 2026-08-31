@@ -4,6 +4,9 @@
 # Warm-starts from the new-VLM fullmix IL ckpt (CKPT_PATH).
 #
 #   GPUS=8 bash scripts/training/run_recogdrive_bucket_expert_rule_il_newvlm.sh
+#   # Avoid idle eviction: prep first without GPUs, then train
+#   PREP_ONLY=true bash scripts/training/run_recogdrive_bucket_expert_rule_il_newvlm.sh
+#   SKIP_PREP=true GPUS=8 bash scripts/training/run_recogdrive_bucket_expert_rule_il_newvlm.sh
 set -euo pipefail
 export BUCKET_NAME="${BUCKET_NAME:-rule_intersection}"
 export BUCKET_FILE="${BUCKET_FILE:-exclusive_rule_intersection_tokens.json}"

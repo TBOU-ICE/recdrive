@@ -12,9 +12,9 @@ Runs three checks (no ReCogDrive training):
    - too large + far from real manifold: likely harmful for DiT
 
 Example:
-    PYTHONPATH=/workspace/recdrive-scene \\
+    PYTHONPATH=/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-scene \\
     python scripts/cache_dataset/diagnose_recogdrive_hidden_state.py \\
-      --nav-cache /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train \\
+      --nav-cache /workspace/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train \\
       --sim-cache /workspace/datasets/simscale/20260709/recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-0 \\
       --output-dir /workspace/datasets/simscale/20260709/hidden_state_diag_round0
 """
@@ -461,7 +461,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--nav-cache",
         type=Path,
-        default=Path("/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train"),
+        default=Path("/workspace/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train"),
     )
     parser.add_argument(
         "--sim-cache",
