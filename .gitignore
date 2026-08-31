@@ -12,3 +12,6 @@ build/
 venv/
 .env
 assets/images/*.jpg
+
+# Machine-local privileged OPD v2 paths (do not upload)
+scripts/training/privileged_opd_v2/paths.local.sh
