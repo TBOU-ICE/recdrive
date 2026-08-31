@@ -1,0 +1,67 @@
+_target_: navsim.agents.recogdrive.privileged_opd_v2.agent.ReCogDrivePrivilegedOPDV2Agent
+_convert_: 'all'
+
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+
+# Student remains goal-free at train/inference. Use a representation-consistent
+# checkpoint with enough skill for meaningful on-policy rollouts but headroom.
+checkpoint_path: '/PATH/TO/STUDENT_GOAL_FREE.ckpt'
+vlm_path: '/PATH/TO/vlm_simscale_lora_merged'
+cam_type: 'single'
+vlm_type: 'internvl'
+dit_type: 'small'
+sampling_method: 'ddim'
+cache_mode: false
+cache_hidden_state: true
+metric_cache_path: ''
+reference_policy_checkpoint: ''
+vlm_size: 'small'
+train_backbone: false
+grpo: false
+lr: 5e-5
+
+# Four stage-3 privileged teachers. Routing selects exactly one per sample.
+teacher_ckpt_progress_curbside_stopgo: '/PATH/TO/progress_goal_adapter.ckpt'
+teacher_ckpt_rule_intersection: '/PATH/TO/rule_goal_adapter.ckpt'
+teacher_ckpt_safety_dynamics_interaction: '/PATH/TO/safety_goal_adapter.ckpt'
+teacher_ckpt_general_or_no_tag: '/PATH/TO/general_goal_adapter.ckpt'
+token_to_bucket_json: '/PATH/TO/exclusive_token_to_bucket.json'
+
+# Must exactly match the stage-3 teacher architecture.
+teacher_goal_injection: 'gated_cross'
+teacher_goal_point_mode: 'final'
+teacher_goal_indices: [1, 4, 7]
+teacher_goal_sincos_dim: 128
+teacher_goal_hidden_dim: 512
+teacher_goal_use_heading: false
+teacher_goal_adapter_heads: 8
+
+# A: same-student-rollout shared-sigma reverse-KL.
+kd_weight: 1.0
+task_weight: 0.10
+scene_router_min_sigma: 0.04
+scene_router_smooth_weight: 0.0
+precision_clip: 25.0
+student_adaln_bound: 8.0
+train_epochs: 30
+
+# B: training-only auxiliary goal recovery (never fed to planner).
+goal_aux_weight: 0.0
+goal_aux_hidden_dim: 512
+
+# C: privileged goal-preference distillation.
+goal_pref_weight: 0.0
+goal_pref_temperature_m: 2.0
+goal_pref_candidate_count: 8
+goal_pref_geo_weight: 0.25
+goal_vocab_path: null
+goal_pref_hidden_dim: 512
+goal_pref_sincos_dim: 128
+
+# F/G: isolate teacher's goal-induced residual from its goal-OFF policy.
+residual_privilege: false
+residual_ref_checkpoint: null

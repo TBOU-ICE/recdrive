@@ -1,0 +1,37 @@
+_target_: navsim.agents.recogdrive.privileged_opd_v2.teacher_agent.ReCogDrivePrivilegedGoalAdapterTeacherAgent
+_convert_: 'all'
+
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+
+# REQUIRED: old goal-free scene expert after original IL + RL.
+checkpoint_path: '/PATH/TO/GOAL_FREE_RL_EXPERT.ckpt'
+vlm_path: '/PATH/TO/vlm_simscale_lora_merged'
+cam_type: 'single'
+vlm_type: 'internvl'
+dit_type: 'small'
+sampling_method: 'ddim'
+cache_mode: false
+cache_hidden_state: true
+metric_cache_path: ''
+reference_policy_checkpoint: ''
+vlm_size: 'small'
+train_backbone: false
+grpo: false
+lr: 5e-5
+
+# Stage-3 privileged residual adapter.
+goal_injection: 'gated_cross'     # adaln | cross | gated_cross
+goal_point_mode: 'final'          # final | multi3
+goal_indices: [1, 4, 7]
+goal_sincos_dim: 128
+goal_hidden_dim: 512
+goal_use_heading: false
+goal_adapter_heads: 8
+train_last_n_dit_blocks: 0        # recommended first run: adapter only
+adapter_lr: 5e-5
+backbone_lr_scale: 0.1
+adapter_epochs: 10

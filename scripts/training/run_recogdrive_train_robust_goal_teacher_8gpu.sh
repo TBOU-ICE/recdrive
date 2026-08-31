@@ -13,8 +13,6 @@ export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/d
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export HYDRA_FULL_ERROR=1
-# Known-bad Alluxio cache shards to skip up-front (see data/epdms/bad_cache_shards_newvlm.txt).
-export SCENE_ROUTER_BAD_CACHE_LIST="${SCENE_ROUTER_BAD_CACHE_LIST:-${REPO_ROOT}/data/epdms/bad_cache_shards_newvlm.txt}"
 
 BUCKET_NAME="${BUCKET_NAME:-general_or_no_tag}"
 NNODES="${NNODES:-1}"; RANK="${RANK:-0}"; GPUS="${GPUS:-8}"

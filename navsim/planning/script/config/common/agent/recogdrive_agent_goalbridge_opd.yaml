@@ -50,7 +50,7 @@ student_adaln_bound: 8.0
 goal_loss_weight: 1.0
 kd_weight: 1.0
 anchor_weight: 0.15
-anchor_checkpoint: '/workspace/volumes/ad-e2e-bd-su01/nby/exp/training_scene_router_dit_goal_opd_v4/2026.08.24.06.12.01/lightning_logs/version_0/checkpoints/epoch=22-step=65228.ckpt'
+anchor_checkpoint: '/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt'
 recoverability_tau_m: 2.0
 recoverability_floor: 0.05
 kl_precision_clip: 25.0

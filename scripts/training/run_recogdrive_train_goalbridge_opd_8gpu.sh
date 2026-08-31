@@ -24,9 +24,9 @@ TRAIN_TEST_SPLIT="${TRAIN_TEST_SPLIT:-navtrain}"
 # GoalBridge checkpoint to continue training.
 BASE_IL_CKPT="${BASE_IL_CKPT:-/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
 STUDENT_CKPT="${STUDENT_CKPT:-${BASE_IL_CKPT}}"
-# Frozen goal-free deployable policy (new-vlm). Keep this fixed even when
-# STUDENT_CKPT is later changed to a GoalBridge checkpoint for continuation.
-ANCHOR_CKPT="${ANCHOR_CKPT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp/training_scene_router_dit_goal_opd_v4/2026.08.24.06.12.01/lightning_logs/version_0/checkpoints/epoch=22-step=65228.ckpt}"
+# Keep the anchor fixed to the original deployable base even when STUDENT_CKPT
+# is later changed to a GoalBridge checkpoint for continuation training.
+ANCHOR_CKPT="${ANCHOR_CKPT:-${BASE_IL_CKPT}}"
 RESUME_CKPT="${RESUME_CKPT:-}"
 
 # Old privileged teachers for the first run.
@@ -80,7 +80,7 @@ EXTRA_REPEATS_ARG="$(join_hydra ${EXTRA_REPEAT_LIST[@]+"${EXTRA_REPEAT_LIST[@]}"
 EXTRA_TOKEN_JSONS_ARG="$(join_hydra ${EXTRA_TOKEN_JSON_LIST[@]+"${EXTRA_TOKEN_JSON_LIST[@]}"})"
 EXTRA_MANIFESTS_ARG="$(join_hydra ${EXTRA_MANIFEST_LIST[@]+"${EXTRA_MANIFEST_LIST[@]}"})"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_goalbridge_opd_old_teacher_gpt_rl_anchor_v1}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_goalbridge_opd_old_teacher_v1}"
 LOG_FILE="${LOG_FILE:-${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}/run.log}"
 mkdir -p "$(dirname "${LOG_FILE}")"
 HYDRA_RESUME=(); [[ -n "${RESUME_CKPT}" ]] && HYDRA_RESUME+=("+ckpt_path='${RESUME_CKPT}'")
