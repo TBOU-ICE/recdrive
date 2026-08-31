@@ -6,38 +6,57 @@
 # probability. The effective batch composition follows dataset size
 # (navtrain ~N + simscale round0 ~M0 + simscale round1 ~M1), not a fixed ratio.
 #
+# Representation contract (same as the scene-router / goal-teacher scripts):
+#   VLM_PATH  = vlm_simscale_lora_merged
+#   nav cache = new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_train
+#   sim cache = new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_*
+# Do not mix these with vlm_simscale_lora_vit_merged or the old
+# /workspace/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train tree.
+# The quality views at SIMSCALE_ROOT root symlink to the old-VLM cache; this
+# script never reads those.
+#
 # By default both SimScale round0 and round1 quality-filtered caches are used.
-# Override SIM_ROUNDS (comma-separated, e.g. "0" or "0,1") or SIMSCALE_ROOT as needed.
+# Override SIM_ROUNDS (comma-separated, e.g. "0" or "0,1") as needed.
 #
 # Usage:
 #   bash scripts/training/run_recogdrive_train_fullmix_simscale_2b.sh
 #   GPUS=8 MAX_EPOCHS=20 bash scripts/training/run_recogdrive_train_fullmix_simscale_2b.sh
-#   SIM_ROUNDS=0,1 SIMSCALE_ROOT=/workspace/datasets/simscale/20260709 bash scripts/training/run_recogdrive_train_fullmix_simscale_2b.sh
+#   SIM_ROUNDS=0,1 bash scripts/training/run_recogdrive_train_fullmix_simscale_2b.sh
 
 set -euo pipefail
 
-export PATH="${CONDA_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin}:$PATH"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+export PATH="${CONDA_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin}:$PATH"
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
-export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download/maps/nuplan-maps-v1.0}"
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp}"
-export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/code}"
-export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/download}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp}"
+export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-${REPO_ROOT}}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download}"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD="${TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD:-1}"
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
 # Soften Alluxio/FUSE flaky reads in dataset.py load_feature_target_from_pickle.
-export CACHE_READ_MAX_RETRIES="${CACHE_READ_MAX_RETRIES:-5}"
+export CACHE_READ_MAX_RETRIES="${CACHE_READ_MAX_RETRIES:-10}"
 export CACHE_READ_RETRY_BASE_SEC="${CACHE_READ_RETRY_BASE_SEC:-0.5}"
 
 SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
+# New-VLM (LLM-only LoRA) hidden-state caches — same tree as scene-router.
+SIM_AGENT_CACHE_ROOT="${SIM_AGENT_CACHE_ROOT:-${SIMSCALE_ROOT}/new_vlm_hidden_state_nav_sim}"
+# Allowlists live here. Root-level *_quality dirs are old-VLM; do not train on them.
+ALLOWLIST_ROOT="${ALLOWLIST_ROOT:-${SIMSCALE_ROOT}}"
+# CPFS fallback for quality symlink views when a round has no *_quality next to source.
+QUALITY_CACHE_ROOT="${QUALITY_CACHE_ROOT:-${SIMSCALE_ROOT}/data/simscale/new_vlm_quality_views}"
 SIM_ROUNDS="${SIM_ROUNDS:-0,1}"
 USE_QUALITY_CACHE="${USE_QUALITY_CACHE:-true}"
 
-NAV_CACHE_PATH="${NAV_CACHE_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/recogdrive_agent_cache_dir_train}"
+NAV_CACHE_PATH="${NAV_CACHE_PATH:-${SIM_AGENT_CACHE_ROOT}/recogdrive_agent_cache_dir_train}"
 
 IFS=',' read -r -a SIM_ROUND_LIST <<< "${SIM_ROUNDS}"
 SIM_CACHE_PATHS=()
 SIM_CACHE_NAMES=()
+PREP_ROUNDS=""
+FORCE_PREP_QUALITY_CACHE="${FORCE_PREP_QUALITY_CACHE:-false}"
 for round in "${SIM_ROUND_LIST[@]}"; do
   round="${round//[[:space:]]/}"
   if [[ -z "${round}" ]]; then
@@ -45,9 +64,20 @@ for round in "${SIM_ROUND_LIST[@]}"; do
   fi
   dataset_name="synthetic_reaction_pdm_v1.0-${round}"
   if [[ "${USE_QUALITY_CACHE}" == "true" ]]; then
-    sim_cache_path="${SIMSCALE_ROOT}/recogdrive_agent_cache_dir_${dataset_name}_quality"
+    src_quality="${SIM_AGENT_CACHE_ROOT}/recogdrive_agent_cache_dir_${dataset_name}_quality"
+    dst_quality="${QUALITY_CACHE_ROOT}/recogdrive_agent_cache_dir_${dataset_name}_quality"
+    if [[ "${FORCE_PREP_QUALITY_CACHE}" != "true" ]] \
+       && [[ -d "${src_quality}" ]] && [[ -n "$(ls -A "${src_quality}" 2>/dev/null || true)" ]]; then
+      sim_cache_path="${src_quality}"
+    else
+      sim_cache_path="${dst_quality}"
+      if [[ "${FORCE_PREP_QUALITY_CACHE}" == "true" ]] \
+         || [[ ! -d "${dst_quality}" ]] || [[ -z "$(ls -A "${dst_quality}" 2>/dev/null || true)" ]]; then
+        PREP_ROUNDS="${PREP_ROUNDS}${PREP_ROUNDS:+,}${round}"
+      fi
+    fi
   else
-    sim_cache_path="${SIMSCALE_ROOT}/recogdrive_agent_cache_dir_${dataset_name}"
+    sim_cache_path="${SIM_AGENT_CACHE_ROOT}/recogdrive_agent_cache_dir_${dataset_name}"
   fi
   SIM_CACHE_PATHS+=("${sim_cache_path}")
   SIM_CACHE_NAMES+=("simscale_r${round}")
@@ -59,7 +89,7 @@ if [[ ${#SIM_CACHE_PATHS[@]} -eq 0 ]]; then
 fi
 # Weight-only warm start (agent.initialize). Leave empty when using CKPT_PATH resume.
 BASE_CKPT="${BASE_CKPT:-}"
-VLM_PATH="${VLM_PATH:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B}"
+VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 
 NNODES="${WORLD_SIZE:-1}"
 RANK="${RANK:-0}"
@@ -67,49 +97,37 @@ MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-23457}"
 GPUS="${GPUS:-8}"
 
-TORCHRUN_BIN="${TORCHRUN_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_dit_il_fullmix_simscale_round01_quality}"
+TORCHRUN_BIN="${TORCHRUN_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_student_dit_il_all_data_newvlm}"
 MAX_EPOCHS="${MAX_EPOCHS:-200}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
 LR="${LR:-1e-4}"
-PYTHON_BIN="${PYTHON_BIN:-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/python}"
-# Lightning full-state resume (model + optimizer + epoch/step). Continues from epoch 15.
-CKPT_PATH="${CKPT_PATH:-/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/training_dit_il_fullmix_simscale_round01_quality/2026.07.12.03.07.49/lightning_logs/version_0/checkpoints/epoch=99-step=156100.ckpt}"
+PYTHON_BIN="${PYTHON_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python}"
+# Lightning full-state resume (model + optimizer + epoch/step). Default: new-VLM IL epoch=2.
+CKPT_PATH="${CKPT_PATH:-/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
 
-if [[ "${USE_QUALITY_CACHE}" == "true" ]]; then
-  NEED_PREP_QUALITY_CACHE=false
-  for round in "${SIM_ROUND_LIST[@]}"; do
-    round="${round//[[:space:]]/}"
-    [[ -z "${round}" ]] && continue
-    quality_cache="${SIMSCALE_ROOT}/recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-${round}_quality"
-    if [[ ! -d "${quality_cache}" ]] || [[ -z "$(ls -A "${quality_cache}" 2>/dev/null || true)" ]]; then
-      NEED_PREP_QUALITY_CACHE=true
-      break
-    fi
-  done
-
-  if [[ "${FORCE_PREP_QUALITY_CACHE:-false}" == "true" ]]; then
-    NEED_PREP_QUALITY_CACHE=true
-  fi
-
-  if [[ "${NEED_PREP_QUALITY_CACHE}" == "true" ]]; then
-  export PREP_SIMSCALE_ROOT="${SIMSCALE_ROOT}"
-  export PREP_SIM_ROUNDS="${SIM_ROUNDS}"
+if [[ "${USE_QUALITY_CACHE}" == "true" ]] && [[ -n "${PREP_ROUNDS}" ]]; then
+  export PREP_SRC_CACHE_ROOT="${SIM_AGENT_CACHE_ROOT}"
+  export PREP_QUALITY_CACHE_ROOT="${QUALITY_CACHE_ROOT}"
+  export PREP_ALLOWLIST_ROOT="${ALLOWLIST_ROOT}"
+  export PREP_SIM_ROUNDS="${PREP_ROUNDS}"
   "${PYTHON_BIN}" - <<'PYPREP'
 import os
 from pathlib import Path
 
-simscale_root = Path(os.environ["PREP_SIMSCALE_ROOT"])
+src_root = Path(os.environ["PREP_SRC_CACHE_ROOT"])
+dst_root = Path(os.environ["PREP_QUALITY_CACHE_ROOT"])
+allowlist_root = Path(os.environ["PREP_ALLOWLIST_ROOT"])
 rounds = [r.strip() for r in os.environ["PREP_SIM_ROUNDS"].split(",") if r.strip()]
 
 for round in rounds:
     dataset_name = f"synthetic_reaction_pdm_v1.0-{round}"
-    src_cache = simscale_root / f"recogdrive_agent_cache_dir_{dataset_name}"
-    dst_cache = simscale_root / f"recogdrive_agent_cache_dir_{dataset_name}_quality"
-    allowlist = simscale_root / f"quality_filter_{dataset_name}" / "allowlist_log_token.tsv"
+    src_cache = src_root / f"recogdrive_agent_cache_dir_{dataset_name}"
+    dst_cache = dst_root / f"recogdrive_agent_cache_dir_{dataset_name}_quality"
+    allowlist = allowlist_root / f"quality_filter_{dataset_name}" / "allowlist_log_token.tsv"
     if not src_cache.is_dir():
-        raise RuntimeError(f"SimScale source cache not found: {src_cache}")
+        raise RuntimeError(f"SimScale new-VLM source cache not found: {src_cache}")
     if not allowlist.is_file():
         raise RuntimeError(f"Quality allowlist not found: {allowlist}")
 
@@ -147,9 +165,8 @@ for round in rounds:
         f"missing_src={missing_src} path={dst_cache}"
     )
 PYPREP
-  else
-    echo "[fullmix-dit] quality symlink caches already present; skip prep (set FORCE_PREP_QUALITY_CACHE=true to rebuild)"
-  fi
+elif [[ "${USE_QUALITY_CACHE}" == "true" ]]; then
+  echo "[fullmix-dit] new-VLM quality caches already present; skip prep (set FORCE_PREP_QUALITY_CACHE=true to rebuild)"
 fi
 
 MIXED_CACHE_PATHS="${NAV_CACHE_PATH}"
@@ -160,8 +177,10 @@ for idx in "${!SIM_CACHE_PATHS[@]}"; do
 done
 
 echo "[fullmix-dit] BASE_CKPT=${BASE_CKPT:-<none>}"
+echo "[fullmix-dit] VLM_PATH=${VLM_PATH}"
 echo "[fullmix-dit] NAV_CACHE_PATH=${NAV_CACHE_PATH}"
-echo "[fullmix-dit] SIMSCALE_ROOT=${SIMSCALE_ROOT}"
+echo "[fullmix-dit] SIM_AGENT_CACHE_ROOT=${SIM_AGENT_CACHE_ROOT}"
+echo "[fullmix-dit] QUALITY_CACHE_ROOT=${QUALITY_CACHE_ROOT}"
 echo "[fullmix-dit] SIM_ROUNDS=${SIM_ROUNDS}"
 echo "[fullmix-dit] USE_QUALITY_CACHE=${USE_QUALITY_CACHE}"
 for idx in "${!SIM_CACHE_PATHS[@]}"; do
@@ -172,6 +191,20 @@ echo "[fullmix-dit] CACHE_READ_MAX_RETRIES=${CACHE_READ_MAX_RETRIES} CACHE_READ_
 echo "[fullmix-dit] CKPT_PATH=${CKPT_PATH:-<none>}"
 echo "[fullmix-dit] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
 
+if [[ ! -d "${NAV_CACHE_PATH}" ]] || [[ -z "$(ls -A "${NAV_CACHE_PATH}" 2>/dev/null || true)" ]]; then
+  echo "[ERROR] NAV_CACHE_PATH missing or empty: ${NAV_CACHE_PATH}" >&2
+  exit 1
+fi
+for p in "${SIM_CACHE_PATHS[@]}"; do
+  if [[ ! -d "${p}" ]] || [[ -z "$(ls -A "${p}" 2>/dev/null || true)" ]]; then
+    echo "[ERROR] SIM cache missing or empty: ${p}" >&2
+    exit 1
+  fi
+done
+if [[ ! -d "${VLM_PATH}" ]]; then
+  echo "[ERROR] VLM_PATH does not exist: ${VLM_PATH}" >&2
+  exit 1
+fi
 if [[ -n "${CKPT_PATH}" && ! -f "${CKPT_PATH}" ]]; then
   echo "[ERROR] CKPT_PATH does not exist: ${CKPT_PATH}" >&2
   exit 1
