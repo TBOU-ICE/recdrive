@@ -25,16 +25,19 @@ class ReCogDrivePrivilegedGoalAdapterTeacherAgent(ReCogDriveAgent):
         self,
         *args,
         goal_injection: str = "gated_cross",
-        goal_point_mode: str = "final",
+        goal_point_mode: str = "multi3",
         goal_indices: Sequence[int] = (1, 4, 7),
         goal_sincos_dim: int = 128,
         goal_hidden_dim: int = 512,
         goal_use_heading: bool = False,
         goal_adapter_heads: int = 8,
         train_last_n_dit_blocks: int = 0,
-        adapter_lr: float = 5e-5,
+        adapter_lr: float = 1e-5,
         backbone_lr_scale: float = 0.1,
         adapter_epochs: int = 10,
+        residual_trust_weight: float = 1.0,
+        residual_trust_radius: float = 0.10,
+        gate_l2_weight: float = 1e-4,
         **kwargs,
     ):
         kwargs["opd"] = False
@@ -61,6 +64,9 @@ class ReCogDrivePrivilegedGoalAdapterTeacherAgent(ReCogDriveAgent):
             goal_hidden_dim=goal_hidden_dim,
             goal_use_heading=goal_use_heading,
             goal_adapter_heads=goal_adapter_heads,
+            residual_trust_weight=residual_trust_weight,
+            residual_trust_radius=residual_trust_radius,
+            gate_l2_weight=gate_l2_weight,
         ).cuda()
         planner.load_state_dict(old.state_dict(), strict=False)
         self.action_head = planner
@@ -84,7 +90,9 @@ class ReCogDrivePrivilegedGoalAdapterTeacherAgent(ReCogDriveAgent):
         print(
             f"[PrivGoalTeacher-v2] injection={self.action_head.goal_injection} "
             f"points={self.goal_point_mode} trainable={n_train/1e6:.2f}M/{n_all/1e6:.2f}M "
-            f"last_blocks={self.train_last_n_dit_blocks}"
+            f"last_blocks={self.train_last_n_dit_blocks} "
+            f"trust={self.action_head.residual_trust_weight}@{self.action_head.residual_trust_radius} "
+            f"gate_l2={self.action_head.gate_l2_weight}"
         )
 
     def _configure_trainable_parameters(self) -> None:

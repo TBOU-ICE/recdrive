@@ -15,7 +15,7 @@ import pickle
 import io
 import hydra
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import pandas as pd
 
 from nuplan.planning.script.builders.logging_builder import build_logger
@@ -65,6 +65,9 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
     Helper function to run PDMS evaluation in.
     :param args: input arguments
     """
+    if not args:
+        return pickle.dumps([])
+
     node_id = int(os.environ.get("NODE_RANK", 0))
     thread_id = str(uuid.uuid4())
     logger.info(f"Starting worker in thread_id={thread_id}, node_id={node_id}")
@@ -108,9 +111,8 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
             with lzma.open(metric_cache_path, "rb") as f:
                 metric_cache: MetricCache = pickle.load(f)
 
-            requires_scene = False
             agent_input = scene_loader.get_agent_input_from_token(token)
-            if requires_scene:
+            if agent.requires_scene:
                 scene = scene_loader.get_scene_from_token(token)
                 trajectory = agent.compute_trajectory(agent_input, scene)
             else:
@@ -163,6 +165,16 @@ def main(cfg: DictConfig) -> None:
     Main entrypoint for running PDMS evaluation.
     :param cfg: omegaconf dictionary
     """
+    scene_filter_path = str(cfg.get("scene_filter_path", "") or "")
+    if scene_filter_path:
+        path = Path(scene_filter_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"scene_filter_path does not exist: {path}")
+        configured_max_scenes = cfg.train_test_split.scene_filter.get("max_scenes")
+        cfg.train_test_split.scene_filter = OmegaConf.load(path)
+        if configured_max_scenes is not None:
+            cfg.train_test_split.scene_filter.max_scenes = configured_max_scenes
+
     local_rank = int(os.getenv('LOCAL_RANK', 0))
     world_size = int(os.getenv('WORLD_SIZE', 1))
     rank = int(os.getenv('RANK', 0))
@@ -201,8 +213,12 @@ def main(cfg: DictConfig) -> None:
 
     tokens_to_evaluate = broadcast_object(tokens_to_evaluate, device=device, src=0)
 
-
     logger.info("Starting pdm scoring of %s scenarios...", str(len(tokens_to_evaluate)))
+    if not tokens_to_evaluate:
+        if rank == 0:
+            logger.warning("No scenarios to evaluate.")
+        dist.destroy_process_group()
+        return
 
     sampler = InferenceSampler(len(tokens_to_evaluate))
 
@@ -239,8 +255,8 @@ def main(cfg: DictConfig) -> None:
 
     if dist.get_rank() == 0:
         final_results = []
-        for gathered_tensor in gathered_results:
-            gathered_tensor = gathered_tensor[:local_size]  
+        for rank_idx, gathered_tensor in enumerate(gathered_results):
+            gathered_tensor = gathered_tensor[:int(size_list[rank_idx].item())]
             serialized_data = gathered_tensor.cpu().numpy().tobytes()
             final_results.extend(pickle.loads(serialized_data))  # 
     
@@ -263,10 +279,12 @@ def main(cfg: DictConfig) -> None:
             Finished running evaluation.
                 Number of successful scenarios: {num_sucessful_scenarios}.
                 Number of failed scenarios: {num_failed_scenarios}.
-                Final average score of valid results: {pdm_score_df['score'].mean()}.
+                Final average score of valid results: {pdm_score_df.loc[pdm_score_df['token'] != 'average', 'score'].mean()}.
                 Results are stored in: {save_path / f"{timestamp}.csv"}.
             """
         )
+
+    dist.destroy_process_group()
 
 
 if __name__ == "__main__":
