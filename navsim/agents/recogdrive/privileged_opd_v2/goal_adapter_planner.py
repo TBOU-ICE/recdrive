@@ -68,12 +68,15 @@ class PrivilegedGoalAdapterPlanner(ReCogDriveDiffusionPlanner):
         self,
         config: ReCogDriveDiffusionPlannerConfig,
         goal_injection: str = "gated_cross",
-        goal_point_mode: str = "final",
+        goal_point_mode: str = "multi3",
         goal_indices: Sequence[int] = (1, 4, 7),
         goal_sincos_dim: int = 128,
         goal_hidden_dim: int = 512,
         goal_use_heading: bool = False,
         goal_adapter_heads: int = 8,
+        residual_trust_weight: float = 1.0,
+        residual_trust_radius: float = 0.10,
+        gate_l2_weight: float = 1e-4,
     ):
         if goal_injection not in GOAL_INJECTION_MODES:
             raise ValueError(f"goal_injection must be one of {GOAL_INJECTION_MODES}, got {goal_injection!r}")
@@ -87,6 +90,9 @@ class PrivilegedGoalAdapterPlanner(ReCogDriveDiffusionPlanner):
         self.goal_point_mode = str(goal_point_mode)
         self.goal_indices = tuple(int(x) for x in goal_indices)
         self.goal_use_heading = bool(goal_use_heading)
+        self.residual_trust_weight = float(residual_trust_weight)
+        self.residual_trust_radius = float(residual_trust_radius)
+        self.gate_l2_weight = float(gate_l2_weight)
         self._goal_ctx: Optional[torch.Tensor] = None
 
         dim = int(config.input_embedding_dim)
@@ -266,9 +272,43 @@ class PrivilegedGoalAdapterPlanner(ReCogDriveDiffusionPlanner):
         )
         goal_tokens = self.encode_goal_tokens(self._resolve_goal(goal, gt.shape[0]), gt.dtype)
         pred_noise = self._dit_step_with_goal(noisy, t, vl_embeds, his, ego, goal_tokens)
-        loss = torch.nn.functional.mse_loss(pred_noise, noise, reduction="mean")
+        diffusion_loss = torch.nn.functional.mse_loss(pred_noise, noise, reduction="mean")
+
+        # Trust region around the frozen goal-free expert. Both branches see the
+        # same noisy action and timestep; the penalty activates only when the
+        # Goal-ON noise prediction moves farther than the allowed RMS radius.
+        with torch.no_grad():
+            pred_noise_off = self._dit_step_with_goal(noisy, t, vl_embeds, his, ego, None)
+        delta_mse = torch.nn.functional.mse_loss(
+            pred_noise.float(), pred_noise_off.float(), reduction="mean"
+        )
+        delta_rms = (delta_mse + 1e-12).sqrt()
+        trust_excess = torch.relu(delta_rms - self.residual_trust_radius)
+        trust_loss = trust_excess.square()
+
+        gate = getattr(self, "goal_adapter_gate", None)
+        gate_l2 = (
+            gate.float().square()
+            if gate is not None
+            else torch.zeros((), device=pred_noise.device, dtype=torch.float32)
+        )
+        loss = (
+            diffusion_loss
+            + self.residual_trust_weight * trust_loss.to(diffusion_loss.dtype)
+            + self.gate_l2_weight * gate_l2.to(diffusion_loss.dtype)
+        )
         from transformers.feature_extraction_utils import BatchFeature
-        return BatchFeature(data={"loss": loss})
+        return BatchFeature(data={
+            "loss": loss,
+            "diffusion_loss": diffusion_loss.detach(),
+            "residual_trust_loss": trust_loss.detach(),
+            "goal_delta_rms": delta_rms.detach(),
+            "goal_gate_abs": (
+                gate.detach().float().abs()
+                if gate is not None
+                else torch.zeros((), device=pred_noise.device)
+            ),
+        })
 
     def goal_parameter_names(self):
         prefixes = (

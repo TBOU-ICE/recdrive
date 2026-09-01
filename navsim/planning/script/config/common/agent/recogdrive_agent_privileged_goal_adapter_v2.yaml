@@ -25,13 +25,16 @@ lr: 5e-5
 
 # Stage-3 privileged residual adapter.
 goal_injection: 'gated_cross'     # adaln | cross | gated_cross
-goal_point_mode: 'final'          # final | multi3
+goal_point_mode: 'multi3'         # final | multi3
 goal_indices: [1, 4, 7]
 goal_sincos_dim: 128
 goal_hidden_dim: 512
 goal_use_heading: false
 goal_adapter_heads: 8
 train_last_n_dit_blocks: 0        # recommended first run: adapter only
-adapter_lr: 5e-5
+adapter_lr: 1e-5
 backbone_lr_scale: 0.1
 adapter_epochs: 10
+residual_trust_weight: 1.0
+residual_trust_radius: 0.10
+gate_l2_weight: 1e-4

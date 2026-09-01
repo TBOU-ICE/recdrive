@@ -33,7 +33,7 @@ token_to_bucket_json: '/PATH/TO/exclusive_token_to_bucket.json'
 
 # Must exactly match the stage-3 teacher architecture.
 teacher_goal_injection: 'gated_cross'
-teacher_goal_point_mode: 'final'
+teacher_goal_point_mode: 'multi3'
 teacher_goal_indices: [1, 4, 7]
 teacher_goal_sincos_dim: 128
 teacher_goal_hidden_dim: 512

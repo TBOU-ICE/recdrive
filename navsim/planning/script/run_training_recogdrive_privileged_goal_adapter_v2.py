@@ -26,6 +26,37 @@ CONFIG_PATH = "config/training"
 CONFIG_NAME = "default_training"
 
 
+class GoalAdapterLightningModule(AgentLightningModule):
+    """Stage-3 wrapper that records trust-region diagnostics."""
+
+    def _step(self, batch, logging_prefix):
+        features, targets, tokens_list = batch
+        prediction = self.agent.forward(features, targets, tokens_list)
+        loss = (
+            prediction.loss
+            if hasattr(prediction, "loss")
+            else self.agent.compute_loss(features, targets, prediction)
+        )
+        self.log(
+            f"{logging_prefix}/loss", loss,
+            on_step=True, on_epoch=True, prog_bar=True, sync_dist=True,
+        )
+        for key in (
+            "diffusion_loss",
+            "residual_trust_loss",
+            "goal_delta_rms",
+            "goal_gate_abs",
+        ):
+            if key in prediction:
+                self.log(
+                    f"{logging_prefix}/{key}", prediction[key],
+                    on_step=True, on_epoch=True,
+                    prog_bar=key in ("goal_delta_rms", "goal_gate_abs"),
+                    sync_dist=True,
+                )
+        return loss
+
+
 def norm_token(x):
     if isinstance(x, (bytes, bytearray)):
         x = x.hex()
@@ -183,7 +214,7 @@ def main(cfg: DictConfig):
 
     agent = instantiate(cfg.agent)
     agent.initialize()
-    lightning = AgentLightningModule(agent=agent)
+    lightning = GoalAdapterLightningModule(agent=agent)
     fbs, tbs = agent.get_feature_builders(), agent.get_target_builders()
 
     nav_tokens = str(cfg.priv_goal_nav_bucket_tokens)

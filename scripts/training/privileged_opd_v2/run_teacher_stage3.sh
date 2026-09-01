@@ -9,13 +9,16 @@ BASE_RL_CKPT="${BASE_RL_CKPT:-}"
 need BASE_RL_CKPT; need VLM_PATH; need NAV_CACHE; need NAV_BUCKET_ROOT
 
 GOAL_INJECTION="${GOAL_INJECTION:-gated_cross}"
-GOAL_POINT_MODE="${GOAL_POINT_MODE:-final}"
+GOAL_POINT_MODE="${GOAL_POINT_MODE:-multi3}"
 GOAL_INDICES="${GOAL_INDICES:-[1,4,7]}"
 TRAIN_LAST_N_DIT_BLOCKS="${TRAIN_LAST_N_DIT_BLOCKS:-0}"
-ADAPTER_LR="${ADAPTER_LR:-5e-5}"
+ADAPTER_LR="${ADAPTER_LR:-1e-5}"
 BACKBONE_LR_SCALE="${BACKBONE_LR_SCALE:-0.1}"
-MAX_EPOCHS="${MAX_EPOCHS:-30}"
-SIM_RATIO="${SIM_RATIO:-0.40}"
+MAX_EPOCHS="${MAX_EPOCHS:-10}"
+SIM_RATIO="${SIM_RATIO:-0}"
+RESIDUAL_TRUST_WEIGHT="${RESIDUAL_TRUST_WEIGHT:-1.0}"
+RESIDUAL_TRUST_RADIUS="${RESIDUAL_TRUST_RADIUS:-0.10}"
+GATE_L2_WEIGHT="${GATE_L2_WEIGHT:-1e-4}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 GPUS="${GPUS:-8}"; NNODES="${NNODES:-1}"; NODE_RANK="${NODE_RANK:-0}"
 MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"; MASTER_PORT="${MASTER_PORT:-23631}"
@@ -29,28 +32,31 @@ need_file "${NAV_TOKENS}"
 if [[ -n "${NAV_MANIFEST:-}" ]]; then need_file "${NAV_MANIFEST}"; fi
 
 SIM_PATHS=(); SIM_MANIFESTS=(); SIM_TOKENS=()
-for r in 0 1; do
-  eval cache="\${SIM_CACHE_R${r}:-}"
-  eval manifest="\${SIM_MANIFEST_R${r}:-}"
-  eval root="\${SIM_BUCKET_R${r}_ROOT:-}"
-  tok="${root:-}/exclusive_${BUCKET_NAME}_tokens.json"
-  if [[ -n "${cache:-}" && -d "$cache" && -f "$tok" ]]; then
-    SIM_PATHS+=("$cache")
-    if [[ -n "${manifest:-}" && -f "$manifest" ]]; then SIM_MANIFESTS+=("$manifest"); else SIM_MANIFESTS+=("null"); fi
-    SIM_TOKENS+=("$tok")
-  fi
-done
+if [[ "${SIM_RATIO}" != "0" && "${SIM_RATIO}" != "0.0" && "${SIM_RATIO}" != "0.00" ]]; then
+  for r in 0 1; do
+    eval cache="\${SIM_CACHE_R${r}:-}"
+    eval manifest="\${SIM_MANIFEST_R${r}:-}"
+    eval root="\${SIM_BUCKET_R${r}_ROOT:-}"
+    tok="${root:-}/exclusive_${BUCKET_NAME}_tokens.json"
+    if [[ -n "${cache:-}" && -d "$cache" && -f "$tok" ]]; then
+      SIM_PATHS+=("$cache")
+      if [[ -n "${manifest:-}" && -f "$manifest" ]]; then SIM_MANIFESTS+=("$manifest"); else SIM_MANIFESTS+=("null"); fi
+      SIM_TOKENS+=("$tok")
+    fi
+  done
+fi
 join(){ if [[ $# -eq 0 ]]; then echo '[]'; else local IFS=,; echo "[$*]"; fi; }
 SIM_PATHS_ARG="$(join ${SIM_PATHS[@]+"${SIM_PATHS[@]}"})"
 SIM_MANIFESTS_ARG="$(join ${SIM_MANIFESTS[@]+"${SIM_MANIFESTS[@]}"})"
 SIM_TOKENS_ARG="$(join ${SIM_TOKENS[@]+"${SIM_TOKENS[@]}"})"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_priv_goal_v2_${BUCKET_NAME}_${GOAL_POINT_MODE}_${GOAL_INJECTION}}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_priv_goal_v2-2_${BUCKET_NAME}_${GOAL_POINT_MODE}_${GOAL_INJECTION}}"
 LOG_FILE="${LOG_FILE:-${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}/run.log}"
 mkdir -p "$(dirname "$LOG_FILE")"
 
 echo "[stage3] bucket=$BUCKET_NAME init=$BASE_RL_CKPT"
 echo "[stage3] goal=$GOAL_POINT_MODE/$GOAL_INJECTION epochs=$MAX_EPOCHS sim_ratio=$SIM_RATIO last_blocks=$TRAIN_LAST_N_DIT_BLOCKS"
+echo "[stage3] trust_weight=$RESIDUAL_TRUST_WEIGHT trust_radius=$RESIDUAL_TRUST_RADIUS gate_l2=$GATE_L2_WEIGHT"
 echo "[stage3] nav_cache=$NAV_CACHE nav_manifest=${NAV_MANIFEST:-<directory-scan>}"
 echo "[stage3] sim_sources=${#SIM_PATHS[@]} conda=$CONDA_BIN"
 if [[ "${PREFLIGHT_ONLY:-0}" == "1" ]]; then
@@ -67,6 +73,8 @@ fi
   "agent.goal_injection='$GOAL_INJECTION'" "agent.goal_point_mode='$GOAL_POINT_MODE'" \
   "agent.goal_indices=$GOAL_INDICES" agent.train_last_n_dit_blocks="$TRAIN_LAST_N_DIT_BLOCKS" \
   agent.adapter_lr="$ADAPTER_LR" agent.backbone_lr_scale="$BACKBONE_LR_SCALE" agent.adapter_epochs="$MAX_EPOCHS" \
+  agent.residual_trust_weight="$RESIDUAL_TRUST_WEIGHT" agent.residual_trust_radius="$RESIDUAL_TRUST_RADIUS" \
+  agent.gate_l2_weight="$GATE_L2_WEIGHT" \
   "+priv_goal_nav_bucket_tokens='$NAV_TOKENS'" "+priv_goal_nav_manifest='$NAV_MANIFEST'" \
   "+priv_goal_sim_cache_paths=$SIM_PATHS_ARG" "+priv_goal_sim_manifests=$SIM_MANIFESTS_ARG" \
   "+priv_goal_sim_bucket_tokens=$SIM_TOKENS_ARG" +priv_goal_sim_ratio="$SIM_RATIO" \
