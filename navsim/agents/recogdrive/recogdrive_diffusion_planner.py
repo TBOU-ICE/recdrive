@@ -126,6 +126,13 @@ class ReCogDriveDiffusionPlanner(nn.Module):
     def __init__(self, config: ReCogDriveDiffusionPlannerConfig):
         super().__init__()
         self.config = config
+
+        # Full-chain sampling and likelihood scoring are also used by
+        # distributional distillation when GRPO is disabled. Keep their numeric
+        # floors available for ordinary student and teacher planners; _init_grpo
+        # will assign the same configured values again for GRPO planners.
+        self.min_sampling_denoising_std = config.grpo_cfg.min_sampling_denoising_std
+        self.min_logprob_denoising_std = config.grpo_cfg.min_logprob_denoising_std
         
         self.model = LightningDiT(**config.diffusion_model_cfg)
 
