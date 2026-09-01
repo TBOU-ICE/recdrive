@@ -1,0 +1,43 @@
+_target_: navsim.agents.recogdrive.recogdrive_goal_agent.ReCogDriveGoalAgent
+_convert_: 'all'
+
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+checkpoint_path: ''
+vlm_path: ''
+vlm_weights_path: ''
+cam_type: 'single'
+vlm_type: 'internvl'
+dit_type: 'small'
+sampling_method: 'ddim'
+cache_mode: False
+cache_hidden_state: True
+metric_cache_path: ''
+reference_policy_checkpoint: ''
+vlm_size: 'small'
+train_backbone: false
+grpo: False
+lr: 1e-4
+
+# ---------------------------------------------------------------- goal conditioning
+# none    : identical to ReCogDriveAgent
+# inpaint : training-free diagnostic, needs no training run
+# adaln   : goal added to the AdaLN conditioning vector (with ego status)
+# channel : goal added into the residual stream next to the fused input
+# cross   : goal appended as an extra cross-attention key/value token
+goal_mode: 'none'
+goal_sincos_dim: 128
+goal_hidden_dim: 1024
+goal_use_heading: false
+# Fraction of samples whose goal embedding is zeroed during training. Leave at 0
+# for a pure privileged teacher; raise it only if you also want the teacher to
+# stay usable without a goal.
+goal_dropout_p: 0.0
+# inpaint only: 1.0 pins the endpoint exactly, lower values blend toward it.
+goal_inpaint_weight: 1.0
+goal_inpaint_heading: false
+# Raise instead of silently scoring goal-free when the goal is unavailable.
+strict_eval_goal: true

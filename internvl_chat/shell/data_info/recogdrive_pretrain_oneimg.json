@@ -1,0 +1,30 @@
+{
+  "Navsim": {
+    "root": "/workspace/datasets/recdrive/20260513/nby/recdrive/download/NAVSIM",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/Navsim_Traj/dataset_navsim_traj.jsonl",
+    "data_augment": false,
+    "repeat_time": 2,
+    "length": 85109
+  },
+  "Navsim_QA": {
+    "root": "/workspace/datasets/recdrive/20260513/nby/recdrive/download",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/Navsim_ReCogDrive/dataset_navsim_recogdrive.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 85109
+  },
+  "CODA-LM": {
+    "root": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingimages/CODA-LM",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/CODA-LM/dataset_coda_lm.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 20318
+  },
+  "Talk2Car": {
+    "root": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingimages/Talk2Car/imgs",
+    "annotation": "/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/Talk2Car/dataset_talk2car.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 8079
+  }
+}

@@ -1,0 +1,43 @@
+_target_: navsim.agents.recogdrive.recogdrive_agent.ReCogDriveAgent
+_convert_: 'all'
+
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+
+# VLM not loaded online — use cached hidden states
+vlm_path: ''
+vlm_type: 'internvl'
+vlm_size: 'small'
+dit_type: 'small'
+sampling_method: 'ddim'
+cache_mode: False
+cache_hidden_state: True   # use pre-cached hidden states, no VLM needed
+
+# Student DiT: initialized from 2B IL checkpoint
+checkpoint_path: '/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
+
+# DiT distillation mode: fixed-weight dual-teacher OPD
+dit_distill: True
+# Dual teachers: IL is EC-oriented, RL is PDMS-oriented. Both are frozen.
+teacher_dit_checkpoint_il: '/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
+teacher_dit_checkpoint_rl: '/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+# Backward-compatible alias for single-teacher scripts; ignored when teacher_dit_checkpoint_rl is set.
+teacher_dit_checkpoint: ''
+dit_distill_eps_clip: 0.2
+dit_distill_min_sigma: 0.04
+dit_distill_normalize_advantage: True
+dit_distill_log_dir: ''
+dit_distill_log_interval: 50
+dit_distill_il_weight: 0.75
+dit_distill_rl_weight: 0.25
+dit_distill_smooth_weight: 0.02
+
+# Disable other modes
+grpo: False
+opd: False
+train_backbone: False
+reference_policy_checkpoint: ''
+lr: 1e-4

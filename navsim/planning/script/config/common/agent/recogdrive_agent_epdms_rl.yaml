@@ -1,0 +1,34 @@
+_target_: navsim.agents.recogdrive.recogdrive_epdms_rl_agent.ReCogDriveEpdmsRLAgent
+_convert_: 'all'
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+
+# base ReCogDriveAgent
+checkpoint_path: ''
+vlm_path: ''
+cam_type: 'single'
+vlm_type: 'internvl'
+dit_type: 'small'
+sampling_method: 'ddim'
+cache_mode: false
+cache_hidden_state: true
+lr: 2e-5
+grpo: true
+metric_cache_path: ''            # v1 metric caches (SimScale union) for the planner loader
+reference_policy_checkpoint: ''
+vlm_size: 'small'
+train_backbone: false
+
+# EPDMS RL specifics
+epdms_metric_cache_v2_path: ''   # navtrain v2 (EPDMS-format) metric cache
+scene_term: 'none'               # none | ep | ec | gate
+scene_term_weight: 0.3
+rl_sample_time: 8
+rl_bc_coeff: 0.1
+degenerate_std_threshold: 1e-3
+rl_max_epochs: 15
+rl_warmup_epochs: 2
+rl_min_lr_ratio: 0.05
