@@ -72,7 +72,7 @@ VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged
 # Weight-only warm start (agent.initialize). Empty = random-init DiT, which is the
 # intended default for stage-1 IL. The goal branches are zero-initialised, so a
 # non-empty BASE_CKPT reproduces that checkpoint exactly before the first step.
-BASE_CKPT="${BASE_CKPT:-}"
+BASE_CKPT="${BASE_CKPT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp/training_teacher_2epoch_base_safety_dynamics_interaction_il_newvlm/2026.08.31.12.19.19/lightning_logs/version_0/checkpoints/epoch=199-step=38800.ckpt}"
 # Optional full-state resume (optimizer + epoch) of a prior IL run of THIS teacher.
 RESUME_CKPT="${RESUME_CKPT:-}"
 if [[ -n "${RESUME_CKPT}" ]]; then
@@ -90,7 +90,7 @@ fi
 # hardcodes WarmupCosLR(epochs=200), so the cosine only completes at exactly 200.
 # A shorter run stops near peak lr; a longer one makes the cosine turn back up.
 LR="${LR:-1e-4}"
-MAX_EPOCHS="${MAX_EPOCHS:-200}"
+MAX_EPOCHS="${MAX_EPOCHS:-30}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-16}"
 LIMIT_TRAIN_BATCHES="${LIMIT_TRAIN_BATCHES:-1.0}"
@@ -148,7 +148,7 @@ NAV_BUCKET_CACHE_PATH="${NAV_BUCKET_CACHE_PATH:-${MIX_ROOT}/navtrain_bucket_cach
 SIM_BUCKET_CACHE_PATH="${SIM_BUCKET_CACHE_PATH:-${MIX_ROOT}/simscale_bucket_cache}"
 MIX_INFO_DIR="${MIX_INFO_DIR:-${MIX_ROOT}/metadata}"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_teacher_${BUCKET_NAME}_il_goal_${GOAL_MODE}_newvlm}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_teacher_${BUCKET_NAME}_200il_30goal_${GOAL_MODE}_newvlm}"
 TORCHRUN_BIN="${TORCHRUN_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun}"
 PYTHON_BIN="${PYTHON_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python}"
 
