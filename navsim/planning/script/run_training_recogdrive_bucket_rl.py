@@ -19,6 +19,8 @@ from navsim.planning.script.bucket_expert_data import (
     build_mixed_bucket_datasets,
     filter_dataset_to_metric_tokens,
     merge_metric_cache_loader,
+    start_gpu_keepalive,
+    stop_gpu_keepalive,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,44 +62,52 @@ def main(cfg: DictConfig) -> None:
     dist.init_process_group(backend='nccl', world_size=world_size, rank=rank)
     torch.cuda.set_device(local_rank)
     pl.seed_everything(cfg.seed, workers=True)
+    keepalive = start_gpu_keepalive(local_rank)
 
-    agent: AbstractAgent = instantiate(cfg.agent)
-    agent.initialize()
-    lightning_module = AgentLightningDiT(agent=agent)
+    try:
+        agent: AbstractAgent = instantiate(cfg.agent)
+        agent.initialize()
+        lightning_module = AgentLightningDiT(agent=agent)
 
-    feature_builders = agent.get_feature_builders()
-    target_builders = agent.get_target_builders()
-    extra_metric_paths = _as_str_list(cfg.bucket.get('extra_metric_cache_paths', []))
-    metric_loader = getattr(getattr(agent, 'action_head', None), 'metric_cache_loader', None)
-    metric_tokens = None
-    if metric_loader is not None:
-        merge_metric_cache_loader(metric_loader, extra_metric_paths)
-        metric_tokens = set(metric_loader.metric_cache_paths)
+        feature_builders = agent.get_feature_builders()
+        target_builders = agent.get_target_builders()
+        extra_metric_paths = _as_str_list(cfg.bucket.get('extra_metric_cache_paths', []))
+        metric_loader = getattr(getattr(agent, 'action_head', None), 'metric_cache_loader', None)
+        metric_tokens = None
+        if metric_loader is not None:
+            logger.info('Merging extra metric caches: %s', extra_metric_paths)
+            merge_metric_cache_loader(metric_loader, extra_metric_paths)
+            metric_tokens = set(metric_loader.metric_cache_paths)
+            logger.info('Metric cache tokens after merge: %d', len(metric_tokens))
 
-    train_data, val_data = build_mixed_bucket_datasets(cfg, feature_builders, target_builders)
-    if metric_tokens is not None:
-        mixed = getattr(getattr(train_data, '_inner', None), 'base', None)
-        if mixed is not None:
-            dropped_full = filter_dataset_to_metric_tokens(mixed.full_dataset, metric_tokens)
-            dropped_bucket = filter_dataset_to_metric_tokens(mixed.bucket_dataset, metric_tokens)
-            logger.info(
-                'Dropped samples without metric cache: full=%d bucket=%d remaining full=%d bucket=%d',
-                dropped_full,
-                dropped_bucket,
-                len(mixed.full_dataset),
-                len(mixed.bucket_dataset),
-            )
-            mixed.set_epoch(0)
-        dropped_val = filter_dataset_to_metric_tokens(getattr(getattr(val_data, '_inner', None), 'base', val_data), metric_tokens)
-        logger.info('Dropped val samples without metric cache: %d remaining=%d', dropped_val, len(val_data))
+        logger.info('Building mixed train/val datasets from manifests')
+        train_data, val_data = build_mixed_bucket_datasets(cfg, feature_builders, target_builders)
+        if metric_tokens is not None:
+            mixed = getattr(getattr(train_data, '_inner', None), 'base', None)
+            if mixed is not None:
+                dropped_full = filter_dataset_to_metric_tokens(mixed.full_dataset, metric_tokens)
+                dropped_bucket = filter_dataset_to_metric_tokens(mixed.bucket_dataset, metric_tokens)
+                logger.info(
+                    'Dropped samples without metric cache: full=%d bucket=%d remaining full=%d bucket=%d',
+                    dropped_full,
+                    dropped_bucket,
+                    len(mixed.full_dataset),
+                    len(mixed.bucket_dataset),
+                )
+                mixed.set_epoch(0)
+            dropped_val = filter_dataset_to_metric_tokens(getattr(getattr(val_data, '_inner', None), 'base', val_data), metric_tokens)
+            logger.info('Dropped val samples without metric cache: %d remaining=%d', dropped_val, len(val_data))
 
-    train_dataloader = DataLoader(train_data, collate_fn=custom_collate_fn, shuffle=True, **cfg.dataloader.params)
-    val_dataloader = DataLoader(val_data, collate_fn=custom_collate_fn, shuffle=False, **cfg.dataloader.params)
+        train_dataloader = DataLoader(train_data, collate_fn=custom_collate_fn, shuffle=True, **cfg.dataloader.params)
+        val_dataloader = DataLoader(val_data, collate_fn=custom_collate_fn, shuffle=False, **cfg.dataloader.params)
 
-    checkpoint_cb = pl.callbacks.ModelCheckpoint(
-        monitor='val/loss_epoch', mode='min', save_top_k=5, every_n_epochs=1
-    )
-    trainer = pl.Trainer(**cfg.trainer.params, callbacks=[checkpoint_cb, DatasetEpochCallback()])
+        checkpoint_cb = pl.callbacks.ModelCheckpoint(
+            monitor='val/loss_epoch', mode='min', save_top_k=5, every_n_epochs=1
+        )
+        trainer = pl.Trainer(**cfg.trainer.params, callbacks=[checkpoint_cb, DatasetEpochCallback()])
+    finally:
+        stop_gpu_keepalive(keepalive)
+
     trainer.fit(model=lightning_module, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
 
 

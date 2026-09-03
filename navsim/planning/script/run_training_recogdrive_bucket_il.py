@@ -16,6 +16,8 @@ from navsim.planning.training.agent_lightning_module import AgentLightningModule
 from navsim.planning.script.bucket_expert_data import (
     DatasetEpochCallback,
     build_mixed_bucket_datasets,
+    start_gpu_keepalive,
+    stop_gpu_keepalive,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,22 +59,27 @@ def main(cfg: DictConfig) -> None:
     dist.init_process_group(backend='nccl', world_size=world_size, rank=rank)
     torch.cuda.set_device(local_rank)
     pl.seed_everything(cfg.seed, workers=True)
+    keepalive = start_gpu_keepalive(local_rank)
 
-    agent: AbstractAgent = instantiate(cfg.agent)
-    agent.initialize()
-    lightning_module = AgentLightningModule(agent=agent)
+    try:
+        agent: AbstractAgent = instantiate(cfg.agent)
+        agent.initialize()
+        lightning_module = AgentLightningModule(agent=agent)
 
-    feature_builders = agent.get_feature_builders()
-    target_builders = agent.get_target_builders()
-    train_data, val_data = build_mixed_bucket_datasets(cfg, feature_builders, target_builders)
+        feature_builders = agent.get_feature_builders()
+        target_builders = agent.get_target_builders()
+        train_data, val_data = build_mixed_bucket_datasets(cfg, feature_builders, target_builders)
 
-    train_dataloader = DataLoader(train_data, collate_fn=custom_collate_fn, shuffle=True, **cfg.dataloader.params)
-    val_dataloader = DataLoader(val_data, collate_fn=custom_collate_fn, shuffle=False, **cfg.dataloader.params)
+        train_dataloader = DataLoader(train_data, collate_fn=custom_collate_fn, shuffle=True, **cfg.dataloader.params)
+        val_dataloader = DataLoader(val_data, collate_fn=custom_collate_fn, shuffle=False, **cfg.dataloader.params)
 
-    checkpoint_cb = pl.callbacks.ModelCheckpoint(
-        monitor='val/loss_epoch', mode='min', save_top_k=5, every_n_epochs=1
-    )
-    trainer = pl.Trainer(**cfg.trainer.params, callbacks=[checkpoint_cb, DatasetEpochCallback()])
+        checkpoint_cb = pl.callbacks.ModelCheckpoint(
+            monitor='val/loss_epoch', mode='min', save_top_k=5, every_n_epochs=1
+        )
+        trainer = pl.Trainer(**cfg.trainer.params, callbacks=[checkpoint_cb, DatasetEpochCallback()])
+    finally:
+        stop_gpu_keepalive(keepalive)
+
     trainer.fit(model=lightning_module, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
 
 

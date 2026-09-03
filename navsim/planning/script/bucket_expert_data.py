@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import random
+import threading
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -121,7 +122,9 @@ class TokenFilteredCacheOnlyDataset(CacheOnlyDataset):
         manifest_path: Optional[str] = None,
     ):
         self._cache_path = Path(cache_path)
-        if not self._cache_path.is_dir():
+        # Manifests already name the cache root. Skip Alluxio is_dir() which can hang
+        # for minutes on a large FUSE tree and looks like a training stall.
+        if not manifest_path and not self._cache_path.is_dir():
             raise AssertionError(f'Cache path {cache_path} does not exist!')
 
         self._feature_builders = feature_builders
@@ -476,6 +479,34 @@ def wrap_resilient(dataset: torch.utils.data.Dataset) -> torch.utils.data.Datase
     return _ResilientEpochDataset(dataset)
 
 
+def start_gpu_keepalive(local_rank: int):
+    """Keep a little GPU compute going while ranks parse indexes on CPU."""
+    stop = threading.Event()
+    device = f'cuda:{local_rank}'
+
+    def _spin():
+        if not torch.cuda.is_available():
+            return
+        buf = torch.ones((2048, 2048), device=device, dtype=torch.float32)
+        while not stop.is_set():
+            buf.mul_(1.0000001)
+            torch.cuda.synchronize(device)
+            stop.wait(2.0)
+
+    thread = threading.Thread(target=_spin, name='gpu-keepalive', daemon=True)
+    thread.start()
+    logger.info('GPU keepalive started on %s', device)
+    return stop, thread
+
+
+def stop_gpu_keepalive(handle) -> None:
+    if not handle:
+        return
+    stop, thread = handle
+    stop.set()
+    thread.join(timeout=5)
+
+
 def load_metric_cache_paths(cache_path: str) -> Dict[str, str]:
     root = Path(cache_path)
     metadata_dir = root / 'metadata'
@@ -497,18 +528,15 @@ def load_metric_cache_paths(cache_path: str) -> Dict[str, str]:
 
 
 def _rewrite_existing_path(path: str) -> str:
-    if Path(path).is_file():
-        return path
+    # Prefix-only rewrite. Never stat() here: a 100k-token metric CSV times
+    # Alluxio is_file() is what made RL sit idle for tens of minutes.
     rewrites = (
         ('/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/', '/workspace/datasets/recdrive/20260513/nby/recdrive/'),
         ('/mnt/datasets/', '/workspace/datasets/'),
-        ('/workspace/datasets/', '/mnt/datasets/'),
     )
     for src, dst in rewrites:
         if path.startswith(src):
-            alt = dst + path[len(src):]
-            if Path(alt).is_file():
-                return alt
+            return dst + path[len(src):]
     return path
 
 
@@ -550,14 +578,18 @@ def filter_dataset_to_metric_tokens(dataset, metric_tokens: set) -> int:
 
 
 def build_mixed_bucket_datasets(cfg, feature_builders, target_builders):
-    token_to_log = load_token_to_log_mapping(cfg.bucket.token_to_log_json)
+    nav_manifest = str(cfg.bucket.get('cache_manifest', '') or '') or None
+    # The token->log JSON is ~138MB. With a prebuilt manifest it is unused, and
+    # eight ranks parsing it in parallel is enough to look hung and get evicted.
+    token_to_log = None
+    if not nav_manifest:
+        token_to_log = load_token_to_log_mapping(cfg.bucket.token_to_log_json)
     bucket_tokens = load_token_list(cfg.bucket.tokens_json)
     if cfg.bucket.use_complement_for_full:
         full_tokens = load_complement_bucket_tokens(str(cfg.bucket.name), cfg.bucket.navtrain_output_dir)
     else:
         full_tokens = load_all_bucket_tokens(cfg.bucket.navtrain_output_dir)
 
-    nav_manifest = str(cfg.bucket.get('cache_manifest', '') or '') or None
     extra_cache_paths = _as_str_list(cfg.bucket.get('extra_cache_paths', []))
     extra_token_jsons = _as_str_list(cfg.bucket.get('extra_cache_token_jsons', []))
     extra_manifests = _as_str_list(cfg.bucket.get('extra_cache_manifests', []))
