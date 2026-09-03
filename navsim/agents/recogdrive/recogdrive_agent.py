@@ -108,6 +108,7 @@ class ReCogDriveAgent(AbstractAgent):
         self,
         trajectory_sampling: TrajectorySampling,
         vlm_path: Optional[str] = None,
+        vlm_weights_path: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
         cam_type: Optional[str] = 'single', 
         vlm_type: Optional[str] = 'internvl', 
@@ -144,6 +145,7 @@ class ReCogDriveAgent(AbstractAgent):
         super().__init__()
         self._trajectory_sampling = trajectory_sampling
         self.vlm_path = vlm_path
+        self.vlm_weights_path = (vlm_weights_path or "").strip() or None
         self.checkpoint_path = checkpoint_path
         self.vlm_type = vlm_type
         self.dit_type = dit_type
