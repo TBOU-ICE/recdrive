@@ -116,12 +116,22 @@ class ReCogDriveGoalAgent(ReCogDriveAgent):
         """
         if self.checkpoint_path:
             ckpt = torch.load(self.checkpoint_path, map_location="cpu", weights_only=False)["state_dict"]
-            ckpt_goal_keys = {
-                (k[len("agent."):] if k.startswith("agent.") else k)
-                for k in ckpt
-                if "goal_" in k
-            }
-            model_goal_keys = {k for k in self.state_dict() if "goal_" in k}
+
+            def _live_goal_keys(keys):
+                live = set()
+                for key in keys:
+                    name = key[len("agent."):] if key.startswith("agent.") else key
+                    if "goal_" not in name:
+                        continue
+                    # GRPO copies the planner into old_policy. An IL checkpoint
+                    # legitimately lacks those keys; they are not a goal_mode mismatch.
+                    if ".old_policy." in name or name.startswith("old_policy."):
+                        continue
+                    live.add(name)
+                return live
+
+            ckpt_goal_keys = _live_goal_keys(ckpt)
+            model_goal_keys = _live_goal_keys(self.state_dict())
             # A goal-free checkpoint (no goal keys at all) is a legitimate warm
             # start.  A goal checkpoint must match this agent's goal layout
             # exactly: extra ckpt keys mean the ckpt was trained with a "bigger"
