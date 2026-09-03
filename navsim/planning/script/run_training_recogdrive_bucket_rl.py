@@ -80,7 +80,7 @@ def main(cfg: DictConfig) -> None:
             metric_tokens = set(metric_loader.metric_cache_paths)
             logger.info('Metric cache tokens after merge: %d', len(metric_tokens))
 
-        logger.info('Building mixed train/val datasets from manifests')
+        logger.info('Building mixed train/val datasets from prebuilt no-goal mix indexes')
         train_data, val_data = build_mixed_bucket_datasets(cfg, feature_builders, target_builders)
         if metric_tokens is not None:
             mixed = getattr(getattr(train_data, '_inner', None), 'base', None)

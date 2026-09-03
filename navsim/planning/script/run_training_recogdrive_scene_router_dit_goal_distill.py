@@ -179,7 +179,16 @@ def _prune_bad_tokens(dataset, bad_dirs: Set[str]) -> int:
     valid = getattr(dataset, "_valid_cache_paths", None)
     if not isinstance(valid, dict):
         return 0
-    drop = [tok for tok, path in valid.items() if str(path) in bad_dirs]
+    # Mix symlink trees store the same shards under a different root than the
+    # Alluxio path recorded in the bad-shard list. Also match token / log+token.
+    bad_tokens = {os.path.basename(d) for d in bad_dirs}
+    bad_suffixes = {"/".join(Path(d).parts[-2:]) for d in bad_dirs if d}
+    drop = []
+    for tok, path in valid.items():
+        path_str = str(path)
+        suffix = f"{path.parent.name}/{path.name}"
+        if path_str in bad_dirs or tok in bad_tokens or path.name in bad_tokens or suffix in bad_suffixes:
+            drop.append(tok)
     for tok in drop:
         valid.pop(tok, None)
     dataset.tokens = list(valid.keys())

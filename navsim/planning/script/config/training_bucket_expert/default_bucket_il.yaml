@@ -35,6 +35,8 @@ bucket:
   extra_cache_token_jsons: []
   extra_cache_manifests: []
   extra_metric_cache_paths: []
+  train_index: ''
+  peer_train_indexes: []
 
 dataloader:
   params:

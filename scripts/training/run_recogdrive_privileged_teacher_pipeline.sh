@@ -15,8 +15,10 @@
 #   IL_CKPT=/path/to/old_goal_il.ckpt \
 #     bash scripts/training/run_recogdrive_privileged_teacher_pipeline.sh
 #
-# Data: navtrain exclusive tokens + existing SimScale quality caches/manifests.
-# Known-bad Alluxio shards are dropped from the prebuilt list. No symlink prep.
+# Data: reuse the already-built no-goal mix on disk
+#   il_training_newvlm/${BUCKET_NAME}_fullmix/metadata/train_index.json
+# plus the other three buckets as the complement mix. No Alluxio walk, no new
+# symlinks. Known-bad shards are dropped from the prebuilt list.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -71,61 +73,54 @@ SIM_QUALITY_CACHE_ROOT="${SIM_QUALITY_CACHE_ROOT:-/workspace/datasets/simscale/2
 SIM_AGENT_CACHE_ROOT="${SIM_AGENT_CACHE_ROOT:-/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim}"
 SIMSCALE_METRIC_ROOT="${SIMSCALE_METRIC_ROOT:-/workspace/datasets/simscale/20260709}"
 SIM_ROUNDS="${SIM_ROUNDS:-0,1}"
-USE_SIMSCALE="${USE_SIMSCALE:-1}"
 METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cache_train_v2}"
+MIX_ROOT_PARENT="${MIX_ROOT_PARENT:-/workspace/datasets/simscale/20260709/data/simscale/il_training_newvlm}"
+MIX_ROOT="${MIX_ROOT:-${MIX_ROOT_PARENT}/${BUCKET_NAME}_fullmix}"
+TRAIN_INDEX="${TRAIN_INDEX:-${MIX_ROOT}/metadata/train_index.json}"
 
 join_hydra() {
   if [[ $# -eq 0 ]]; then
     echo "[]"
     return
   fi
-  local IFS=,
-  echo "[$*]"
+  local out="["
+  local first=1
+  for item in "$@"; do
+    if [[ "${first}" -eq 1 ]]; then
+      first=0
+    else
+      out+=","
+    fi
+    out+="'${item}'"
+  done
+  out+="]"
+  echo "${out}"
 }
 
-EXTRA_CACHE_LIST=()
-EXTRA_TOKEN_JSON_LIST=()
-EXTRA_MANIFEST_LIST=()
+PEER_INDEX_LIST=()
+for peer in progress_curbside_stopgo rule_intersection safety_dynamics_interaction general_or_no_tag; do
+  if [[ "${peer}" == "${BUCKET_NAME}" ]]; then
+    continue
+  fi
+  peer_index="${MIX_ROOT_PARENT}/${peer}_fullmix/metadata/train_index.json"
+  if [[ -f "${peer_index}" ]]; then
+    PEER_INDEX_LIST+=("${peer_index}")
+  else
+    echo "[privileged-teacher] ! missing peer mix index: ${peer_index}" >&2
+  fi
+done
+PEER_INDEXES_ARG="$(join_hydra ${PEER_INDEX_LIST[@]+"${PEER_INDEX_LIST[@]}"})"
+
 EXTRA_METRIC_LIST=()
-if [[ "${USE_SIMSCALE}" == "1" ]]; then
-  IFS=',' read -r -a _sim_rounds <<< "${SIM_ROUNDS}"
-  for r in "${_sim_rounds[@]}"; do
-    r="${r//[[:space:]]/}"
-    [[ -z "${r}" ]] && continue
-    ds="synthetic_reaction_pdm_v1.0-${r}"
-    qcache="${SIM_QUALITY_CACHE_ROOT}/recogdrive_agent_cache_dir_${ds}_quality"
-    fcache="${SIM_AGENT_CACHE_ROOT}/recogdrive_agent_cache_dir_${ds}"
-    if [[ -d "${qcache}" ]]; then
-      cache="${qcache}"
-    elif [[ -d "${fcache}" ]]; then
-      cache="${fcache}"
-    else
-      echo "[privileged-teacher] ! skip simscale round ${r}: missing agent cache" >&2
-      continue
-    fi
-    token_json="${SIMSCALE_BUCKET_ROOT}/scene_buckets_${ds}_quality/exclusive_${BUCKET_NAME}_tokens.json"
-    manifest="${MANIFEST_DIR}/sim_round${r}_quality_newvlm.json"
-    metric_dir="${SIMSCALE_METRIC_ROOT}/metric_cache_${ds}"
-    if [[ ! -f "${token_json}" ]]; then
-      echo "[privileged-teacher] ! skip simscale round ${r}: missing ${token_json}" >&2
-      continue
-    fi
-    if [[ ! -f "${manifest}" ]]; then
-      echo "[privileged-teacher] ! skip simscale round ${r}: missing manifest ${manifest}" >&2
-      continue
-    fi
-    EXTRA_CACHE_LIST+=("${cache}")
-    EXTRA_TOKEN_JSON_LIST+=("${token_json}")
-    EXTRA_MANIFEST_LIST+=("${manifest}")
-    if [[ -d "${metric_dir}" ]]; then
-      EXTRA_METRIC_LIST+=("${metric_dir}")
-    fi
-    echo "[privileged-teacher] + simscale round ${r}: cache=${cache} tokens=${token_json}"
-  done
-fi
-EXTRA_CACHES_ARG="$(join_hydra ${EXTRA_CACHE_LIST[@]+"${EXTRA_CACHE_LIST[@]}"})"
-EXTRA_TOKEN_JSONS_ARG="$(join_hydra ${EXTRA_TOKEN_JSON_LIST[@]+"${EXTRA_TOKEN_JSON_LIST[@]}"})"
-EXTRA_MANIFESTS_ARG="$(join_hydra ${EXTRA_MANIFEST_LIST[@]+"${EXTRA_MANIFEST_LIST[@]}"})"
+IFS=',' read -r -a _sim_rounds <<< "${SIM_ROUNDS}"
+for r in "${_sim_rounds[@]}"; do
+  r="${r//[[:space:]]/}"
+  [[ -z "${r}" ]] && continue
+  metric_dir="${SIMSCALE_METRIC_ROOT}/metric_cache_synthetic_reaction_pdm_v1.0-${r}"
+  if [[ -d "${metric_dir}" ]]; then
+    EXTRA_METRIC_LIST+=("${metric_dir}")
+  fi
+done
 EXTRA_METRICS_ARG="$(join_hydra ${EXTRA_METRIC_LIST[@]+"${EXTRA_METRIC_LIST[@]}"})"
 
 IL_FULL_RATIO="${IL_FULL_RATIO:-0.5}"
@@ -155,10 +150,8 @@ COMMON=(
   "bucket.tokens_json='${BUCKET_TOKENS_JSON}'"
   "bucket.token_to_log_json='${TOKEN_TO_LOG_JSON}'"
   "bucket.navtrain_output_dir='${NAVTRAIN_OUTPUT_DIR}'"
-  "bucket.cache_manifest='${NAV_MANIFEST}'"
-  "bucket.extra_cache_paths=${EXTRA_CACHES_ARG}"
-  "bucket.extra_cache_token_jsons=${EXTRA_TOKEN_JSONS_ARG}"
-  "bucket.extra_cache_manifests=${EXTRA_MANIFESTS_ARG}"
+  "bucket.train_index='${TRAIN_INDEX}'"
+  "bucket.peer_train_indexes=${PEER_INDEXES_ARG}"
   "bucket.extra_metric_cache_paths=${EXTRA_METRICS_ARG}"
   "train_test_split='${TRAIN_TEST_SPLIT}'"
   "cache_path='${CACHE_PATH}'"
@@ -193,18 +186,12 @@ require_dir() {
   fi
 }
 
-require_file "${BUCKET_TOKENS_JSON}"
-require_file "${TOKEN_TO_LOG_JSON}"
-require_file "${NAV_MANIFEST}"
-require_dir "${NAVTRAIN_OUTPUT_DIR}"
-require_dir "${CACHE_PATH}"
+require_file "${TRAIN_INDEX}"
 require_dir "${VLM_PATH}"
 
 echo "[privileged-teacher] stage=${STAGE} bucket=${BUCKET_NAME} goal_mode=${GOAL_MODE}"
-echo "[privileged-teacher] bucket_tokens=${BUCKET_TOKENS_JSON}"
-echo "[privileged-teacher] cache=${CACHE_PATH}"
-echo "[privileged-teacher] nav_manifest=${NAV_MANIFEST}"
-echo "[privileged-teacher] extra_caches=${EXTRA_CACHES_ARG}"
+echo "[privileged-teacher] train_index=${TRAIN_INDEX}"
+echo "[privileged-teacher] peer_indexes=${PEER_INDEXES_ARG}"
 echo "[privileged-teacher] extra_metrics=${EXTRA_METRICS_ARG}"
 echo "[privileged-teacher] bad_cache_list=${SCENE_ROUTER_BAD_CACHE_LIST}"
 

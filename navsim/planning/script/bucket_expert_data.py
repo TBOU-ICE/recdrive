@@ -108,6 +108,64 @@ def load_all_bucket_tokens(navtrain_output_dir: str) -> List[str]:
     return tokens
 
 
+class PathMappedCacheDataset(CacheOnlyDataset):
+    """Cache dataset from an explicit token -> directory map. No tree walk."""
+
+    def __init__(self, cache_paths: Dict[str, Path], feature_builders, target_builders):
+        super(CacheOnlyDataset, self).__init__()
+        self._cache_path = Path('.')
+        self._feature_builders = feature_builders
+        self._target_builders = target_builders
+        self._valid_cache_paths = {str(token): Path(path) for token, path in cache_paths.items()}
+        self.tokens = list(self._valid_cache_paths.keys())
+        self.log_names = sorted({path.parent.name for path in self._valid_cache_paths.values()})
+
+
+def load_train_index_dataset(
+    index_path: str,
+    feature_builders,
+    target_builders,
+    sources: Optional[Sequence[str]] = None,
+    log_names: Optional[Sequence[str]] = None,
+) -> PathMappedCacheDataset:
+    path = Path(index_path)
+    if not path.is_file():
+        raise FileNotFoundError(f'train_index missing: {index_path}')
+    with path.open('r', encoding='utf-8') as handle:
+        payload = json.load(handle)
+    samples = payload.get('samples') or []
+    if not samples:
+        raise ValueError(f'train_index is empty: {index_path}')
+
+    wanted_sources = {str(source) for source in sources} if sources is not None else None
+    wanted_logs = {str(log_name) for log_name in log_names} if log_names is not None else None
+    cache_paths: Dict[str, Path] = {}
+    for sample in samples:
+        source = str(sample.get('source', ''))
+        if wanted_sources is not None and source not in wanted_sources:
+            continue
+        token_path = Path(sample['path'])
+        # Keep the on-disk token name so sim shards retain the -000/-001 suffix
+        # used by metric-cache keys. Do not walk or stat the tree.
+        token = token_path.name or str(sample.get('token') or '')
+        if not token:
+            continue
+        if wanted_logs is not None and token_path.parent.name not in wanted_logs:
+            continue
+        cache_paths[token] = token_path
+
+    logger.info(
+        'Loaded train_index %s: %d samples (sources=%s logs=%s)',
+        index_path,
+        len(cache_paths),
+        sorted(wanted_sources) if wanted_sources else 'all',
+        'filtered' if wanted_logs is not None else 'all',
+    )
+    if not cache_paths:
+        raise ValueError(f'No samples left after filtering {index_path}')
+    return PathMappedCacheDataset(cache_paths, feature_builders, target_builders)
+
+
 class TokenFilteredCacheOnlyDataset(CacheOnlyDataset):
     """Cache-only dataset with optional token whitelist filtering."""
 
@@ -578,6 +636,58 @@ def filter_dataset_to_metric_tokens(dataset, metric_tokens: set) -> int:
 
 
 def build_mixed_bucket_datasets(cfg, feature_builders, target_builders):
+    train_index = str(cfg.bucket.get('train_index', '') or '')
+    if train_index:
+        logger.info('Using prebuilt no-goal mix index %s', train_index)
+        bucket_train = load_train_index_dataset(train_index, feature_builders, target_builders)
+        peer_indexes = _as_str_list(cfg.bucket.get('peer_train_indexes', []))
+        full_parts = []
+        for peer in peer_indexes:
+            if not Path(peer).is_file():
+                logger.warning('Skip missing peer train_index: %s', peer)
+                continue
+            full_parts.append(load_train_index_dataset(peer, feature_builders, target_builders))
+        val_data = load_train_index_dataset(
+            train_index,
+            feature_builders,
+            target_builders,
+            sources=['navtrain_bucket'],
+            log_names=cfg.val_logs,
+        )
+        prune_known_bad_shards(bucket_train, val_data, *full_parts)
+        if full_parts:
+            full_train = combine_cache_datasets(full_parts)
+            epoch_size = int(cfg.bucket.epoch_size) if cfg.bucket.epoch_size else len(full_train)
+            train_data = RatioMixedCacheDataset(
+                full_dataset=full_train,
+                bucket_dataset=bucket_train,
+                full_ratio=float(cfg.bucket.full_ratio),
+                bucket_ratio=float(cfg.bucket.bucket_ratio),
+                epoch_size=epoch_size,
+                seed=int(cfg.seed),
+            )
+            log_dataset_summary(
+                bucket_name=str(cfg.bucket.name),
+                full_train_size=len(full_train),
+                bucket_train_size=len(bucket_train),
+                val_size=len(val_data),
+                full_ratio=float(cfg.bucket.full_ratio),
+                bucket_ratio=float(cfg.bucket.bucket_ratio),
+                epoch_size=epoch_size,
+            )
+        else:
+            train_data = bucket_train
+            log_dataset_summary(
+                bucket_name=str(cfg.bucket.name),
+                full_train_size=0,
+                bucket_train_size=len(bucket_train),
+                val_size=len(val_data),
+                full_ratio=0.0,
+                bucket_ratio=1.0,
+                epoch_size=len(bucket_train),
+            )
+        return wrap_resilient(train_data), wrap_resilient(val_data)
+
     nav_manifest = str(cfg.bucket.get('cache_manifest', '') or '') or None
     # The token->log JSON is ~138MB. With a prebuilt manifest it is unused, and
     # eight ranks parsing it in parallel is enough to look hung and get evicted.
