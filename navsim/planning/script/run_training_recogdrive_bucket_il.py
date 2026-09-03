@@ -1,4 +1,3 @@
-from pathlib import Path
 import logging
 import os
 from typing import Dict, List, Tuple
@@ -16,13 +15,7 @@ from navsim.agents.abstract_agent import AbstractAgent
 from navsim.planning.training.agent_lightning_module import AgentLightningModule
 from navsim.planning.script.bucket_expert_data import (
     DatasetEpochCallback,
-    RatioMixedCacheDataset,
-    TokenFilteredCacheOnlyDataset,
-    load_all_bucket_tokens,
-    load_complement_bucket_tokens,
-    load_token_list,
-    load_token_to_log_mapping,
-    log_dataset_summary,
+    build_mixed_bucket_datasets,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,61 +64,7 @@ def main(cfg: DictConfig) -> None:
 
     feature_builders = agent.get_feature_builders()
     target_builders = agent.get_target_builders()
-
-    token_to_log = load_token_to_log_mapping(cfg.bucket.token_to_log_json)
-    bucket_tokens = load_token_list(cfg.bucket.tokens_json)
-    if cfg.bucket.use_complement_for_full:
-        full_tokens = load_complement_bucket_tokens(str(cfg.bucket.name), cfg.bucket.navtrain_output_dir)
-    else:
-        full_tokens = load_all_bucket_tokens(cfg.bucket.navtrain_output_dir)
-
-    logger.info('Building train full dataset from %d candidate tokens', len(full_tokens))
-    full_train = TokenFilteredCacheOnlyDataset(
-        cache_path=cfg.cache_path,
-        feature_builders=feature_builders,
-        target_builders=target_builders,
-        log_names=cfg.train_logs,
-        tokens=full_tokens,
-        token_to_log=token_to_log,
-    )
-    logger.info('Building train bucket dataset from %d candidate tokens', len(bucket_tokens))
-    bucket_train = TokenFilteredCacheOnlyDataset(
-        cache_path=cfg.cache_path,
-        feature_builders=feature_builders,
-        target_builders=target_builders,
-        log_names=cfg.train_logs,
-        tokens=bucket_tokens,
-        token_to_log=token_to_log,
-    )
-    logger.info('Building validation bucket dataset from %d candidate tokens', len(bucket_tokens))
-    val_data = TokenFilteredCacheOnlyDataset(
-        cache_path=cfg.cache_path,
-        feature_builders=feature_builders,
-        target_builders=target_builders,
-        log_names=cfg.val_logs,
-        tokens=bucket_tokens,
-        token_to_log=token_to_log,
-    )
-
-    epoch_size = int(cfg.bucket.epoch_size) if cfg.bucket.epoch_size else len(full_train)
-    train_data = RatioMixedCacheDataset(
-        full_dataset=full_train,
-        bucket_dataset=bucket_train,
-        full_ratio=float(cfg.bucket.full_ratio),
-        bucket_ratio=float(cfg.bucket.bucket_ratio),
-        epoch_size=epoch_size,
-        seed=int(cfg.seed),
-    )
-
-    log_dataset_summary(
-        bucket_name=str(cfg.bucket.name),
-        full_train_size=len(full_train),
-        bucket_train_size=len(bucket_train),
-        val_size=len(val_data),
-        full_ratio=float(cfg.bucket.full_ratio),
-        bucket_ratio=float(cfg.bucket.bucket_ratio),
-        epoch_size=epoch_size,
-    )
+    train_data, val_data = build_mixed_bucket_datasets(cfg, feature_builders, target_builders)
 
     train_dataloader = DataLoader(train_data, collate_fn=custom_collate_fn, shuffle=True, **cfg.dataloader.params)
     val_dataloader = DataLoader(val_data, collate_fn=custom_collate_fn, shuffle=False, **cfg.dataloader.params)

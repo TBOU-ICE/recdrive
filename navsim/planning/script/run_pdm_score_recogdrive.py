@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Union, Tuple
 from pathlib import Path
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import traceback
 import logging
 import lzma
@@ -70,7 +70,8 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
     logger.info(f"Starting worker in thread_id={thread_id}, node_id={node_id}")
 
     log_names = [a["log_file"] for a in args]
-    tokens = [t for a in args for t in a["tokens"]]
+    intended_tokens = [t for a in args for t in a["tokens"]]
+    tokens = intended_tokens
     cfg: DictConfig = args[0]["cfg"]
 
     simulator: PDMSimulator = instantiate(cfg.simulator)
@@ -94,13 +95,29 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
     )
 
 
-    tokens_to_evaluate = list(set(scene_loader.tokens) & set(metric_cache_loader.tokens))
-    tokens_to_evaluate = sorted(tokens_to_evaluate) 
-    
+    # Keep the torchrun shard. Re-intersecting loader tokens with the full
+    # metric cache can pull every scene from this rank's log files and leave
+    # rank 0 with ~all of navtest while other ranks finish and hit the
+    # 600s NCCL all_gather watchdog.
+    intended_token_set = set(intended_tokens)
+    tokens_to_evaluate = [
+        token
+        for token in scene_loader.tokens
+        if token in intended_token_set and token in metric_cache_loader.tokens
+    ]
+    tokens_to_evaluate = sorted(set(tokens_to_evaluate))
+    logger.info(
+        f"Rank {dist.get_rank()} scoring {len(tokens_to_evaluate)} scenes "
+        f"(intended shard {len(intended_tokens)}) in thread_id={thread_id}, node_id={node_id}"
+    )
+
     pdm_results: List[Dict[str, Any]] = []
     for idx, (token) in enumerate(tokens_to_evaluate):
-        if dist.get_rank() == 0:
-            logger.info(f"Rank {dist.get_rank()} processing scenario {idx+1} / {len(tokens_to_evaluate)} in thread_id={thread_id}, node_id={node_id}")
+        if idx == 0 or (idx + 1) % 50 == 0 or (idx + 1) == len(tokens_to_evaluate):
+            logger.info(
+                f"Rank {dist.get_rank()} processing scenario {idx+1} / {len(tokens_to_evaluate)} "
+                f"in thread_id={thread_id}, node_id={node_id}"
+            )
 
         score_row: Dict[str, Any] = {"token": token, "valid": True}
         try:
@@ -167,10 +184,12 @@ def main(cfg: DictConfig) -> None:
     world_size = int(os.getenv('WORLD_SIZE', 1))
     rank = int(os.getenv('RANK', 0))
 
+    nccl_timeout_s = int(os.getenv("TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC", "7200"))
     dist.init_process_group(
         backend='nccl',
         world_size=world_size,
         rank=rank,
+        timeout=timedelta(seconds=nccl_timeout_s),
     )
     
     torch.cuda.set_device(local_rank)

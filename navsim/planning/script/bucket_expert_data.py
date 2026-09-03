@@ -1,11 +1,13 @@
 import json
 import logging
+import os
 import random
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pytorch_lightning as pl
 import torch
+from torch.utils.data import ConcatDataset
 
 from navsim.planning.training.dataset import CacheOnlyDataset
 
@@ -116,38 +118,57 @@ class TokenFilteredCacheOnlyDataset(CacheOnlyDataset):
         log_names: Optional[List[str]] = None,
         tokens: Optional[Sequence[str]] = None,
         token_to_log: Optional[Dict[str, str]] = None,
+        manifest_path: Optional[str] = None,
     ):
         self._cache_path = Path(cache_path)
         if not self._cache_path.is_dir():
             raise AssertionError(f'Cache path {cache_path} does not exist!')
 
-        if log_names is not None:
-            self.log_names = [Path(log_name) for log_name in log_names if (self._cache_path / log_name).is_dir()]
-        else:
-            self.log_names = [log_name for log_name in self._cache_path.iterdir()]
-
         self._feature_builders = feature_builders
         self._target_builders = target_builders
+        allowed_tokens = {normalize_token(token) for token in tokens} if tokens is not None else None
+        if allowed_tokens is not None:
+            allowed_tokens.discard(None)
 
-        if tokens is not None and token_to_log is not None:
-            allowed_logs = {str(log_name) for log_name in self.log_names}
-            self._valid_cache_paths = self._load_valid_caches_from_index(
+        if manifest_path:
+            self._valid_cache_paths = CacheOnlyDataset._load_from_manifest(
                 cache_path=self._cache_path,
                 feature_builders=self._feature_builders,
                 target_builders=self._target_builders,
-                tokens=tokens,
-                token_to_log=token_to_log,
-                allowed_logs=allowed_logs,
+                log_names=log_names,
+                manifest_path=manifest_path,
             )
+            if allowed_tokens is not None:
+                self._valid_cache_paths = {
+                    token: path
+                    for token, path in self._valid_cache_paths.items()
+                    if normalize_token(token) in allowed_tokens
+                }
+            self.log_names = sorted({Path(path).parent.name for path in self._valid_cache_paths.values()})
         else:
-            token_filter = set(tokens) if tokens is not None else None
-            self._valid_cache_paths = self._load_valid_caches(
-                cache_path=self._cache_path,
-                feature_builders=self._feature_builders,
-                target_builders=self._target_builders,
-                log_names=self.log_names,
-                token_filter=token_filter,
-            )
+            if log_names is not None:
+                self.log_names = [Path(log_name) for log_name in log_names if (self._cache_path / log_name).is_dir()]
+            else:
+                self.log_names = [log_name for log_name in self._cache_path.iterdir()]
+
+            if tokens is not None and token_to_log is not None:
+                allowed_logs = {str(log_name) for log_name in self.log_names}
+                self._valid_cache_paths = self._load_valid_caches_from_index(
+                    cache_path=self._cache_path,
+                    feature_builders=self._feature_builders,
+                    target_builders=self._target_builders,
+                    tokens=tokens,
+                    token_to_log=token_to_log,
+                    allowed_logs=allowed_logs,
+                )
+            else:
+                self._valid_cache_paths = self._load_valid_caches(
+                    cache_path=self._cache_path,
+                    feature_builders=self._feature_builders,
+                    target_builders=self._target_builders,
+                    log_names=self.log_names,
+                    token_filter=allowed_tokens,
+                )
         self.tokens = list(self._valid_cache_paths.keys())
 
     @staticmethod
@@ -345,3 +366,260 @@ def log_dataset_summary(
     logger.info('Validation bucket dataset size: %d', val_size)
     logger.info('Train mix ratio full/bucket: %.3f / %.3f', full_ratio, bucket_ratio)
     logger.info('Train mixed epoch size: %d', epoch_size)
+
+
+def _as_str_list(value) -> List[str]:
+    if value is None:
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def combine_cache_datasets(datasets: Sequence[torch.utils.data.Dataset]) -> torch.utils.data.Dataset:
+    kept = [dataset for dataset in datasets if len(dataset) > 0]
+    if not kept:
+        raise ValueError('No non-empty cache datasets to combine')
+    if len(kept) == 1:
+        return kept[0]
+    return ConcatDataset(kept)
+
+
+def build_extra_bucket_datasets(
+    extra_cache_paths: Sequence[str],
+    extra_token_jsons: Sequence[str],
+    extra_manifests: Sequence[str],
+    feature_builders,
+    target_builders,
+) -> List[TokenFilteredCacheOnlyDataset]:
+    datasets: List[TokenFilteredCacheOnlyDataset] = []
+    for index, cache_path in enumerate(extra_cache_paths):
+        if not Path(cache_path).is_dir():
+            logger.warning('Skip missing extra cache: %s', cache_path)
+            continue
+        token_json = extra_token_jsons[index] if index < len(extra_token_jsons) else ''
+        manifest = extra_manifests[index] if index < len(extra_manifests) else ''
+        tokens = load_token_list(token_json) if token_json else None
+        if token_json and not Path(token_json).is_file():
+            logger.warning('Skip extra cache with missing token list: %s', token_json)
+            continue
+        if manifest and not Path(manifest).is_file():
+            raise FileNotFoundError(f'Extra cache manifest missing: {manifest}')
+        dataset = TokenFilteredCacheOnlyDataset(
+            cache_path=cache_path,
+            feature_builders=feature_builders,
+            target_builders=target_builders,
+            log_names=None,
+            tokens=tokens,
+            token_to_log=None,
+            manifest_path=manifest or None,
+        )
+        logger.info(
+            'Extra bucket cache %s: %d samples (tokens=%s manifest=%s)',
+            cache_path,
+            len(dataset),
+            bool(token_json),
+            bool(manifest),
+        )
+        if len(dataset) > 0:
+            datasets.append(dataset)
+    return datasets
+
+
+def prune_known_bad_shards(*datasets) -> int:
+    from navsim.planning.script.run_training_recogdrive_scene_router_dit_goal_distill import (
+        _load_bad_token_dirs,
+        _prune_bad_tokens,
+    )
+
+    bad_list_path = (
+        os.environ.get('SCENE_ROUTER_BAD_CACHE_LIST', '').strip()
+        or os.environ.get('BAD_CACHE_LIST', '').strip()
+    )
+    if not bad_list_path:
+        return 0
+    if not os.path.isfile(bad_list_path):
+        logger.warning('Bad-cache list set but not found: %s', bad_list_path)
+        return 0
+
+    bad_dirs = _load_bad_token_dirs(bad_list_path)
+    removed = 0
+    for dataset in datasets:
+        if dataset is None:
+            continue
+        removed += _prune_bad_tokens(dataset, bad_dirs)
+    logger.info('Pruned %d known-bad shards from %s', removed, bad_list_path)
+    return removed
+
+
+class _ResilientEpochDataset:
+    """Resilient wrapper that still forwards epoch resampling to the mixed set."""
+
+    def __init__(self, dataset: torch.utils.data.Dataset):
+        from navsim.planning.script.run_training_recogdrive_scene_router_dit_goal_distill import (
+            ResilientCacheDataset,
+        )
+
+        self._inner = ResilientCacheDataset(dataset)
+
+    def __len__(self):
+        return len(self._inner)
+
+    def __getitem__(self, idx: int):
+        return self._inner[idx]
+
+    def set_epoch(self, epoch: int) -> None:
+        base = getattr(self._inner, 'base', None)
+        if base is not None and hasattr(base, 'set_epoch'):
+            base.set_epoch(epoch)
+
+
+def wrap_resilient(dataset: torch.utils.data.Dataset) -> torch.utils.data.Dataset:
+    return _ResilientEpochDataset(dataset)
+
+
+def load_metric_cache_paths(cache_path: str) -> Dict[str, str]:
+    root = Path(cache_path)
+    metadata_dir = root / 'metadata'
+    if not metadata_dir.is_dir():
+        raise FileNotFoundError(f'Metric cache metadata missing: {metadata_dir}')
+    csv_files = [path for path in metadata_dir.iterdir() if path.suffix == '.csv']
+    if not csv_files:
+        raise FileNotFoundError(f'No metric-cache metadata CSV in {metadata_dir}')
+    paths: Dict[str, str] = {}
+    with csv_files[0].open('r', encoding='utf-8') as handle:
+        next(handle, None)
+        for line in handle:
+            raw = line.strip()
+            if not raw:
+                continue
+            token = raw.split('/')[-2]
+            paths[token] = _rewrite_existing_path(raw)
+    return paths
+
+
+def _rewrite_existing_path(path: str) -> str:
+    if Path(path).is_file():
+        return path
+    rewrites = (
+        ('/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/', '/workspace/datasets/recdrive/20260513/nby/recdrive/'),
+        ('/mnt/datasets/', '/workspace/datasets/'),
+        ('/workspace/datasets/', '/mnt/datasets/'),
+    )
+    for src, dst in rewrites:
+        if path.startswith(src):
+            alt = dst + path[len(src):]
+            if Path(alt).is_file():
+                return alt
+    return path
+
+
+def merge_metric_cache_loader(loader, extra_cache_paths: Sequence[str]) -> int:
+    added = 0
+    for token, path in list(loader.metric_cache_paths.items()):
+        rewritten = _rewrite_existing_path(str(path))
+        if rewritten != str(path):
+            loader.metric_cache_paths[token] = rewritten
+    for cache_path in extra_cache_paths:
+        if not cache_path:
+            continue
+        extra = load_metric_cache_paths(cache_path)
+        for token, path in extra.items():
+            if token not in loader.metric_cache_paths:
+                loader.metric_cache_paths[token] = path
+                added += 1
+    logger.info('Merged %d extra metric-cache tokens from %d dirs', added, len(list(extra_cache_paths)))
+    return added
+
+
+def filter_dataset_to_metric_tokens(dataset, metric_tokens: set) -> int:
+    if isinstance(dataset, ConcatDataset):
+        removed = sum(filter_dataset_to_metric_tokens(child, metric_tokens) for child in dataset.datasets)
+        dataset.cumulative_sizes = ConcatDataset.cumsum(dataset.datasets)
+        return removed
+    valid = getattr(dataset, '_valid_cache_paths', None)
+    if not isinstance(valid, dict):
+        return 0
+    drop = [
+        token
+        for token in list(valid)
+        if token not in metric_tokens and normalize_token(token) not in metric_tokens
+    ]
+    for token in drop:
+        valid.pop(token, None)
+    dataset.tokens = list(valid.keys())
+    return len(drop)
+
+
+def build_mixed_bucket_datasets(cfg, feature_builders, target_builders):
+    token_to_log = load_token_to_log_mapping(cfg.bucket.token_to_log_json)
+    bucket_tokens = load_token_list(cfg.bucket.tokens_json)
+    if cfg.bucket.use_complement_for_full:
+        full_tokens = load_complement_bucket_tokens(str(cfg.bucket.name), cfg.bucket.navtrain_output_dir)
+    else:
+        full_tokens = load_all_bucket_tokens(cfg.bucket.navtrain_output_dir)
+
+    nav_manifest = str(cfg.bucket.get('cache_manifest', '') or '') or None
+    extra_cache_paths = _as_str_list(cfg.bucket.get('extra_cache_paths', []))
+    extra_token_jsons = _as_str_list(cfg.bucket.get('extra_cache_token_jsons', []))
+    extra_manifests = _as_str_list(cfg.bucket.get('extra_cache_manifests', []))
+
+    logger.info('Building train full dataset from %d candidate tokens', len(full_tokens))
+    full_train = TokenFilteredCacheOnlyDataset(
+        cache_path=cfg.cache_path,
+        feature_builders=feature_builders,
+        target_builders=target_builders,
+        log_names=cfg.train_logs,
+        tokens=full_tokens,
+        token_to_log=token_to_log,
+        manifest_path=nav_manifest,
+    )
+    logger.info('Building train bucket dataset from %d candidate tokens', len(bucket_tokens))
+    nav_bucket_train = TokenFilteredCacheOnlyDataset(
+        cache_path=cfg.cache_path,
+        feature_builders=feature_builders,
+        target_builders=target_builders,
+        log_names=cfg.train_logs,
+        tokens=bucket_tokens,
+        token_to_log=token_to_log,
+        manifest_path=nav_manifest,
+    )
+    extra_bucket = build_extra_bucket_datasets(
+        extra_cache_paths,
+        extra_token_jsons,
+        extra_manifests,
+        feature_builders,
+        target_builders,
+    )
+    logger.info('Building validation bucket dataset from %d candidate tokens', len(bucket_tokens))
+    val_data = TokenFilteredCacheOnlyDataset(
+        cache_path=cfg.cache_path,
+        feature_builders=feature_builders,
+        target_builders=target_builders,
+        log_names=cfg.val_logs,
+        tokens=bucket_tokens,
+        token_to_log=token_to_log,
+        manifest_path=nav_manifest,
+    )
+
+    prune_known_bad_shards(full_train, nav_bucket_train, val_data, *extra_bucket)
+    bucket_train = combine_cache_datasets([nav_bucket_train, *extra_bucket])
+
+    epoch_size = int(cfg.bucket.epoch_size) if cfg.bucket.epoch_size else len(full_train)
+    train_data = RatioMixedCacheDataset(
+        full_dataset=full_train,
+        bucket_dataset=bucket_train,
+        full_ratio=float(cfg.bucket.full_ratio),
+        bucket_ratio=float(cfg.bucket.bucket_ratio),
+        epoch_size=epoch_size,
+        seed=int(cfg.seed),
+    )
+    log_dataset_summary(
+        bucket_name=str(cfg.bucket.name),
+        full_train_size=len(full_train),
+        bucket_train_size=len(bucket_train),
+        val_size=len(val_data),
+        full_ratio=float(cfg.bucket.full_ratio),
+        bucket_ratio=float(cfg.bucket.bucket_ratio),
+        epoch_size=epoch_size,
+    )
+    logger.info('SimScale/extra bucket sources: %d datasets', len(extra_bucket))
+    return wrap_resilient(train_data), wrap_resilient(val_data)

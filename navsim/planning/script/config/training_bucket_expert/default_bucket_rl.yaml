@@ -30,6 +30,11 @@ bucket:
   full_ratio: 0.2
   bucket_ratio: 0.8
   epoch_size: null
+  cache_manifest: ''
+  extra_cache_paths: []
+  extra_cache_token_jsons: []
+  extra_cache_manifests: []
+  extra_metric_cache_paths: []
 
 dataloader:
   params:

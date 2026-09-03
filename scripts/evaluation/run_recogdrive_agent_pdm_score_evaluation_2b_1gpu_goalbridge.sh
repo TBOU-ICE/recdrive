@@ -27,6 +27,12 @@ export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/d
 export NCCL_IB_DISABLE=0
 export NCCL_P2P_DISABLE=0
 export NCCL_SHM_DISABLE=0
+# PDMS scoring has no collectives until the final all_gather. The default
+# 600s NCCL watchdog kills the first finished rank while rank 0 is still
+# scoring. Disable the abort and wait up to 2h for stragglers.
+export TORCH_NCCL_ENABLE_MONITORING="${TORCH_NCCL_ENABLE_MONITORING:-0}"
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-7200}"
+export NCCL_TIMEOUT="${NCCL_TIMEOUT:-7200}"
 
 MASTER_PORT="${MASTER_PORT:-63780}"
 PORT="${PORT:-63781}"
@@ -36,11 +42,11 @@ GPUS="${GPUS:-8}"
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} GPUS=${GPUS}"
 
 STUDENT_GOAL_MODE="${STUDENT_GOAL_MODE:-adaln}"
-CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp/training_goalbridge_opd_old_teacher_gpt_rl_anchor_v1/2026.08.26.21.57.12/lightning_logs/version_0/checkpoints/epoch=23-step=68064.ckpt}"
+CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp/training_hopd_old_teacher_opd_gpt_v3/2026.09.01.15.53.55/lightning_logs/version_0/checkpoints/ckpt/epoch=9-step=28360.ckpt}"
 VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cache}"
 MAX_SCENES="${MAX_SCENES:-}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-eval-pdms-goalbridge-predgoal-${STUDENT_GOAL_MODE}-navtest}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-eval-pdms-${STUDENT_GOAL_MODE}-hopd-gpt-v3-test1-9epoch}"
 
 HYDRA_OVERRIDES=(
   train_test_split="${TRAIN_TEST_SPLIT}"
