@@ -1,7 +1,7 @@
 """
 DiT OPD (On-Policy Distillation) trainer for ReCogDrive.
 
-Implements Flow-OPD (arXiv:2605.08063) adapted to the DDIM denoising setting.
+Implements fixed-weight dual-teacher OPD for the DDIM denoising setting.
 
 Core algorithm (Flow-OPD Eq. 8-10):
   For each denoising step i, evaluate both student and teacher at the SAME
@@ -51,10 +51,16 @@ class ReCogDriveDiTDistillTrainer:
         normalize_advantage: bool = True, # kept for API compatibility, unused
         log_dir: str = None,
         log_interval: int = 50,
+        il_weight: float = 0.75,
+        rl_weight: float = 0.25,
+        smooth_weight: float = 0.02,
     ):
         self.min_sigma  = min_sigma
         self.log_dir    = log_dir
         self.log_interval = log_interval
+        self.il_weight = float(il_weight)
+        self.rl_weight = float(rl_weight)
+        self.smooth_weight = float(smooth_weight)
         self._call_count  = 0
         self._local_rank  = int(os.getenv("LOCAL_RANK", "0"))
 
@@ -77,6 +83,20 @@ class ReCogDriveDiTDistillTrainer:
     def _safe_sigma(logvar: torch.Tensor, min_sigma: float, dtype: torch.dtype) -> torch.Tensor:
         """Numerically-safe sigma: clamp logvar before exp to prevent overflow."""
         return (0.5 * logvar.float().clamp(-20.0, 20.0)).exp().clamp(min=min_sigma).to(dtype)
+
+    @staticmethod
+    def _jerk_loss(traj: torch.Tensor) -> torch.Tensor:
+        """Teacher-free trajectory smoothness loss on student final trajectory.
+
+        Args:
+            traj: denormalized student trajectory, shape (B, H, 2/3).
+        """
+        if traj.shape[1] < 4:
+            return traj.new_zeros(())
+        # Only x/y positions are used; heading is excluded to avoid scale mismatch.
+        xy = traj[..., :2]
+        jerk = xy[:, 3:] - 3.0 * xy[:, 2:-1] + 3.0 * xy[:, 1:-2] - xy[:, :-3]
+        return jerk.pow(2).mean()
 
     def _sample_chain(self, planner, vl_embeds, his_embeds, ego_embeds, B, device, dtype):
         """
@@ -191,7 +211,8 @@ class ReCogDriveDiTDistillTrainer:
     def compute_loss(
         self,
         student_planner,
-        teacher_planner,
+        teacher_il_planner,
+        teacher_rl_planner,
         vl_features: torch.Tensor,
         action_input,
     ) -> BatchFeature:
@@ -199,8 +220,9 @@ class ReCogDriveDiTDistillTrainer:
         Compute the on-policy KL distillation loss for one training step.
 
         Args:
-            student_planner: Trainable ReCogDriveDiffusionPlanner (IL-init).
-            teacher_planner: Frozen  ReCogDriveDiffusionPlanner (RL-trained).
+            student_planner:    Trainable ReCogDriveDiffusionPlanner.
+            teacher_il_planner: Frozen IL DiT teacher, EC-oriented.
+            teacher_rl_planner: Frozen RL DiT teacher, PDMS-oriented.
             vl_features:     Cached VLM last_hidden_state, shape (B, N, 1536).
             action_input:    BatchFeature with 'his_traj' (B,12) and
                              'status_feature' (B,8).
@@ -227,10 +249,13 @@ class ReCogDriveDiTDistillTrainer:
             )  # (B, K+1, H, D) — fully detached
         K = chain.shape[1] - 1
 
-        # ── Teacher encode (no grad, float32 for reference) ───────────────────
+        # ── Teacher encodes (no grad, float32 for reference) ──────────────────
         with torch.no_grad():
-            vl_t, his_t, ego_t = self._encode(
-                teacher_planner, vl_features, his_traj, ego_status, torch.float32
+            vl_il, his_il, ego_il = self._encode(
+                teacher_il_planner, vl_features, his_traj, ego_status, torch.float32
+            )
+            vl_rl, his_rl, ego_rl = self._encode(
+                teacher_rl_planner, vl_features, his_traj, ego_status, torch.float32
             )
 
         # ── Phase 2: student forward with grad + per-step KL ──────────────────
@@ -239,8 +264,10 @@ class ReCogDriveDiTDistillTrainer:
         )
 
         total_loss         = vl_features.new_zeros(())
-        kl_weighted_list:  list[torch.Tensor] = []   # after σ weighting, for loss
-        kl_raw_list:       list[torch.Tensor] = []   # ‖μ_s-μ_t‖²/dim, for diagnostics
+        kl_weighted_list:  list[torch.Tensor] = []   # weighted dual-teacher loss, for logging
+        kl_il_list:        list[torch.Tensor] = []
+        kl_rl_list:        list[torch.Tensor] = []
+        kl_raw_list:       list[torch.Tensor] = []   # ‖μ_s-μ_teacher_mix‖²/dim, for diagnostics
         mu_diff_l2_list:   list[torch.Tensor] = []   # ‖μ_s-μ_t‖_F / sqrt(H*D)
         sigma_list:        list[torch.Tensor] = []
 
@@ -262,40 +289,58 @@ class ReCogDriveDiTDistillTrainer:
             # σ_i: DDIM schedule noise (no learnable dependency, detach for safety).
             sigma_s = self._safe_sigma(logvar_s, self.min_sigma, s_dtype).detach()
 
-            # Teacher mean — deterministic prediction, no gradient.
+            # Teacher means — deterministic predictions, no gradient.
             with torch.no_grad():
-                mu_t, _, _ = teacher_planner.p_mean_variance(
+                mu_il, _, _ = teacher_il_planner.p_mean_variance(
                     z_t.float(), t_batch, idx_batch,
-                    vl_t, his_t, ego_t, deterministic=True,
+                    vl_il, his_il, ego_il, deterministic=True,
+                )
+                mu_rl, _, _ = teacher_rl_planner.p_mean_variance(
+                    z_t.float(), t_batch, idx_batch,
+                    vl_rl, his_rl, ego_rl, deterministic=True,
                 )
 
-            # Forward KL (Gaussian, shared σ_i):
-            #   KL(N(μ_θ, σ_i²I) ‖ N(μ_φ, σ_i²I)) = ‖μ_θ − μ_φ‖² / (2σ_i²)
-            #
-            # σ-weighting (Flow-OPD Eq. 10):
-            #   noisy steps (large σ) → small weight  (coarse structural correction)
-            #   clean steps (small σ) → large weight  (fine trajectory matching)
-            diff = mu_s.float() - mu_t.detach()                            # (B, H, D)
-            sigma2 = sigma_s.float().pow(2).clamp(min=1e-6)                # scalar-ish
-            kl_i   = diff.pow(2).div(2.0 * sigma2).sum(dim=(1, 2))        # (B,)
+            # Fixed-weight dual-teacher OPD:
+            #   L_i = 0.75 * KL(student || IL teacher)
+            #       + 0.25 * KL(student || RL teacher)
+            # with the same σ weighting as single-teacher OPD.
+            sigma2 = sigma_s.float().pow(2).clamp(min=1e-6)
+            diff_il = mu_s.float() - mu_il.detach()
+            diff_rl = mu_s.float() - mu_rl.detach()
+            kl_il_i = diff_il.pow(2).div(2.0 * sigma2).sum(dim=(1, 2))
+            kl_rl_i = diff_rl.pow(2).div(2.0 * sigma2).sum(dim=(1, 2))
+            kl_i = self.il_weight * kl_il_i + self.rl_weight * kl_rl_i
 
             step_loss  = kl_i.mean()
             total_loss = total_loss + step_loss.to(total_loss.dtype)
 
-            H, D = diff.shape[1], diff.shape[2]
+            H, D = diff_il.shape[1], diff_il.shape[2]
+            # Diagnostics use the weighted teacher target, not for training.
+            mu_mix = self.il_weight * mu_il.detach() + self.rl_weight * mu_rl.detach()
+            diff_mix = mu_s.float() - mu_mix
             kl_weighted_list.append(kl_i.detach().mean())
-            kl_raw_list.append((diff.pow(2).sum(dim=(1, 2)) / (H * D)).detach().mean())
+            kl_il_list.append(kl_il_i.detach().mean())
+            kl_rl_list.append(kl_rl_i.detach().mean())
+            kl_raw_list.append((diff_mix.pow(2).sum(dim=(1, 2)) / (H * D)).detach().mean())
             mu_diff_l2_list.append(
-                (diff.pow(2).sum(dim=(1, 2)).sqrt() / (H * D) ** 0.5).detach().mean()
+                (diff_mix.pow(2).sum(dim=(1, 2)).sqrt() / (H * D) ** 0.5).detach().mean()
             )
             sigma_list.append(sigma_s.detach().float().mean())
 
             if i == K - 1:
-                mu_s_last = mu_s.detach()
-                mu_t_last = mu_t.detach()
+                mu_s_last = mu_s
+                mu_t_last = mu_mix.detach()
 
-        loss    = total_loss / K
+        distill_loss = total_loss / K
+
+        # Teacher-free smoothness regularization on the student's final trajectory.
+        pred_traj_s_for_loss = student_planner.denorm_odo(mu_s_last.float())
+        smooth_loss = self._jerk_loss(pred_traj_s_for_loss)
+        loss = distill_loss + self.smooth_weight * smooth_loss
+
         kl_mean = torch.stack(kl_weighted_list).mean()
+        kl_il_mean = torch.stack(kl_il_list).mean()
+        kl_rl_mean = torch.stack(kl_rl_list).mean()
 
         if not torch.isfinite(loss):
             loss = loss.new_zeros(())
@@ -303,8 +348,8 @@ class ReCogDriveDiTDistillTrainer:
         # ── Trajectory comparison metrics ─────────────────────────────────────
         kl_steps = torch.stack(kl_weighted_list)  # (K,)
         with torch.no_grad():
-            pred_traj_s = student_planner.denorm_odo(mu_s_last.float().cpu()).to(device)  # (B, H, 3)
-            pred_traj_t = student_planner.denorm_odo(mu_t_last.float().cpu()).to(device)  # (B, H, 3)
+            pred_traj_s = pred_traj_s_for_loss.detach()
+            pred_traj_t = student_planner.denorm_odo(mu_t_last.float()).to(device)  # weighted teacher target
             pred_traj_l1 = torch.nn.functional.l1_loss(pred_traj_s, pred_traj_t)
 
         # ── Diagnostic text log (rank-0, every log_interval calls) ────────────
@@ -343,7 +388,14 @@ class ReCogDriveDiTDistillTrainer:
         return BatchFeature(data={
             "loss":                           loss,
             "kl_mean":                        kl_mean,
-            "distill_loss":                   kl_mean,
+            "distill_loss":                   distill_loss.detach(),
+            "smooth_loss":                    smooth_loss.detach(),
+            "weighted_smooth_loss":           (self.smooth_weight * smooth_loss).detach(),
+            "kl_il_mean":                     kl_il_mean.detach(),
+            "kl_rl_mean":                     kl_rl_mean.detach(),
+            "dit_distill_il_weight":          torch.tensor(self.il_weight, device=device),
+            "dit_distill_rl_weight":          torch.tensor(self.rl_weight, device=device),
+            "dit_distill_smooth_weight":      torch.tensor(self.smooth_weight, device=device),
             "transition_kl":                  kl_mean.detach(),
             "step_kl_mean":                   kl_steps.mean().detach(),
             "step_kl_max":                    kl_steps.max().detach(),

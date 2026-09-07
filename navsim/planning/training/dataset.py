@@ -1,11 +1,10 @@
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
-import errno
+import json
 import logging
 import pickle
 import gzip
 import os
-import time
 
 import torch
 from tqdm import tqdm
@@ -20,63 +19,12 @@ import math
 from navsim.visualization.camera import _transform_points_to_image, _rotation_3d_in_axis, _transform_annotations_to_camera
 logger = logging.getLogger(__name__)
 
-# Transient filesystem errors commonly seen on Alluxio/FUSE/OSS mounts.
-_RETRYABLE_ERRNOS = {
-    errno.EIO,  # 5 Input/output error
-    errno.EAGAIN,  # 11 Resource temporarily unavailable
-    errno.EBUSY,  # 16 Device or resource busy
-    errno.ESTALE,  # 116 Stale file handle
-    getattr(errno, "ETIMEDOUT", 110),
-}
-_CACHE_READ_MAX_RETRIES = int(os.environ.get("CACHE_READ_MAX_RETRIES", "5"))
-_CACHE_READ_RETRY_BASE_SEC = float(os.environ.get("CACHE_READ_RETRY_BASE_SEC", "0.5"))
-
 
 def load_feature_target_from_pickle(path: Path) -> Dict[str, torch.Tensor]:
-    """Helper function to load pickled feature/target from path.
-
-    Retries on transient I/O errors (e.g. Alluxio FUSE Errno 5) so long training
-    runs are less likely to die on a single flaky cache read.
-    """
-    path = Path(path)
-    last_err: Optional[BaseException] = None
-    for attempt in range(1, _CACHE_READ_MAX_RETRIES + 1):
-        try:
-            with gzip.open(path, "rb") as f:
-                data_dict: Dict[str, torch.Tensor] = pickle.load(f)
-            return data_dict
-        except OSError as err:
-            last_err = err
-            err_no = getattr(err, "errno", None)
-            if err_no not in _RETRYABLE_ERRNOS or attempt >= _CACHE_READ_MAX_RETRIES:
-                raise
-            sleep_s = _CACHE_READ_RETRY_BASE_SEC * (2 ** (attempt - 1))
-            logger.warning(
-                "Retryable cache read failure (%s/%s) path=%s errno=%s: %s; sleep=%.2fs",
-                attempt,
-                _CACHE_READ_MAX_RETRIES,
-                path,
-                err_no,
-                err,
-                sleep_s,
-            )
-            time.sleep(sleep_s)
-        except (EOFError, pickle.UnpicklingError) as err:
-            last_err = err
-            if attempt >= _CACHE_READ_MAX_RETRIES:
-                raise
-            sleep_s = _CACHE_READ_RETRY_BASE_SEC * (2 ** (attempt - 1))
-            logger.warning(
-                "Retryable cache decode failure (%s/%s) path=%s: %s; sleep=%.2fs",
-                attempt,
-                _CACHE_READ_MAX_RETRIES,
-                path,
-                err,
-                sleep_s,
-            )
-            time.sleep(sleep_s)
-    assert last_err is not None
-    raise last_err
+    """Helper function to load pickled feature/target from path."""
+    with gzip.open(path, "rb") as f:
+        data_dict: Dict[str, torch.Tensor] = pickle.load(f)
+    return data_dict
 
 
 def dump_feature_target_to_pickle(path: Path, data_dict: Dict[str, torch.Tensor]) -> None:
@@ -95,6 +43,7 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         feature_builders: List[AbstractFeatureBuilder],
         target_builders: List[AbstractTargetBuilder],
         log_names: Optional[List[str]] = None,
+        manifest_path: Optional[str] = None,
     ):
         """
         Initializes the dataset module.
@@ -102,24 +51,37 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         :param feature_builders: list of feature builders
         :param target_builders: list of target builders
         :param log_names: optional list of log folder to consider, defaults to None
+        :param manifest_path: optional prebuilt token index JSON; when set, skips
+            the slow directory walk over Alluxio/CPFS cache roots
         """
         super().__init__()
         assert Path(cache_path).is_dir(), f"Cache path {cache_path} does not exist!"
         self._cache_path = Path(cache_path)
-
-        if log_names is not None:
-            self.log_names = [Path(log_name) for log_name in log_names if (self._cache_path / log_name).is_dir()]
-        else:
-            self.log_names = [log_name for log_name in self._cache_path.iterdir()]
-
         self._feature_builders = feature_builders
         self._target_builders = target_builders
-        self._valid_cache_paths: Dict[str, Path] = self._load_valid_caches(
-            cache_path=self._cache_path,
-            feature_builders=self._feature_builders,
-            target_builders=self._target_builders,
-            log_names=self.log_names,
-        )
+
+        if manifest_path:
+            self._valid_cache_paths: Dict[str, Path] = self._load_from_manifest(
+                cache_path=self._cache_path,
+                feature_builders=self._feature_builders,
+                target_builders=self._target_builders,
+                log_names=log_names,
+                manifest_path=manifest_path,
+            )
+            # Derive log set from the filtered index (no Alluxio iterdir).
+            self.log_names = sorted({Path(p).parent.name for p in self._valid_cache_paths.values()})
+        else:
+            if log_names is not None:
+                self.log_names = [Path(log_name) for log_name in log_names if (self._cache_path / log_name).is_dir()]
+            else:
+                self.log_names = [log_name for log_name in self._cache_path.iterdir()]
+
+            self._valid_cache_paths = self._load_valid_caches(
+                cache_path=self._cache_path,
+                feature_builders=self._feature_builders,
+                target_builders=self._target_builders,
+                log_names=self.log_names,
+            )
         self.tokens = list(self._valid_cache_paths.keys())
 
     def __len__(self) -> int:
@@ -135,6 +97,38 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         :return: tuple of feature and target dictionary
         """
         return self._load_scene_with_token(self.tokens[idx])
+
+    @staticmethod
+    def _load_from_manifest(
+        cache_path: Path,
+        feature_builders: List[AbstractFeatureBuilder],
+        target_builders: List[AbstractTargetBuilder],
+        log_names: Optional[List[str]],
+        manifest_path: str,
+    ) -> Dict[str, Path]:
+        """Load token -> token_dir from a prebuilt JSON manifest (seconds, not hours)."""
+        path = Path(manifest_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"cache manifest not found: {manifest_path}")
+        manifest = json.loads(path.read_text())
+        if manifest.get("cache_path") != str(cache_path):
+            raise ValueError(
+                f"manifest {manifest_path} was built for {manifest.get('cache_path')}, not {cache_path}"
+            )
+        builder_names = sorted(b.get_unique_name() for b in list(feature_builders) + list(target_builders))
+        if sorted(manifest.get("builders", [])) != builder_names:
+            raise ValueError(
+                f"manifest {manifest_path} builders mismatch: {manifest.get('builders')} vs {builder_names}"
+            )
+        wanted = set(log_names) if log_names is not None else None
+        valid_cache_paths: Dict[str, Path] = {}
+        for token, rel in manifest["tokens"].items():
+            log_name = rel.split("/", 1)[0]
+            if wanted is not None and log_name not in wanted:
+                continue
+            valid_cache_paths[token] = cache_path / rel
+        logger.info("loaded cache manifest %s: %d tokens", manifest_path, len(valid_cache_paths))
+        return valid_cache_paths
 
     @staticmethod
     def _load_valid_caches(

@@ -21,6 +21,14 @@ from .blocks.attention import Attention
 from .blocks.rope import RotaryEmbedding
 from .blocks.encoder import SwiGLUFFN
 
+
+def _soft_bound(x: torch.Tensor, bound: Optional[float]) -> torch.Tensor:
+    """Identity near 0, saturates at ±bound. No-op when bound is None or ≤0."""
+    if bound is None or bound <= 0:
+        return x
+    return bound * torch.tanh(x / bound)
+
+
 class TimestepEncoder(nn.Module):
     """Encodes scalar timesteps into a high-dimensional vector."""
     def __init__(self, embedding_dim: int):
@@ -55,6 +63,7 @@ class FinalLayer(nn.Module):
             nn.SiLU(),
             nn.Linear(hidden_size, 2 * hidden_size )
         )
+        self.adaln_bound: Optional[float] = None
 
     @torch.compile
     def modulate(self, x, shift, scale):
@@ -64,6 +73,8 @@ class FinalLayer(nn.Module):
 
     def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
         shift, scale = self.modulation_proj(conditioning).chunk(2, dim=1)
+        shift = _soft_bound(shift, self.adaln_bound)
+        scale = _soft_bound(scale, self.adaln_bound)
         x = self.modulate(self.norm_final(x), shift, scale)
         x = self.linear(x)
         return x
@@ -111,6 +122,7 @@ class LightningDiTBlock(nn.Module):
                 nn.SiLU(),
                 nn.Linear(dim, 6 * dim, bias=True)
             )
+        self.adaln_bound: Optional[float] = None
 
     @torch.compile
     def modulate(self, x, shift, scale):
@@ -125,7 +137,7 @@ class LightningDiTBlock(nn.Module):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         rotary_embedder: Optional[nn.Module] = None,
     ) -> torch.Tensor:
-        mod_params = self.adaLN_modulation(conditioning)
+        mod_params = _soft_bound(self.adaLN_modulation(conditioning), self.adaln_bound)
         shift_attn, scale_attn, gate_attn, shift_ffn, scale_ffn, gate_ffn = \
             mod_params.chunk(6, dim=1)
 
@@ -191,8 +203,17 @@ class LightningDiT(nn.Module):
         ])
                                            
         self.final_layer = FinalLayer(self.inner_dim, output_dim)
+        self.adaln_bound: Optional[float] = None
 
         self._initialize_weights()
+
+    def set_adaln_bound(self, bound: Optional[float]) -> None:
+        """Student-only soft cap on adaLN shift/scale/gate. Teachers stay unbound."""
+        value = None if bound is None or bound <= 0 else float(bound)
+        self.adaln_bound = value
+        for block in self.transformer_blocks:
+            block.adaln_bound = value
+        self.final_layer.adaln_bound = value
 
     def _initialize_weights(self) -> None:
         """

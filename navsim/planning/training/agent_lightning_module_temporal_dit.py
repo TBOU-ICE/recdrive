@@ -14,10 +14,10 @@ from navsim.agents.abstract_agent import AbstractAgent
 
 
 class AgentLightningTemporalDiT(pl.LightningModule):
-    """Lightning wrapper for temporal DiT-OPD training.
+    """Lightning wrapper for temporal multi-teacher DiT distillation training.
 
-    This is intentionally a new file/class so the original AgentLightningDiT and
-    the original OPD training path are not affected.
+    New file — does not touch the original AgentLightningModule / AgentLightningDiT
+    or any other existing training path.
     """
 
     def __init__(self, agent: AbstractAgent):
@@ -44,8 +44,10 @@ class AgentLightningTemporalDiT(pl.LightningModule):
                 if key == "loss":
                     continue
                 if torch.is_tensor(value) and value.numel() == 1:
-                    prog = key in {"temporal_loss", "distill_loss", "pred_traj_l1_to_teacher"}
-                    self.log(f"{logging_prefix}/{key}", value.detach(), on_step=True, on_epoch=True, prog_bar=prog, sync_dist=True)
+                    prog = key in {"temporal_loss", "distill_loss", "pred_traj_l1_to_teacher",
+                                   "kl_il_mean", "kl_rl_mean"}
+                    self.log(f"{logging_prefix}/{key}", value.detach(),
+                             on_step=True, on_epoch=True, prog_bar=prog, sync_dist=True)
 
             if logging_prefix == "train" and getattr(self.agent, "dit_distill", False):
                 self._maybe_log_debug(predictions=predictions, loss=loss)
@@ -65,7 +67,7 @@ class AgentLightningTemporalDiT(pl.LightningModule):
             base_dir = Path(getattr(self, "debug_log_root", self.trainer.default_root_dir))
             self.debug_log_dir = base_dir / "log"
             self.debug_log_dir.mkdir(parents=True, exist_ok=True)
-            self.debug_log_file = self.debug_log_dir / "temporal_dit_opd_debug.log"
+            self.debug_log_file = self.debug_log_dir / "temporal_multi_teacher_dit_opd_debug.log"
 
         def scalar(name: str, default: float = 0.0) -> float:
             if name not in predictions:
@@ -85,6 +87,8 @@ class AgentLightningTemporalDiT(pl.LightningModule):
             "step": step,
             "loss": round(float(loss.detach().float().item()), 8),
             "distill_loss": round(scalar("distill_loss"), 8),
+            "kl_il_mean": round(scalar("kl_il_mean"), 8),
+            "kl_rl_mean": round(scalar("kl_rl_mean"), 8),
             "temporal_loss": round(scalar("temporal_loss"), 8),
             "temporal_loss_raw": round(scalar("temporal_loss_raw"), 8),
             "temporal_pos_l1": round(scalar("temporal_pos_l1"), 8),
@@ -111,11 +115,14 @@ class AgentLightningTemporalDiT(pl.LightningModule):
         self.log("train/gradient_norm", total_norm, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """Drop all frozen teacher weights from saved checkpoints."""
         filtered_sd = {
             k: v
             for k, v in checkpoint["state_dict"].items()
             if not k.startswith("agent.teacher_backbone.")
             and not k.startswith("agent.teacher_action_head.")
+            and not k.startswith("agent.teacher_il_action_head.")
+            and not k.startswith("agent.teacher_rl_action_head.")
         }
         checkpoint["state_dict"] = filtered_sd
 

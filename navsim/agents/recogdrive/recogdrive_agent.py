@@ -129,12 +129,17 @@ class ReCogDriveAgent(AbstractAgent):
         opd_max_new_tokens: int = 256,
         # ── DiT distillation (Flow-OPD KL) ────────────────────────────────────
         dit_distill: bool = False,
-        teacher_dit_checkpoint: Optional[str] = None,
+        teacher_dit_checkpoint: Optional[str] = None,  # backward-compatible alias for RL teacher
+        teacher_dit_checkpoint_il: Optional[str] = None,
+        teacher_dit_checkpoint_rl: Optional[str] = None,
         dit_distill_eps_clip: float = 0.2,            # unused, kept for config compat
         dit_distill_min_sigma: float = 0.04,
         dit_distill_normalize_advantage: bool = True, # unused, kept for config compat
         dit_distill_log_dir: str = "",
         dit_distill_log_interval: int = 50,
+        dit_distill_il_weight: float = 0.75,
+        dit_distill_rl_weight: float = 0.25,
+        dit_distill_smooth_weight: float = 0.02,
     ):
         super().__init__()
         self._trajectory_sampling = trajectory_sampling
@@ -151,6 +156,8 @@ class ReCogDriveAgent(AbstractAgent):
         self.opd_group_size = opd_group_size
         self.dit_distill = dit_distill
         self.teacher_dit_checkpoint = teacher_dit_checkpoint
+        self.teacher_dit_checkpoint_il = teacher_dit_checkpoint_il
+        self.teacher_dit_checkpoint_rl = teacher_dit_checkpoint_rl
         self.backbone = None
         self.metric_cache_path = metric_cache_path
         self.reference_policy_checkpoint = reference_policy_checkpoint
@@ -223,42 +230,57 @@ class ReCogDriveAgent(AbstractAgent):
         if opd:
             self.opd_trainer = ReCogDriveOPDTrainer(topk=opd_topk)
 
-        # ── DiT distillation: teacher DiT (frozen) + Flow-OPD KL trainer ────────
-        self.teacher_action_head = None
+        # ── DiT distillation: dual teacher DiTs (frozen) + OPD trainer ─────────
+        self.teacher_action_head = None      # backward-compatible alias: RL teacher
+        self.teacher_il_action_head = None
+        self.teacher_rl_action_head = None
         self.dit_distill_trainer = None
         if dit_distill:
-            if not teacher_dit_checkpoint:
-                raise ValueError("teacher_dit_checkpoint is required for dit_distill mode.")
-            # Build teacher DiT with same architecture as student
-            teacher_cfg = make_recogdrive_config(
-                self.dit_type, action_dim=3, action_horizon=8,
-                grpo=False,
-                input_embedding_dim=384 if self.dit_type == 'small' else 1536,
-                sampling_method=sampling_method,
-            )
-            teacher_cfg.vlm_size = self.vlm_size
-            self.teacher_action_head = ReCogDriveDiffusionPlanner(teacher_cfg).cuda()
-            # Load teacher checkpoint
-            load_kw: Dict[str, Any] = {"map_location": "cpu"}
-            if "weights_only" in inspect.signature(torch.load).parameters:
-                load_kw["weights_only"] = False
-            teacher_ckpt_path = _resolve_checkpoint_path(teacher_dit_checkpoint)
-            teacher_ckpt = torch.load(teacher_ckpt_path, **load_kw)
-            print(f"[DiT distill] Loading teacher checkpoint: {teacher_ckpt_path}")
-            state = teacher_ckpt.get("state_dict", teacher_ckpt)
-            stripped = {}
-            for k, v in state.items():
-                if k.startswith("agent.action_head."):
-                    stripped[k[len("agent.action_head."):]] = v
-                elif k.startswith("action_head."):
-                    stripped[k[len("action_head."):]] = v
-                else:
-                    stripped[k] = v
-            missing, unexpected = self.teacher_action_head.load_state_dict(stripped, strict=False)
-            print(f"[DiT distill] Teacher loaded. Missing: {len(missing)}, Unexpected: {len(unexpected)}")
-            for p in self.teacher_action_head.parameters():
-                p.requires_grad = False
-            self.teacher_action_head.eval()
+            # Backward compatibility: teacher_dit_checkpoint is treated as RL teacher.
+            teacher_rl_ckpt = teacher_dit_checkpoint_rl or teacher_dit_checkpoint
+            teacher_il_ckpt = teacher_dit_checkpoint_il
+            if not teacher_rl_ckpt or not teacher_il_ckpt:
+                raise ValueError(
+                    "Dual-teacher dit_distill requires teacher_dit_checkpoint_il and "
+                    "teacher_dit_checkpoint_rl. For backward compatibility, "
+                    "teacher_dit_checkpoint may be used as the RL teacher."
+                )
+
+            def _build_and_load_teacher(ckpt_path_like: str, name: str) -> ReCogDriveDiffusionPlanner:
+                teacher_cfg = make_recogdrive_config(
+                    self.dit_type, action_dim=3, action_horizon=8,
+                    grpo=False,
+                    input_embedding_dim=384 if self.dit_type == 'small' else 1536,
+                    sampling_method=sampling_method,
+                )
+                teacher_cfg.vlm_size = self.vlm_size
+                teacher = ReCogDriveDiffusionPlanner(teacher_cfg).cuda()
+
+                load_kw: Dict[str, Any] = {"map_location": "cpu"}
+                if "weights_only" in inspect.signature(torch.load).parameters:
+                    load_kw["weights_only"] = False
+                ckpt_path = _resolve_checkpoint_path(ckpt_path_like)
+                ckpt = torch.load(ckpt_path, **load_kw)
+                print(f"[DiT distill] Loading {name} teacher checkpoint: {ckpt_path}")
+                state = ckpt.get("state_dict", ckpt)
+                stripped = {}
+                for k, v in state.items():
+                    if k.startswith("agent.action_head."):
+                        stripped[k[len("agent.action_head."):]] = v
+                    elif k.startswith("action_head."):
+                        stripped[k[len("action_head."):]] = v
+                    else:
+                        stripped[k] = v
+                missing, unexpected = teacher.load_state_dict(stripped, strict=False)
+                print(f"[DiT distill] {name} teacher loaded. Missing: {len(missing)}, Unexpected: {len(unexpected)}")
+                for p in teacher.parameters():
+                    p.requires_grad = False
+                teacher.eval()
+                return teacher
+
+            self.teacher_il_action_head = _build_and_load_teacher(teacher_il_ckpt, "IL/EC")
+            self.teacher_rl_action_head = _build_and_load_teacher(teacher_rl_ckpt, "RL/PDMS")
+            self.teacher_action_head = self.teacher_rl_action_head
 
             # student DiT is trainable
             for p in self.action_head.parameters():
@@ -270,6 +292,9 @@ class ReCogDriveAgent(AbstractAgent):
                 normalize_advantage=dit_distill_normalize_advantage,
                 log_dir=dit_distill_log_dir if dit_distill_log_dir else None,
                 log_interval=dit_distill_log_interval,
+                il_weight=dit_distill_il_weight,
+                rl_weight=dit_distill_rl_weight,
+                smooth_weight=dit_distill_smooth_weight,
             )
 
     def name(self) -> str:
@@ -447,7 +472,8 @@ class ReCogDriveAgent(AbstractAgent):
             })
             return self.dit_distill_trainer.compute_loss(
                 student_planner=self.action_head,
-                teacher_planner=self.teacher_action_head,
+                teacher_il_planner=self.teacher_il_action_head,
+                teacher_rl_planner=self.teacher_rl_action_head,
                 vl_features=last_hidden_state,
                 action_input=action_inputs,
             )
@@ -628,6 +654,9 @@ class ReCogDriveAgent(AbstractAgent):
         elif self.opd:
             # OPD training: cosine decay over 20 epochs with 1-epoch warmup.
             scheduler = WarmupCosLR(optimizer=optimizer, lr=self._lr, min_lr=1e-7, epochs=20, warmup_epochs=1)
+        elif self.dit_distill:
+            # DiT distill training: cosine decay over 50 epochs with 2-epoch warmup.
+            scheduler = WarmupCosLR(optimizer=optimizer, lr=self._lr, min_lr=1e-6, epochs=50, warmup_epochs=2)
         else:
             scheduler = WarmupCosLR(optimizer=optimizer, lr=self._lr, min_lr=1e-6, epochs=200, warmup_epochs=3)
             

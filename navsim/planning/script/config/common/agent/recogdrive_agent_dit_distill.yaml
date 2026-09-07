@@ -17,17 +17,23 @@ cache_mode: False
 cache_hidden_state: True   # use pre-cached hidden states, no VLM needed
 
 # Student DiT: initialized from 2B IL checkpoint
-checkpoint_path: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
+checkpoint_path: '/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
 
-# DiT distillation mode (Flow-OPD KL)
+# DiT distillation mode: fixed-weight dual-teacher OPD
 dit_distill: True
-# Teacher DiT: 2B RL checkpoint (frozen)
-teacher_dit_checkpoint: '/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+# Dual teachers: IL is EC-oriented, RL is PDMS-oriented. Both are frozen.
+teacher_dit_checkpoint_il: '/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt'
+teacher_dit_checkpoint_rl: '/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt'
+# Backward-compatible alias for single-teacher scripts; ignored when teacher_dit_checkpoint_rl is set.
+teacher_dit_checkpoint: ''
 dit_distill_eps_clip: 0.2
 dit_distill_min_sigma: 0.04
 dit_distill_normalize_advantage: True
 dit_distill_log_dir: ''
 dit_distill_log_interval: 50
+dit_distill_il_weight: 0.75
+dit_distill_rl_weight: 0.25
+dit_distill_smooth_weight: 0.02
 
 # Disable other modes
 grpo: False

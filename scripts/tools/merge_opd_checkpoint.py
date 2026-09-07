@@ -15,9 +15,9 @@ raw HF AutoModel (whose own state_dict keys are plain "xxx").
 
 Usage:
     python scripts/tools/merge_opd_checkpoint.py \
-        --base_model_path /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/InternVL3-2B-ckpt400-merged \
-        --opd_ckpt_path   /workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/train_opd_sft_8gpu_oneimg/step00002000.pt \
-        --output_dir      /mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/merged_model/InternVL3-2B-opd-step2000-merged
+        --base_model_path /workspace/models/recdrive/v1.0.0/InternVL3-2B-ckpt400-merged \
+        --opd_ckpt_path   /workspace/models/recdrive/v1.0.0/train_opd_sft_8gpu_oneimg/step00002000.pt \
+        --output_dir      /workspace/models/recdrive/v1.0.0/merged_model/InternVL3-2B-opd-step2000-merged
 """
 
 import argparse
@@ -102,11 +102,11 @@ def merge(base_model_path: str, opd_ckpt_path: str, output_dir: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Merge OPD student ckpt into HF model dir")
-    parser.add_argument("--base_model_path", default='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/merged_model/InternVL3-2B-ckpt400-merged',
+    parser.add_argument("--base_model_path", default='/workspace/models/recdrive/v1.0.0/merged_model/InternVL3-2B-ckpt400-merged',
                         help="Path to the base HF InternVL model directory (e.g. InternVL3-2B-ckpt400-merged)")
-    parser.add_argument("--opd_ckpt_path", default='/workspace/volumes/ad-e2e-al-sh01/nby/recdrive/exp/train_opd_sft_8gpu_oneimg/step00002000.pt',
+    parser.add_argument("--opd_ckpt_path", default='/workspace/models/recdrive/v1.0.0/train_opd_sft_8gpu_oneimg/step00002000.pt',
                         help="Path to step*.pt saved by run_training_recogdrive_opd_sft.py")
-    parser.add_argument("--output_dir", default='/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/exp/merged_model/InternVL3-2B-opd-step2000-merged',
+    parser.add_argument("--output_dir", default='/workspace/models/recdrive/v1.0.0/merged_model/InternVL3-2B-opd-step2000-merged',
                         help="Where to save the merged HF model directory")
     args = parser.parse_args()
     merge(args.base_model_path, args.opd_ckpt_path, args.output_dir)

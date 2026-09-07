@@ -84,7 +84,7 @@ def extract_prompt_and_answer(record):
 
 def main():
     parser = argparse.ArgumentParser(description='Check token length for one SFT sample.')
-    parser.add_argument('--model_path', default='/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/ReCogDrive-VLM-2B')
+    parser.add_argument('--model_path', default='/workspace/models/recdrive/v1.0.0/ReCogDrive-VLM-2B')
     parser.add_argument('--jsonl_path', default='/mnt/volumes/ad-e2e-al-sh01/jiaoqf/recogdrive/pretrainingQA/Navsim_ReCogDrive/dataset_navsim_recogdrive.jsonl')
     parser.add_argument('--do_generate', action='store_true')
     parser.add_argument('--max_new_tokens', type=int, default=2000)

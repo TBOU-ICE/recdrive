@@ -29,15 +29,15 @@ if command -v x86_64-conda-linux-gnu-gcc >/dev/null 2>&1 && command -v x86_64-co
   export CUDAHOSTCXX="${CUDAHOSTCXX:-x86_64-conda-linux-gnu-g++}"
 fi
 
-OUTPUT_DIR=${OUTPUT_DIR:-'/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/outputs/ReCogDrive_pretrain/all_data_1gpu_smoke'}
+OUTPUT_DIR=${OUTPUT_DIR:-'/workspace/volumes/ad-e2e-bd-su01/nby/recdrive/outputs/ReCogDrive_pretrain/all_data_1gpu_smoke'}
 mkdir -p "$OUTPUT_DIR"
 
-/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/conda_envs/recdrive/bin/torchrun \
+/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
   --standalone \
   --nnodes=${NNODES} \
   --nproc_per_node=${GPUS} \
   internvl/train/internvl_chat_finetune.py \
-  --model_name_or_path "/mnt/volumes/ad-e2e-al-sh01/nby/recdrive/InternVL3-2B" \
+  --model_name_or_path "/workspace/models/recdrive/v1.0.0/InternVL3-2B" \
   --conv_style "internvl2_5" \
   --use_fast_tokenizer False \
   --output_dir ${OUTPUT_DIR} \

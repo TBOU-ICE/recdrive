@@ -18,8 +18,8 @@ class TemporalCachePairDataset(torch.utils.data.Dataset):
     Each item is a pair of cached samples from the same log, ordered by timestamp:
         ((features_t, targets_t, token_t), (features_next, targets_next, token_next))
 
-    The original OPD/DiT datasets are left untouched.  This dataset is used only
-    by run_training_recogdrive_temporal_dit_distill.py.
+    Used only by run_training_recogdrive_temporal_multi_teacher_dit_distill.py.
+    All original datasets are left untouched.
     """
 
     def __init__(
@@ -81,7 +81,6 @@ class TemporalCachePairDataset(torch.utils.data.Dataset):
                 continue
             if not frame_list:
                 continue
-            # Current frame is the last history frame used as scene token.
             current_idx = int(self._scene_loader._scene_filter.num_history_frames) - 1
             current_idx = max(0, min(current_idx, len(frame_list) - 1))
             frame = frame_list[current_idx]
