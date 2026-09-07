@@ -74,10 +74,13 @@ EXTRA_MANIFESTS_ARG="$(join_hydra ${EXTRA_MANIFEST_LIST[@]+"${EXTRA_MANIFEST_LIS
 
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_goalbridge_goal_kd_ungated_opd_v1}"
 LOG_FILE="${LOG_FILE:-${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}/run.log}"
+TENSORBOARD_DIR="${TENSORBOARD_DIR:-/workspace/output/tensorboard}"
 mkdir -p "$(dirname "${LOG_FILE}")"
+mkdir -p "${TENSORBOARD_DIR}"
 HYDRA_RESUME=(); [[ -n "${RESUME_CKPT}" ]] && HYDRA_RESUME+=("+ckpt_path='${RESUME_CKPT}'")
 
 echo "[GoalBridge-GoalKD] student=${STUDENT_CKPT} goal_w=${GOAL_LOSS_WEIGHT} kd_w=${KD_WEIGHT} kd_gate=none anchor=off smooth=off"
+echo "[GoalBridge-GoalKD] tensorboard_dir=${TENSORBOARD_DIR}"
 
 torchrun --nnodes="${NNODES}" --node_rank="${RANK}" --master_addr="${MASTER_ADDR}" --nproc_per_node="${GPUS}" --master_port="${MASTER_PORT}" \
   "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_training_recogdrive_scene_router_dit_goal_distill.py" \
@@ -97,6 +100,7 @@ torchrun --nnodes="${NNODES}" --node_rank="${RANK}" --master_addr="${MASTER_ADDR
   agent.collect_viz="${COLLECT_VIZ}" agent.viz_interval_steps="${VIZ_INTERVAL_STEPS}" \
   trainer.params.max_epochs="${MAX_EPOCHS}" trainer.params.precision=bf16-mixed trainer.params.num_nodes="${NNODES}" \
   trainer.params.devices="${GPUS}" trainer.params.strategy=ddp_find_unused_parameters_true \
+  "+tensorboard_dir='${TENSORBOARD_DIR}'" \
   dataloader.params.batch_size="${BATCH_SIZE}" dataloader.params.num_workers=8 dataloader.params.prefetch_factor=4 \
   +dataloader.params.persistent_workers=true experiment_name="${EXPERIMENT_NAME}" train_test_split="${TRAIN_TEST_SPLIT}" \
   cache_path="${CACHE_PATH}" use_cache_without_dataset=True force_cache_computation=False \

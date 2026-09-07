@@ -183,8 +183,12 @@ class AgentLightningSceneRouterGoal(AgentLightningSceneRouter):
         fig.suptitle(f"goal-OPD step {self.global_step}", fontsize=11)
         fig.tight_layout()
 
-        log_dir = getattr(self.trainer, "log_dir", None) or "."
-        out_dir = os.path.join(log_dir, "goal_opd_viz")
+        configured_out_dir = getattr(self.agent, "viz_output_dir", None)
+        if configured_out_dir:
+            out_dir = configured_out_dir
+        else:
+            log_dir = getattr(self.trainer, "log_dir", None) or "."
+            out_dir = os.path.join(log_dir, "goal_opd_viz")
         os.makedirs(out_dir, exist_ok=True)
         fig.savefig(os.path.join(out_dir, f"step_{self.global_step:08d}.png"), dpi=110)
 

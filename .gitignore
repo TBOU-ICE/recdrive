@@ -12,3 +12,6 @@ build/
 venv/
 .env
 assets/images/*.jpg
+
+# Local training outputs
+output/

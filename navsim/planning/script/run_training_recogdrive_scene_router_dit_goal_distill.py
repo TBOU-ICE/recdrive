@@ -15,6 +15,7 @@ import pytorch_lightning as pl
 import torch
 import torch.distributed as dist
 import torch.nn.utils.rnn as rnn_utils
+from pytorch_lightning.loggers import TensorBoardLogger
 from torch.utils.data import ConcatDataset, DataLoader
 
 from navsim.agents.abstract_agent import AbstractAgent
@@ -274,6 +275,11 @@ def main(cfg: DictConfig) -> None:
     logger.info("Building Agent")
     agent: AbstractAgent = instantiate(cfg.agent)
     agent.initialize()
+    tensorboard_dir = cfg.get("tensorboard_dir", None)
+    if tensorboard_dir:
+        # Keep raw BEV images and checkpoints in the experiment output tree,
+        # while TensorBoard event files live in the requested central directory.
+        agent.viz_output_dir = str(Path(cfg.output_dir) / "goal_opd_viz")
 
     logger.info("Building Lightning Module")
     lightning_module = AgentLightningSceneRouterGoal(agent=agent)
@@ -371,13 +377,26 @@ def main(cfg: DictConfig) -> None:
     logger.info("Num validation samples: %d", len(val_data))
 
     checkpoint_cb = pl.callbacks.ModelCheckpoint(
+        dirpath=str(Path(cfg.output_dir) / "checkpoints") if tensorboard_dir else None,
         monitor="val/loss_epoch",
         mode="min",
         save_top_k=5,
         every_n_epochs=1,
         save_last=True,
     )
-    trainer = pl.Trainer(**cfg.trainer.params, callbacks=[checkpoint_cb])
+    trainer_logger = (
+        TensorBoardLogger(
+            save_dir=str(tensorboard_dir),
+            name=str(cfg.experiment_name),
+        )
+        if tensorboard_dir
+        else True
+    )
+    trainer = pl.Trainer(
+        **cfg.trainer.params,
+        callbacks=[checkpoint_cb],
+        logger=trainer_logger,
+    )
     ckpt_path = cfg.get("ckpt_path", None) or None
     if ckpt_path:
         logger.info("Resuming full trainer state from %s", ckpt_path)
