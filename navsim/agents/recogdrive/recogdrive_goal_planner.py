@@ -79,6 +79,9 @@ class GoalCondDiffusionPlanner(ReCogDriveDiffusionPlanner):
         goal_hidden_dim: int = 1024,
         goal_use_heading: bool = False,
         goal_dropout_p: float = 0.0,
+        goal_noise_p: float = 0.0,
+        goal_noise_std_xy: float = 0.0,
+        goal_noise_std_heading: float = 0.0,
         goal_inpaint_weight: float = 1.0,
         goal_inpaint_heading: bool = False,
     ):
@@ -93,6 +96,14 @@ class GoalCondDiffusionPlanner(ReCogDriveDiffusionPlanner):
 
         self.goal_mode = goal_mode
         self.goal_dropout_p = float(goal_dropout_p)
+        self.goal_noise_p = float(goal_noise_p)
+        self.goal_noise_std_xy = float(goal_noise_std_xy)
+        self.goal_noise_std_heading = float(goal_noise_std_heading)
+        if self.goal_dropout_p < 0.0 or self.goal_noise_p < 0.0 or self.goal_dropout_p + self.goal_noise_p > 1.0:
+            raise ValueError(
+                f"goal_dropout_p + goal_noise_p must be in [0, 1], got "
+                f"{self.goal_dropout_p} + {self.goal_noise_p}"
+            )
         self.goal_inpaint_weight = float(goal_inpaint_weight)
         self.goal_inpaint_heading = bool(goal_inpaint_heading)
         self._goal_ctx: Optional[torch.Tensor] = None
@@ -229,12 +240,50 @@ class GoalCondDiffusionPlanner(ReCogDriveDiffusionPlanner):
         )
 
     def encode_goal(self, goal: torch.Tensor) -> torch.Tensor:
-        """Normalise, embed, and optionally drop the goal. Returns ``(B, D)``."""
-        goal_norm = self.norm_odo(goal[..., :3].unsqueeze(1)).squeeze(1)
+        """Encode a goal with optional *disjoint* mask/noise corruption.
+
+        When ``goal_noise_p > 0`` the training batch is partitioned into three
+        mutually-exclusive cases by one random draw per sample:
+
+        * ``u < goal_dropout_p``: masked goal (zero embedding);
+        * ``goal_dropout_p <= u < goal_dropout_p + goal_noise_p``: noisy goal;
+        * otherwise: clean GT goal.
+
+        This gives the intended robust-teacher recipe directly, e.g.
+        dropout=0.10 + noise=0.20 -> 10% masked / 20% noisy / 70% clean.
+        With ``goal_noise_p == 0`` this is backward compatible with the old
+        independent goal-dropout behaviour.
+        """
+        goal_eff = goal[..., :3]
+        drop_mask = None
+        noise_mask = None
+        if self.training and (self.goal_dropout_p > 0.0 or self.goal_noise_p > 0.0):
+            u = torch.rand(goal_eff.shape[0], device=goal_eff.device)
+            drop_mask = u < self.goal_dropout_p
+            noise_mask = (u >= self.goal_dropout_p) & (u < self.goal_dropout_p + self.goal_noise_p)
+
+            # Vectorised corruption avoids per-batch GPU synchronisation from
+            # ``mask.any().item()`` / dynamic-size random tensors.
+            if self.goal_noise_std_xy > 0.0 or self.goal_noise_std_heading > 0.0:
+                goal_eff = goal_eff.clone()
+                mask_f = noise_mask[:, None].to(goal_eff.dtype)
+                if self.goal_noise_std_xy > 0.0:
+                    goal_eff[:, :2] += (
+                        torch.randn_like(goal_eff[:, :2])
+                        * self.goal_noise_std_xy
+                        * mask_f
+                    )
+                if self.goal_noise_std_heading > 0.0:
+                    goal_eff[:, 2:3] += (
+                        torch.randn_like(goal_eff[:, 2:3])
+                        * self.goal_noise_std_heading
+                        * mask_f
+                    )
+
+        goal_norm = self.norm_odo(goal_eff.unsqueeze(1)).squeeze(1)
         embedding = self.goal_encoder(goal_norm)
-        if self.training and self.goal_dropout_p > 0.0:
-            keep = torch.rand(embedding.shape[0], 1, device=embedding.device) >= self.goal_dropout_p
-            embedding = embedding * keep.to(embedding.dtype)
+        if drop_mask is not None:
+            embedding = embedding.masked_fill(drop_mask[:, None], 0.0)
         return embedding
 
     def _inpaint_endpoint(self, x_recon: torch.Tensor, goal: torch.Tensor) -> torch.Tensor:

@@ -5,7 +5,7 @@ set -x
 # - worker=sequential: no local Ray cluster (faster startup; matches single-process eval).
 # - PYTHONUNBUFFERED: stage timing logs appear immediately in terminal + log.txt.
 
-TRAIN_TEST_SPLIT=navtest_safety_dynamics_interaction
+TRAIN_TEST_SPLIT=navtest_general_or_no_tag
 #navtest_rule_intersection navtest_safety_dynamics_interaction navtest_progress_curbside_stopgo navtest_general_or_no_tag
 export PYTHONUNBUFFERED=1
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-6}"
@@ -29,7 +29,7 @@ export PORT=${PORT}
 
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
-CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp/training_teacher_safety_dynamics_interaction_il_goal_adaln_robust_newvlm/2026.08.27.15.19.21/lightning_logs/version_0/checkpoints/epoch=46-step=4042.ckpt}"
+CHECKPOINT="${CHECKPOINT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp/training_teacher_general_or_no_tag_200il_30goal_adaln_newvlm/2026.09.02.16.54.07/lightning_logs/version_0/checkpoints/epoch=29-step=17700.ckpt}"
 # GOAL_MODE must match the mode the checkpoint was TRAINED with (adaln / channel /
 # cross).  A mismatch does not crash -- the checkpoint is loaded with strict=False,
 # the mode-specific projection weights are silently dropped, and the goal encoder
@@ -57,5 +57,5 @@ METRIC_CACHE_PATH="/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cac
     agent.sampling_method="ddim" \
     metric_cache_path="${METRIC_CACHE_PATH}" \
     agent.metric_cache_path="${METRIC_CACHE_PATH}" \
-    experiment_name="${EXPERIMENT_NAME:-eval-pdms-teacher-199epoch+46epoch-${GOAL_MODE}-safety}" \
+    experiment_name="${EXPERIMENT_NAME:-eval-pdms-teacher-200il_30goal-${GOAL_MODE}-general}" \
     worker=sequential

@@ -43,6 +43,13 @@ MASTER_PORT="${MASTER_PORT:-23574}"
 GPUS="${GPUS:-8}"
 
 GOAL_MODE="${GOAL_MODE:-adaln}"
+# Robust-teacher goal corruption, disjoint by construction (see encode_goal):
+# dropout=0.10 + noise=0.20 -> 10% masked / 20% noisy / 70% clean GT goal.
+# Set both to 0 to reproduce the old pure-privileged (100% clean goal) behaviour.
+GOAL_DROPOUT_P="${GOAL_DROPOUT_P:-0.1}"
+GOAL_NOISE_P="${GOAL_NOISE_P:-0.2}"
+GOAL_NOISE_STD_XY="${GOAL_NOISE_STD_XY:-1.0}"
+GOAL_NOISE_STD_HEADING="${GOAL_NOISE_STD_HEADING:-0.1}"
 VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 BASE_CKPT="${BASE_CKPT:-}"
 RESUME_CKPT="${RESUME_CKPT:-}"
@@ -184,6 +191,7 @@ fi
 echo "======================================================================"
 echo "[teacher-il-goal] BUCKET_NAME=${BUCKET_NAME}  BUCKET_FILE=${BUCKET_FILE}"
 echo "[teacher-il-goal] GOAL_MODE=${GOAL_MODE}  (privileged goal point = GT 8th waypoint)"
+echo "[teacher-il-goal] goal corruption: clean=$("${PYTHON_BIN}" -c "print(1 - ${GOAL_DROPOUT_P} - ${GOAL_NOISE_P})") masked(GOAL_DROPOUT_P)=${GOAL_DROPOUT_P} noisy(GOAL_NOISE_P)=${GOAL_NOISE_P} noise_std_xy=${GOAL_NOISE_STD_XY}m noise_std_heading=${GOAL_NOISE_STD_HEADING}rad"
 echo "[teacher-il-goal] MIXTURE: reuse no-goal IL views (navtrain_bucket + simscale_bucket)"
 echo "[teacher-il-goal] BASE_CKPT=${BASE_CKPT:-<random-init DiT>}"
 echo "[teacher-il-goal] RESUME_CKPT=${RESUME_CKPT:-<none>}"
@@ -221,6 +229,10 @@ stop_gpu_keepalive
   "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_training_recogdrive.py" \
   agent=recogdrive_goal_agent \
   agent.goal_mode="${GOAL_MODE}" \
+  agent.goal_dropout_p="${GOAL_DROPOUT_P}" \
+  agent.goal_noise_p="${GOAL_NOISE_P}" \
+  agent.goal_noise_std_xy="${GOAL_NOISE_STD_XY}" \
+  agent.goal_noise_std_heading="${GOAL_NOISE_STD_HEADING}" \
   "${CKPT_ARGS[@]}" \
   agent.lr="${LR}" \
   agent.grpo=False \

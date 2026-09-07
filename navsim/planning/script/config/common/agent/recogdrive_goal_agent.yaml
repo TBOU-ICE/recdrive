@@ -36,6 +36,13 @@ goal_use_heading: false
 # for a pure privileged teacher; raise it only if you also want the teacher to
 # stay usable without a goal.
 goal_dropout_p: 0.0
+# Fraction of samples whose goal coordinates get Gaussian noise added (disjoint
+# from goal_dropout_p: dropout=0.10 + noise=0.20 -> 10% masked / 20% noisy /
+# 70% clean). Noise is added to the raw goal before normalisation, so
+# goal_noise_std_xy is in metres and goal_noise_std_heading is in radians.
+goal_noise_p: 0.0
+goal_noise_std_xy: 0.0
+goal_noise_std_heading: 0.0
 # inpaint only: 1.0 pins the endpoint exactly, lower values blend toward it.
 goal_inpaint_weight: 1.0
 goal_inpaint_heading: false
