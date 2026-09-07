@@ -6,11 +6,11 @@ set -euo pipefail
 # (navtrain and simscale caches share one representation).
 #
 # IMPORTANT #1 - VLM: pass the MERGED new VLM, otherwise you re-cache with the old base:
-#   VLM_PATH=/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged \
+#   VLM_PATH=/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged \
 #     GPUS=8 bash scripts/cache_dataset/run_caching_recogdrive_hidden_state_simscale_pdm_round0.sh
 #
 # IMPORTANT #2 - OUTPUT: all three caches are written UNDER a single new root OUT_ROOT
-# (default /workspace/datasets/simscale/20260709/data/new_vlm_vit_hidden_state_nav_sim), so
+# (default /mnt/datasets/simscale/20260709/data/new_vlm_vit_hidden_state_nav_sim), so
 # the old-VLM caches at their canonical locations are NOT touched. The DiT training must then
 # point its cache paths at OUT_ROOT.
 #   OUT_ROOT/recogdrive_agent_cache_dir_synthetic_reaction_pdm_v1.0-0   (simscale r0)
@@ -32,9 +32,9 @@ CACHE_NAVTRAIN="${CACHE_NAVTRAIN:-1}"
 
 # All three caches (simscale round0/round1 + navtrain) are written UNDER this single
 # root so nothing overwrites the old-VLM caches at their canonical locations.
-OUT_ROOT="${OUT_ROOT:-/workspace/datasets/simscale/20260709/data/new_vlm_vit_hidden_state_nav_sim}"
+OUT_ROOT="${OUT_ROOT:-/mnt/datasets/simscale/20260709/data/new_vlm_vit_hidden_state_nav_sim}"
 
-SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
+SIMSCALE_ROOT="${SIMSCALE_ROOT:-/mnt/datasets/simscale/20260709}"
 CACHE_ROOT="${CACHE_ROOT:-${OUT_ROOT}}"
 # Hydra/experiment output must NOT be written under SIMSCALE_ROOT: that path is an
 # Alluxio FUSE mount that intermittently throws OSError [Errno 5] (EIO) on the small
@@ -44,19 +44,19 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # navtrain locations (data root differs from simscale!)
 NAVTRAIN_SPLIT="${NAVTRAIN_SPLIT:-navtrain}"
-NAVTRAIN_DATA_ROOT="${NAVTRAIN_DATA_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download}"
-NAVTRAIN_EXP_ROOT="${NAVTRAIN_EXP_ROOT:-/workspace/models/recdrive/v1.0.0}"
+NAVTRAIN_DATA_ROOT="${NAVTRAIN_DATA_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download}"
+NAVTRAIN_EXP_ROOT="${NAVTRAIN_EXP_ROOT:-/mnt/models/recdrive/v1.0.0}"
 NAV_CACHE_PATH="${NAV_CACHE_PATH:-${OUT_ROOT}/recogdrive_agent_cache_dir_train}"
 
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
-export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
 export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-${REPO_ROOT}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD="${TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD:-1}"
 
 LOG_DIR="${LOG_DIR:-${OUT_ROOT}/logs}"
-CONDA_PYTHON_ROOT="${CONDA_PYTHON_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive}"
+CONDA_PYTHON_ROOT="${CONDA_PYTHON_ROOT:-/opt/conda/envs/recdrive}"
 TORCHRUN_BIN="${TORCHRUN_BIN:-${CONDA_PYTHON_ROOT}/bin/torchrun}"
-VLM_PATH="${VLM_PATH:-/workspace/volumes/ad-e2e-bd-su01/nby/recdrive/vlm_simscale_lora_vit_merged}"
+VLM_PATH="${VLM_PATH:-/mnt/volumes/ad-e2e-bd-su01/nby/recdrive/vlm_simscale_lora_vit_merged}"
 
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-0}"
 export NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-0}"
@@ -126,7 +126,7 @@ echo "   GPUS_PER_NODE=${GPUS_PER_NODE} (detected=${DETECTED_GPUS})"
 echo "=================================================="
 if [[ "${VLM_PATH}" == *"ReCogDrive-VLM-2B" ]]; then
   echo "[WARN] VLM_PATH looks like the OLD base VLM. For the SimScale-LoRA experiment pass"
-  echo "       VLM_PATH=/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged"
+  echo "       VLM_PATH=/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged"
 fi
 for i in "${!JOB_NAME[@]}"; do
   if [[ -d "${JOB_CACHE[$i]}" ]] && [[ -n "$(ls -A "${JOB_CACHE[$i]}" 2>/dev/null || true)" ]]; then

@@ -39,7 +39,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INTERNVL_CHAT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 cd "${INTERNVL_CHAT_ROOT}"
 
-_DEFAULT_RECDRIVE_BIN="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin"
+_DEFAULT_RECDRIVE_BIN="/opt/conda/envs/recdrive/bin"
 _DEFAULT_TORCHRUN="${_DEFAULT_RECDRIVE_BIN}/torchrun"
 
 internvl_sanitize_path() {
@@ -67,9 +67,9 @@ TORCHRUN="${TORCHRUN:-${_DEFAULT_TORCHRUN}}"
 # ---- key knobs ----
 MODE="${MODE:-lora}"                 # lora | full
 # Base checkpoint to CONTINUE from: the driving-pretrained ReCogDrive VLM.
-MODEL_PATH="${MODEL_PATH:-/workspace/models/recdrive/v1.0.0/ReCogDrive-VLM-2B}"
+MODEL_PATH="${MODEL_PATH:-/mnt/models/recdrive/v1.0.0/ReCogDrive-VLM-2B}"
 META="${META:-./shell/data_info/recogdrive_simscale_only.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-/workspace/volumes/ad-e2e-bd-su01/nby/recdrive/vlm_simscale_lora_vit}"
+OUTPUT_DIR="${OUTPUT_DIR:-/mnt/volumes/ad-e2e-bd-su01/nby/recdrive/vlm_simscale_lora_vit}"
 
 # LoRA ranks (only used when MODE=lora). Both LLM and ViT LoRA are on by default
 # so the model can adapt to SimScale visual domain; set USE_BACKBONE_LORA=0 to

@@ -17,9 +17,9 @@ set -euo pipefail
 
 PROGRESS_INTERVAL_SEC="${PROGRESS_INTERVAL_SEC:-20}"
 
-SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
+SIMSCALE_ROOT="${SIMSCALE_ROOT:-/mnt/datasets/simscale/20260709}"
 # Fast NAS path for intermediate extract accumulation (avoid CPFS small-file writes).
-EXTRACT_WORK_ROOT="${EXTRACT_WORK_ROOT:-/workspace/nby/data/simscale}"
+EXTRACT_WORK_ROOT="${EXTRACT_WORK_ROOT:-/mnt/nby/data/simscale}"
 ROUND="${ROUND:-0}"
 declare -a DEFAULT_SPLITS=(66 56 47 39 33)
 SPLITS="${SPLITS:-${DEFAULT_SPLITS[ROUND]:-66}}"
@@ -34,7 +34,7 @@ HF_REPO_FUT="${HF_REPO_FUT:-https://huggingface.co/datasets/OpenDriveLab-org/Sim
 MS_DATASET="${MS_DATASET:-OpenDriveLab/SimScale}"
 MS_DATASET_FUT="${MS_DATASET_FUT:-OpenDriveLab/SimScale}"
 INCLUDE_FUTURE_SENSOR="${INCLUDE_FUTURE_SENSOR:-0}"
-# Fast local path for tar extract (overlay ~100+ MB/s). Do NOT use /workspace/tmp (NAS).
+# Fast local path for tar extract (overlay ~100+ MB/s). Do NOT use /mnt/tmp (NAS).
 LOCAL_STAGING_ROOT="${LOCAL_STAGING_ROOT:-/tmp}"
 # Comma-separated archive filenames already synced before this script version.
 BOOTSTRAP_SYNCED="${BOOTSTRAP_SYNCED:-}"

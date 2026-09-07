@@ -18,7 +18,7 @@ INTERNVL_CHAT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 cd "${INTERNVL_CHAT_ROOT}"
 
 # 固定 torchrun / Python 前缀（与 recdrive conda 一致）
-_DEFAULT_RECDRIVE_BIN="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin"
+_DEFAULT_RECDRIVE_BIN="/opt/conda/envs/recdrive/bin"
 _DEFAULT_TORCHRUN="${_DEFAULT_RECDRIVE_BIN}/torchrun"
 
 # 强制使用指定 conda 环境（不依赖 activate，兼容所有机器）
@@ -44,8 +44,8 @@ RECDRIVE_CONDA_BIN="${RECDRIVE_CONDA_BIN:-${_DEFAULT_RECDRIVE_BIN}}"
 export PATH="${RECDRIVE_CONDA_BIN}:$(internvl_sanitize_path "${PATH:-}")"
 
 TORCHRUN="${TORCHRUN:-${_DEFAULT_TORCHRUN}}"
-MODEL_PATH="${MODEL_PATH:-/workspace/models/recdrive/v1.0.0/InternVL3-2B}"
-OUTPUT_DIR="${OUTPUT_DIR:-/workspace/models/recdrive/v1.0.0/training_recogdrive_vlm_nby}"
+MODEL_PATH="${MODEL_PATH:-/mnt/models/recdrive/v1.0.0/InternVL3-2B}"
+OUTPUT_DIR="${OUTPUT_DIR:-/mnt/models/recdrive/v1.0.0/training_recogdrive_vlm_nby}"
 
 echo "Using python: $(which python)"
 echo "Python version: $(python --version)"

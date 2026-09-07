@@ -2,13 +2,13 @@ set -x
 
 TRAIN_TEST_SPLIT=${TRAIN_TEST_SPLIT:-navtest}
 export OPENBLAS_CORETYPE=Haswell
-export PATH="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH" # nby
+export PATH="/opt/conda/envs/recdrive/bin:$PATH" # nby
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
-export NAVSIM_EXP_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/exp"
-export NAVSIM_DEVKIT_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-scene"
+export NUPLAN_MAPS_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/exp"
+export NAVSIM_DEVKIT_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/recdrive-scene"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}:${PYTHONPATH:-}"
-export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download"
+export OPENSCENE_DATA_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download"
 
 export NCCL_IB_DISABLE=0
 export NCCL_P2P_DISABLE=0
@@ -25,14 +25,14 @@ export PORT=${PORT}
 echo "GPUS: ${GPUS}"
 
 # DiT / diffusion planner checkpoint
-CHECKPOINT="/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt"
+CHECKPOINT="/mnt/models/recdrive/v1.0.0/ReCogDrive-2B-IL/ReCogDrive_Diffusion_Planner_2B_IL.ckpt"
 # Merged VLM: InternVL3-2B base + finetuned weights
-VLM_PATH="/workspace/models/recdrive/v1.0.0/ReCogDrive-VLM-2B"
+VLM_PATH="/mnt/models/recdrive/v1.0.0/ReCogDrive-VLM-2B"
 VLM_WEIGHTS_PATH=""
 # EPDMS on navtest uses the same metric_cache as PDMS.
-METRIC_CACHE_PATH="/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cache"
+METRIC_CACHE_PATH="/mnt/datasets/recdrive/20260513/nby/recdrive/metric_cache"
 
-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/opt/conda/envs/recdrive/bin/torchrun \
     --nproc_per_node=${GPUS_PER_NODE} \
     $NAVSIM_DEVKIT_ROOT/navsim/planning/script/run_epdm_score_recogdrive.py \
     train_test_split=$TRAIN_TEST_SPLIT \

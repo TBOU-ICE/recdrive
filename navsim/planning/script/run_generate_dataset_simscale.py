@@ -21,7 +21,7 @@ verbatim from run_generate_dataset_pipeline.py to keep the output distribution
 identical to the reference.
 
 Run (single process):
-  OPENSCENE_DATA_ROOT=/workspace/datasets/simscale/20260709 \
+  OPENSCENE_DATA_ROOT=/mnt/datasets/simscale/20260709 \
   python navsim/planning/script/run_generate_dataset_simscale.py \
       train_test_split=simscale_pdm_round0
 

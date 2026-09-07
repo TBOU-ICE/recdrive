@@ -30,11 +30,11 @@ fi
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-${REPO_ROOT}}"
 
-export PATH="${CONDA_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin}:$PATH"
+export PATH="${CONDA_BIN:-/opt/conda/envs/recdrive/bin}:$PATH"
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
-export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp}"
-export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/volumes/ad-e2e-bd-su01/nby/exp}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD="${TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD:-1}"
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
@@ -51,9 +51,9 @@ MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-23670}"
 GPUS="${GPUS:-8}"
 
-VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
+VLM_PATH="${VLM_PATH:-/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 # Weight-only warm start (agent.initialize). Default: new-VLM fullmix IL epoch=2.
-CKPT_PATH="${CKPT_PATH:-/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
+CKPT_PATH="${CKPT_PATH:-/mnt/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
 # Optional Lightning full-state resume (optimizer + epoch) of a prior run of THIS teacher.
 RESUME_CKPT="${RESUME_CKPT:-}"
 if [[ -n "${RESUME_CKPT}" ]]; then
@@ -74,11 +74,11 @@ NUM_WORKERS="${NUM_WORKERS:-16}"
 LIMIT_TRAIN_BATCHES="${LIMIT_TRAIN_BATCHES:-1.0}"
 LIMIT_VAL_BATCHES="${LIMIT_VAL_BATCHES:-1.0}"
 
-SIM_AGENT_CACHE_ROOT="${SIM_AGENT_CACHE_ROOT:-/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim}"
+SIM_AGENT_CACHE_ROOT="${SIM_AGENT_CACHE_ROOT:-/mnt/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim}"
 NAV_CACHE_PATH="${NAV_CACHE_PATH:-${SIM_AGENT_CACHE_ROOT}/recogdrive_agent_cache_dir_train}"
-SIM_QUALITY_CACHE_ROOT="${SIM_QUALITY_CACHE_ROOT:-/workspace/datasets/simscale/20260709/data/simscale/new_vlm_quality_views}"
-SIMSCALE_BUCKET_ROOT="${SIMSCALE_BUCKET_ROOT:-/workspace/datasets/simscale/20260709/data/simscale}"
-NAVTRAIN_OUTPUT_DIR="${NAVTRAIN_OUTPUT_DIR:-/workspace/datasets/simscale/20260709/data/navtrain_scene/output/navtrain}"
+SIM_QUALITY_CACHE_ROOT="${SIM_QUALITY_CACHE_ROOT:-/mnt/datasets/simscale/20260709/data/simscale/new_vlm_quality_views}"
+SIMSCALE_BUCKET_ROOT="${SIMSCALE_BUCKET_ROOT:-/mnt/datasets/simscale/20260709/data/simscale}"
+NAVTRAIN_OUTPUT_DIR="${NAVTRAIN_OUTPUT_DIR:-/mnt/datasets/simscale/20260709/data/navtrain_scene/output/navtrain}"
 
 SIM_ROUNDS="${SIM_ROUNDS:-${SIM_ROUND:-0,1}}"
 
@@ -113,14 +113,14 @@ fi
 SIM_ROUNDS="${SIM_ROUNDS_CLEAN[*]}"
 SIM_ROUNDS="${SIM_ROUNDS// /,}"
 
-MIX_ROOT="${MIX_ROOT:-/workspace/datasets/simscale/20260709/data/simscale/il_training_newvlm/${BUCKET_NAME}_fullmix}"
+MIX_ROOT="${MIX_ROOT:-/mnt/datasets/simscale/20260709/data/simscale/il_training_newvlm/${BUCKET_NAME}_fullmix}"
 NAV_BUCKET_CACHE_PATH="${NAV_BUCKET_CACHE_PATH:-${MIX_ROOT}/navtrain_bucket_cache}"
 SIM_BUCKET_CACHE_PATH="${SIM_BUCKET_CACHE_PATH:-${MIX_ROOT}/simscale_bucket_cache}"
 MIX_INFO_DIR="${MIX_INFO_DIR:-${MIX_ROOT}/metadata}"
 
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_teacher_2epoch_base_${BUCKET_NAME}_il_newvlm}"
-TORCHRUN_BIN="${TORCHRUN_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun}"
-PYTHON_BIN="${PYTHON_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python}"
+TORCHRUN_BIN="${TORCHRUN_BIN:-/opt/conda/envs/recdrive/bin/torchrun}"
+PYTHON_BIN="${PYTHON_BIN:-/opt/conda/envs/recdrive/bin/python}"
 PREP_ONLY="${PREP_ONLY:-false}"
 SKIP_PREP="${SKIP_PREP:-false}"
 GPU_KEEPALIVE="${GPU_KEEPALIVE:-true}"
@@ -192,7 +192,7 @@ fi
 
 PREP_PY="${NAVSIM_DEVKIT_ROOT}/scripts/data/prep_bucket_il_newvlm.py"
 TRAIN_INDEX_PATH="${TRAIN_INDEX_PATH:-${MIX_INFO_DIR}/train_index.json}"
-VAL_INDEX_PATH="${VAL_INDEX_PATH:-/workspace/datasets/simscale/20260709/data/simscale/il_training_newvlm/navtrain_cache_index.json}"
+VAL_INDEX_PATH="${VAL_INDEX_PATH:-/mnt/datasets/simscale/20260709/data/simscale/il_training_newvlm/navtrain_cache_index.json}"
 SUMMARY_JSON="${MIX_INFO_DIR}/bucket_il_sources_summary.json"
 
 if [[ "${SKIP_PREP}" == "true" ]]; then

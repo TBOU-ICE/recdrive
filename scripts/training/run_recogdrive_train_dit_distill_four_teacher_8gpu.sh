@@ -2,12 +2,12 @@
 # 8-GPU fixed-weight four-teacher DiT OPD distillation training.
 set -euo pipefail
 
-export PATH="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin:$PATH"
+export PATH="/opt/conda/envs/recdrive/bin:$PATH"
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
-export NUPLAN_MAPS_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
-export NAVSIM_EXP_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/exp"
-export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/recdrive-scene}"
-export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download"
+export NUPLAN_MAPS_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0"
+export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/exp"
+export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/mnt/volumes/ad-e2e-bd-su01/nby/recdrive-scene}"
+export OPENSCENE_DATA_ROOT="/mnt/datasets/recdrive/20260513/nby/recdrive/download"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 export HYDRA_FULL_ERROR=1
@@ -19,12 +19,12 @@ MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-23456}"
 GPUS="${GPUS:-8}"
 
-STUDENT_CKPT="${STUDENT_CKPT:-/workspace/models/recdrive/v1.0.0/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
-TEACHER_PROGRESS_CKPT="${TEACHER_PROGRESS_CKPT:-/workspace/models/recdrive/v1.0.0/training_recogdrive_bucket_progress_direct_rl/2026.07.01.22.28.37/lightning_logs/version_0/checkpoints/epoch=9-step=9350.ckpt}"
-TEACHER_RULE_CKPT="${TEACHER_RULE_CKPT:-/workspace/models/recdrive/v1.0.0/training_recogdrive_bucket_rule_direct_rl/2026.07.01.22.17.22/lightning_logs/version_0/checkpoints/epoch=9-step=10670.ckpt}"
-TEACHER_SAFETY_CKPT="${TEACHER_SAFETY_CKPT:-/workspace/models/recdrive/v1.0.0/training_recogdrive_bucket_safety_direct_rl/2026.07.01.22.33.41/lightning_logs/version_0/checkpoints/epoch=9-step=11580.ckpt}"
-TEACHER_GENERAL_CKPT="${TEACHER_GENERAL_CKPT:-/workspace/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
-CACHE_PATH="${CACHE_PATH:-/workspace/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train}"
+STUDENT_CKPT="${STUDENT_CKPT:-/mnt/models/recdrive/v1.0.0/training_recogdrive_vlm_il/2026.05.19.18.10.54/lightning_logs/version_0/checkpoints/epoch=2-step=1995.ckpt}"
+TEACHER_PROGRESS_CKPT="${TEACHER_PROGRESS_CKPT:-/mnt/models/recdrive/v1.0.0/training_recogdrive_bucket_progress_direct_rl/2026.07.01.22.28.37/lightning_logs/version_0/checkpoints/epoch=9-step=9350.ckpt}"
+TEACHER_RULE_CKPT="${TEACHER_RULE_CKPT:-/mnt/models/recdrive/v1.0.0/training_recogdrive_bucket_rule_direct_rl/2026.07.01.22.17.22/lightning_logs/version_0/checkpoints/epoch=9-step=10670.ckpt}"
+TEACHER_SAFETY_CKPT="${TEACHER_SAFETY_CKPT:-/mnt/models/recdrive/v1.0.0/training_recogdrive_bucket_safety_direct_rl/2026.07.01.22.33.41/lightning_logs/version_0/checkpoints/epoch=9-step=11580.ckpt}"
+TEACHER_GENERAL_CKPT="${TEACHER_GENERAL_CKPT:-/mnt/models/recdrive/v1.0.0/ReCogDrive-2B-RL/ReCogDrive_Diffusion_Planner_2B_RL.ckpt}"
+CACHE_PATH="${CACHE_PATH:-/mnt/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_recogdrive_four_teacher_dit_opd_v2}"
 
 echo "[four-teacher] GPUS=${GPUS} NNODES=${NNODES} RANK=${RANK} MASTER_ADDR=${MASTER_ADDR}:${MASTER_PORT}"
@@ -34,7 +34,7 @@ echo "[four-teacher] TEACHER_RULE_CKPT=${TEACHER_RULE_CKPT}"
 echo "[four-teacher] TEACHER_SAFETY_CKPT=${TEACHER_SAFETY_CKPT}"
 echo "[four-teacher] TEACHER_GENERAL_CKPT=${TEACHER_GENERAL_CKPT}"
 
-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun \
+/opt/conda/envs/recdrive/bin/torchrun \
   --nnodes="${NNODES}" \
   --node_rank="${RANK}" \
   --master_addr="${MASTER_ADDR}" \

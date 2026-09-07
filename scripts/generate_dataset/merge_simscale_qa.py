@@ -9,11 +9,11 @@ This is robust to:
   * duplicate tokens across shards -> first occurrence kept
 
 Run:
-  SIMSCALE_ROOT=/workspace/datasets/simscale/20260709 ROUND=0 \
+  SIMSCALE_ROOT=/mnt/datasets/simscale/20260709 ROUND=0 \
   python scripts/generate_dataset/merge_simscale_qa.py
 
 Env:
-  SIMSCALE_ROOT       (default /workspace/datasets/simscale/20260709)
+  SIMSCALE_ROOT       (default /mnt/datasets/simscale/20260709)
   ROUND               0 | 1              (selects synthetic_reaction_pdm_v1.0-<ROUND>)
   SIMSCALE_QA_OUT_DIR (default <root>/simscale_vlm_qa/<dataset>)
   QUALITY_FILTER      1 (default) | 0    apply allowlist filter
@@ -101,7 +101,7 @@ def merge_kind(out_dir: Path, ds: str, kind: str, allow):
 
 
 def main():
-    simscale_root = Path(os.environ.get("SIMSCALE_ROOT", "/workspace/datasets/simscale/20260709"))
+    simscale_root = Path(os.environ.get("SIMSCALE_ROOT", "/mnt/datasets/simscale/20260709"))
     round_id = os.environ.get("ROUND", "0")
     ds = f"synthetic_reaction_pdm_v1.0-{round_id}"
     out_dir = Path(os.environ.get("SIMSCALE_QA_OUT_DIR", str(simscale_root / "simscale_vlm_qa" / ds)))

@@ -10,11 +10,11 @@ from typing import Dict, List
 
 
 DEFAULT_CSVS = {
-    "fuxian": "/workspace/models/recdrive/v1.0.0/eval_recdrive/recdrive-fuxian-906/2026.04.21.19.01.41.csv",
-    "il99": "/workspace/models/recdrive/v1.0.0/eval_recdrive_v2/eval-pdms-train-dit_il_fullmix_simscale_round01_quality-99epoch/2026.07.13.05.08.48/2026.07.13.06.39.56.csv",
-    "rl_50_40": "/workspace/models/recdrive/v1.0.0/eval_recdrive_v2/eval-pdms-rule_rl_10nav_50navbucket_40simbucket-14epoch/2026.07.13.07.54.14/2026.07.13.08.23.06.csv",
-    "rl_45_45": "/workspace/models/recdrive/v1.0.0/eval_recdrive_v2/eval-pdms-rule_rl_10nav_45navbucket_45simbucket-4epoch/2026.07.14.02.21.53/2026.07.14.02.46.49.csv",
-    "rl_40_30": "/workspace/models/recdrive/v1.0.0/eval_recdrive_v2/eval-pdms-rule_rl_40nav_30navbucket_30simbucket-13epoch/2026.07.12.08.38.19/2026.07.12.09.02.50.csv",
+    "fuxian": "/mnt/models/recdrive/v1.0.0/eval_recdrive/recdrive-fuxian-906/2026.04.21.19.01.41.csv",
+    "il99": "/mnt/models/recdrive/v1.0.0/eval_recdrive_v2/eval-pdms-train-dit_il_fullmix_simscale_round01_quality-99epoch/2026.07.13.05.08.48/2026.07.13.06.39.56.csv",
+    "rl_50_40": "/mnt/models/recdrive/v1.0.0/eval_recdrive_v2/eval-pdms-rule_rl_10nav_50navbucket_40simbucket-14epoch/2026.07.13.07.54.14/2026.07.13.08.23.06.csv",
+    "rl_45_45": "/mnt/models/recdrive/v1.0.0/eval_recdrive_v2/eval-pdms-rule_rl_10nav_45navbucket_45simbucket-4epoch/2026.07.14.02.21.53/2026.07.14.02.46.49.csv",
+    "rl_40_30": "/mnt/models/recdrive/v1.0.0/eval_recdrive_v2/eval-pdms-rule_rl_40nav_30navbucket_30simbucket-13epoch/2026.07.12.08.38.19/2026.07.12.09.02.50.csv",
 }
 
 RULE_KEYS = ["rl_50_40", "rl_45_45", "rl_40_30"]

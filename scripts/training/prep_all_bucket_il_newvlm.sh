@@ -8,7 +8,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python}"
+PYTHON_BIN="${PYTHON_BIN:-/opt/conda/envs/recdrive/bin/python}"
 PREP_PY="${REPO_ROOT}/scripts/data/prep_bucket_il_newvlm.py"
 
 echo "[prep-all] building navtrain val index + 4 bucket symlink views/indexes"

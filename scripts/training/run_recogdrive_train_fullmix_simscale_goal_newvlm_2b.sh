@@ -46,12 +46,12 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-export PATH="${CONDA_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin}:$PATH"
+export PATH="${CONDA_BIN:-/opt/conda/envs/recdrive/bin}:$PATH"
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
-export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/volumes/ad-e2e-bd-su01/nby/exp}"
 export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-${REPO_ROOT}}"
-export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download}"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD="${TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD:-1}"
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
@@ -63,14 +63,14 @@ export CACHE_READ_RETRY_BASE_SEC="${CACHE_READ_RETRY_BASE_SEC:-0.5}"
 # the four bucket-expert teachers train on, and the one the eval scripts load, so the
 # DiT trained here can be compared against them directly. The '..._vit_...' caches are a
 # DIFFERENT representation and pair with vlm_simscale_lora_vit_merged -- do not mix them.
-OUT_ROOT="${OUT_ROOT:-/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim}"
+OUT_ROOT="${OUT_ROOT:-/mnt/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim}"
 SRC_CACHE_ROOT="${SRC_CACHE_ROOT:-${OUT_ROOT}}"
 # Fallback location for quality symlink views, used only when SRC_CACHE_ROOT ships no
 # '*_quality' tree of its own. Kept on CPFS (not Alluxio) to avoid FUSE EIO.
-QUALITY_CACHE_ROOT="${QUALITY_CACHE_ROOT:-/workspace/datasets/simscale/20260709/data/simscale/new_vlm_quality_views}"
+QUALITY_CACHE_ROOT="${QUALITY_CACHE_ROOT:-/mnt/datasets/simscale/20260709/data/simscale/new_vlm_quality_views}"
 # Backward-compat: CACHE_ROOT overrides where quality views live when set.
 CACHE_ROOT="${CACHE_ROOT:-${QUALITY_CACHE_ROOT}}"
-ALLOWLIST_ROOT="${ALLOWLIST_ROOT:-/workspace/datasets/simscale/20260709}"
+ALLOWLIST_ROOT="${ALLOWLIST_ROOT:-/mnt/datasets/simscale/20260709}"
 SIM_ROUNDS="${SIM_ROUNDS:-0,1}"
 USE_QUALITY_CACHE="${USE_QUALITY_CACHE:-true}"
 
@@ -116,7 +116,7 @@ fi
 # default here: this run trains the scene-agnostic goal DiT from scratch.
 BASE_CKPT="${BASE_CKPT:-}"
 # New merged VLM (LLM-only LoRA on SimScale). MUST match what produced the caches above.
-VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
+VLM_PATH="${VLM_PATH:-/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 
 NNODES="${WORLD_SIZE:-1}"
 RANK="${RANK:-0}"
@@ -127,7 +127,7 @@ GOAL_MODE="${GOAL_MODE:-channel}"
 MASTER_PORT="${MASTER_PORT:-23561}"
 GPUS="${GPUS:-8}"
 
-TORCHRUN_BIN="${TORCHRUN_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun}"
+TORCHRUN_BIN="${TORCHRUN_BIN:-/opt/conda/envs/recdrive/bin/torchrun}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_dit_il_fullmix_simscale_goal_${GOAL_MODE}_newvlm}"
 # 200 is deliberate: ReCogDriveAgent.get_optimizers hardcodes WarmupCosLR(epochs=200),
 # so the cosine only anneals to min_lr at exactly 200. A shorter run stops near peak
@@ -136,7 +136,7 @@ MAX_EPOCHS="${MAX_EPOCHS:-200}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
 LR="${LR:-1e-4}"
-PYTHON_BIN="${PYTHON_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python}"
+PYTHON_BIN="${PYTHON_BIN:-/opt/conda/envs/recdrive/bin/python}"
 # FRESH training by default (do NOT resume the old-VLM DiT). Set CKPT_PATH to resume.
 CKPT_PATH="${CKPT_PATH:-}"
 

@@ -317,36 +317,36 @@ def parse_args():
         "--navtrain-output-dir",
         default=os.environ.get(
             "MIX_NAVTRAIN_OUTPUT_DIR",
-            "/workspace/datasets/simscale/20260709/data/navtrain_scene/output/navtrain",
+            "/mnt/datasets/simscale/20260709/data/navtrain_scene/output/navtrain",
         ),
     )
     p.add_argument(
         "--nav-cache",
         default=os.environ.get(
             "MIX_NAV_CACHE_PATH",
-            "/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_train",
+            "/mnt/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_train",
         ),
     )
     p.add_argument(
         "--sim-agent-cache-root",
-        default="/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim",
+        default="/mnt/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim",
     )
     p.add_argument(
         "--sim-quality-cache-root",
-        default="/workspace/datasets/simscale/20260709/data/simscale/new_vlm_quality_views",
+        default="/mnt/datasets/simscale/20260709/data/simscale/new_vlm_quality_views",
     )
     p.add_argument(
         "--simscale-bucket-root",
-        default="/workspace/datasets/simscale/20260709/data/simscale",
+        default="/mnt/datasets/simscale/20260709/data/simscale",
     )
     p.add_argument(
         "--mix-root-parent",
-        default="/workspace/datasets/simscale/20260709/data/simscale/il_training_newvlm",
+        default="/mnt/datasets/simscale/20260709/data/simscale/il_training_newvlm",
     )
     p.add_argument("--sim-rounds", default=os.environ.get("SIM_ROUNDS", "0,1"))
     p.add_argument(
         "--nav-index-path",
-        default="/workspace/datasets/simscale/20260709/data/simscale/il_training_newvlm/navtrain_cache_index.json",
+        default="/mnt/datasets/simscale/20260709/data/simscale/il_training_newvlm/navtrain_cache_index.json",
     )
     p.add_argument("--workers", type=int, default=int(os.environ.get("PREP_WORKERS", "16")))
     return p.parse_args()

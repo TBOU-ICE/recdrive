@@ -20,11 +20,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-${REPO_ROOT}}"
 
-export PATH="${CONDA_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin}:$PATH"
+export PATH="${CONDA_BIN:-/opt/conda/envs/recdrive/bin}:$PATH"
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
-export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp}"
-export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/volumes/ad-e2e-bd-su01/nby/exp}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD="${TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD:-1}"
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
@@ -46,9 +46,9 @@ NAV_BUCKET_RATIO="${NAV_BUCKET_RATIO:-0.5}"
 SIM_BUCKET_RATIO="${SIM_BUCKET_RATIO:-0.5}"
 
 # ---- new-representation init + VLM (must match the caches!) ----
-INIT_CKPT="${INIT_CKPT:-/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.20.14.31.06/lightning_logs/version_0/checkpoints/epoch=199-step=312200.ckpt}"
+INIT_CKPT="${INIT_CKPT:-/mnt/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.20.14.31.06/lightning_logs/version_0/checkpoints/epoch=199-step=312200.ckpt}"
 REF_CKPT="${REF_CKPT:-${INIT_CKPT}}"
-VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
+VLM_PATH="${VLM_PATH:-/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 
 # Optional full-state resume (continue optimizer+epoch from a prior RL run of THIS teacher).
 # Empty -> fresh run warm-started from INIT_CKPT (stage-1 IL). To continue a run, point at that
@@ -71,14 +71,14 @@ LIMIT_VAL_BATCHES="${LIMIT_VAL_BATCHES:-1.0}"
 
 # ---- data roots ----
 # NEW-VLM (LLM-only LoRA = vlm_simscale_lora_merged) agent hidden-state caches.
-SIM_AGENT_CACHE_ROOT="${SIM_AGENT_CACHE_ROOT:-/workspace/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim}"
+SIM_AGENT_CACHE_ROOT="${SIM_AGENT_CACHE_ROOT:-/mnt/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim}"
 NAV_CACHE_PATH="${NAV_CACHE_PATH:-${SIM_AGENT_CACHE_ROOT}/recogdrive_agent_cache_dir_train}"
 # Bucket token lists (quality-filtered, representation-INDEPENDENT). CPFS copy.
-SIMSCALE_BUCKET_ROOT="${SIMSCALE_BUCKET_ROOT:-/workspace/datasets/simscale/20260709/data/simscale}"
-NAVTRAIN_OUTPUT_DIR="${NAVTRAIN_OUTPUT_DIR:-/workspace/datasets/simscale/20260709/data/navtrain_scene/output/navtrain}"
+SIMSCALE_BUCKET_ROOT="${SIMSCALE_BUCKET_ROOT:-/mnt/datasets/simscale/20260709/data/simscale}"
+NAVTRAIN_OUTPUT_DIR="${NAVTRAIN_OUTPUT_DIR:-/mnt/datasets/simscale/20260709/data/navtrain_scene/output/navtrain}"
 # Metric caches (GRPO reward, representation-INDEPENDENT). Keep on datasets (.pkl live there).
-SIMSCALE_METRIC_ROOT="${SIMSCALE_METRIC_ROOT:-/workspace/datasets/simscale/20260709}"
-NAV_METRIC_CACHE_PATH="${NAV_METRIC_CACHE_PATH:-/workspace/datasets/recdrive/20260513/nby/recdrive/metric_cache_train}"
+SIMSCALE_METRIC_ROOT="${SIMSCALE_METRIC_ROOT:-/mnt/datasets/simscale/20260709}"
+NAV_METRIC_CACHE_PATH="${NAV_METRIC_CACHE_PATH:-/mnt/datasets/recdrive/20260513/nby/recdrive/metric_cache_train}"
 
 SIM_ROUNDS="${SIM_ROUNDS:-${SIM_ROUND:-0,1}}"
 
@@ -113,15 +113,15 @@ SIM_ROUNDS="${SIM_ROUNDS_CLEAN[*]}"
 SIM_ROUNDS="${SIM_ROUNDS// /,}"
 
 # Per-teacher mixed-training workspace (isolated so teachers never share symlink caches).
-MIX_ROOT="${MIX_ROOT:-/workspace/datasets/simscale/20260709/data/simscale/mixed_training_newvlm/${BUCKET_NAME}_${NAV_RATIO}nav_${NAV_BUCKET_RATIO}navbucket_${SIM_BUCKET_RATIO}simbucket}"
+MIX_ROOT="${MIX_ROOT:-/mnt/datasets/simscale/20260709/data/simscale/mixed_training_newvlm/${BUCKET_NAME}_${NAV_RATIO}nav_${NAV_BUCKET_RATIO}navbucket_${SIM_BUCKET_RATIO}simbucket}"
 NAV_BUCKET_CACHE_PATH="${NAV_BUCKET_CACHE_PATH:-${MIX_ROOT}/navtrain_bucket_cache}"
 SIM_BUCKET_CACHE_PATH="${SIM_BUCKET_CACHE_PATH:-${MIX_ROOT}/simscale_bucket_cache}"
 MIX_METRIC_CACHE_PATH="${MIX_METRIC_CACHE_PATH:-${MIX_ROOT}/union_metric_cache}"
 MIX_INFO_DIR="${MIX_INFO_DIR:-${MIX_ROOT}/metadata}"
 
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_teacher_${BUCKET_NAME}_rl_newvlm_v1-1}"
-TORCHRUN_BIN="${TORCHRUN_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun}"
-PYTHON_BIN="${PYTHON_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python}"
+TORCHRUN_BIN="${TORCHRUN_BIN:-/opt/conda/envs/recdrive/bin/torchrun}"
+PYTHON_BIN="${PYTHON_BIN:-/opt/conda/envs/recdrive/bin/python}"
 
 mkdir -p "${NAV_BUCKET_CACHE_PATH}" "${SIM_BUCKET_CACHE_PATH}" "${MIX_METRIC_CACHE_PATH}/metadata" "${MIX_INFO_DIR}"
 

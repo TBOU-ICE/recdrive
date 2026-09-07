@@ -11,7 +11,7 @@
 #   nav cache = new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_train
 #   sim cache = new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_*
 # Do not mix these with vlm_simscale_lora_vit_merged or the old
-# /workspace/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train tree.
+# /mnt/models/recdrive/v1.0.0/recogdrive_agent_cache_dir_train tree.
 # The quality views at SIMSCALE_ROOT root symlink to the old-VLM cache; this
 # script never reads those.
 #
@@ -27,12 +27,12 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-export PATH="${CONDA_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin}:$PATH"
+export PATH="${CONDA_BIN:-/opt/conda/envs/recdrive/bin}:$PATH"
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
-export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp}"
+export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/volumes/ad-e2e-bd-su01/nby/exp}"
 export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-${REPO_ROOT}}"
-export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/workspace/datasets/recdrive/20260513/nby/recdrive/download}"
+export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download}"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD="${TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD:-1}"
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
@@ -40,7 +40,7 @@ export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
 export CACHE_READ_MAX_RETRIES="${CACHE_READ_MAX_RETRIES:-10}"
 export CACHE_READ_RETRY_BASE_SEC="${CACHE_READ_RETRY_BASE_SEC:-0.5}"
 
-SIMSCALE_ROOT="${SIMSCALE_ROOT:-/workspace/datasets/simscale/20260709}"
+SIMSCALE_ROOT="${SIMSCALE_ROOT:-/mnt/datasets/simscale/20260709}"
 # New-VLM (LLM-only LoRA) hidden-state caches — same tree as scene-router.
 SIM_AGENT_CACHE_ROOT="${SIM_AGENT_CACHE_ROOT:-${SIMSCALE_ROOT}/new_vlm_hidden_state_nav_sim}"
 # Allowlists live here. Root-level *_quality dirs are old-VLM; do not train on them.
@@ -89,7 +89,7 @@ if [[ ${#SIM_CACHE_PATHS[@]} -eq 0 ]]; then
 fi
 # Weight-only warm start (agent.initialize). Leave empty when using CKPT_PATH resume.
 BASE_CKPT="${BASE_CKPT:-}"
-VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
+VLM_PATH="${VLM_PATH:-/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 
 NNODES="${WORLD_SIZE:-1}"
 RANK="${RANK:-0}"
@@ -97,15 +97,15 @@ MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-23457}"
 GPUS="${GPUS:-8}"
 
-TORCHRUN_BIN="${TORCHRUN_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun}"
+TORCHRUN_BIN="${TORCHRUN_BIN:-/opt/conda/envs/recdrive/bin/torchrun}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_student_dit_il_all_data_newvlm}"
 MAX_EPOCHS="${MAX_EPOCHS:-200}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
 LR="${LR:-1e-4}"
-PYTHON_BIN="${PYTHON_BIN:-/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/python}"
+PYTHON_BIN="${PYTHON_BIN:-/opt/conda/envs/recdrive/bin/python}"
 # Lightning full-state resume (model + optimizer + epoch/step). Default: new-VLM IL epoch=2.
-CKPT_PATH="${CKPT_PATH:-/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
+CKPT_PATH="${CKPT_PATH:-/mnt/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
 
 if [[ "${USE_QUALITY_CACHE}" == "true" ]] && [[ -n "${PREP_ROUNDS}" ]]; then
   export PREP_SRC_CACHE_ROOT="${SIM_AGENT_CACHE_ROOT}"
