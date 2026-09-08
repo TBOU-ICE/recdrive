@@ -58,6 +58,7 @@ class PredictedGoalDiffusionPlanner(GoalCondDiffusionPlanner):
         goal_use_heading: bool = False,
         goal_predictor_hidden_dim: int = 512,
         goal_predictor_dropout: float = 0.0,
+        goal_detach_encoders: bool = True,
     ):
         super().__init__(
             config,
@@ -72,6 +73,7 @@ class PredictedGoalDiffusionPlanner(GoalCondDiffusionPlanner):
             hidden_dim=goal_predictor_hidden_dim,
             dropout=goal_predictor_dropout,
         )
+        self.goal_detach_encoders = bool(goal_detach_encoders)
 
     def predict_goal_from_encoded(
         self,
@@ -80,10 +82,16 @@ class PredictedGoalDiffusionPlanner(GoalCondDiffusionPlanner):
         ego_embeds: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return ``(goal_raw_metres, goal_norm)`` for already encoded features."""
-        # Keep the auxiliary goal objective from reshaping the pretrained scene
-        # encoders directly; KD still updates those encoders through the normal
-        # DiT path, while the goal head learns on a stable detached representation.
-        goal_norm = self.goal_predictor(vl_embeds.detach(), his_embeds.detach(), ego_embeds.detach())
+        # With goal_detach_encoders the auxiliary goal objective cannot reshape the
+        # pretrained scene encoders directly; KD still updates those encoders
+        # through the normal DiT path.  Self-distillation wants the opposite: the
+        # goal head is the only supervised readout of "where does this scene want
+        # me to go", so its gradient is exactly what should sharpen the encoders.
+        if self.goal_detach_encoders:
+            vl_embeds = vl_embeds.detach()
+            his_embeds = his_embeds.detach()
+            ego_embeds = ego_embeds.detach()
+        goal_norm = self.goal_predictor(vl_embeds, his_embeds, ego_embeds)
         goal_raw = self.denorm_odo(goal_norm.unsqueeze(1)).squeeze(1)
         return goal_raw, goal_norm
 

@@ -33,8 +33,13 @@ _GOAL_GLOBAL_KEYS = (
     "reverse_kl_loss",
     "goal_loss",
     "weighted_goal_loss",
+    "weighted_kd_loss",
     "anchor_loss",
     "weighted_anchor_loss",
+    # Self-distillation: privileged-pass behaviour cloning (the anti-collapse term)
+    "il_loss",
+    "weighted_il_loss",
+    "kd_il_ratio",
     "goal_fde_m",
     "recoverability_mean",
     "recoverability_min",

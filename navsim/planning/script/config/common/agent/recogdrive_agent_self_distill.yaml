@@ -1,0 +1,61 @@
+_target_: navsim.agents.recogdrive.recogdrive_self_distill_agent.ReCogDriveSelfDistillAgent
+_convert_: 'all'
+
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+
+# Stage 0 output: full-mix goal-conditioned IL with goal corruption.
+# Override on the command line; there is no teacher checkpoint to set.
+checkpoint_path: ''
+vlm_path: '/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged'
+cam_type: 'single'
+vlm_type: 'internvl'
+dit_type: 'small'
+sampling_method: 'ddim'
+cache_mode: false
+cache_hidden_state: true
+metric_cache_path: ''
+reference_policy_checkpoint: ''
+vlm_size: 'small'
+train_backbone: false
+grpo: false
+lr: 5e-5
+
+goal_mode: 'adaln'
+goal_sincos_dim: 128
+goal_hidden_dim: 1024
+goal_use_heading: false
+goal_predictor_hidden_dim: 512
+goal_predictor_dropout: 0.0
+# Self-distillation inverts the GoalBridge choice: the goal head is the only
+# supervised readout of scene intent, so its gradient should reach the encoders.
+goal_detach_encoders: false
+
+# loss = il_weight * il_loss + kd_weight * reverse_kl_loss + goal_loss_weight * goal_loss
+# il_loss is behaviour cloning on the privileged (teacher) pass. Without it the
+# trivial optimum is to ignore the goal channel, which zeroes kd_loss and makes
+# the teacher pass identical to the student pass.
+il_weight: 1.0
+kd_weight: 1.0
+goal_loss_weight: 1.0
+
+# Corruption applied to the privileged goal on the teacher pass only, so the
+# teacher stays inside the student's reachable set instead of being an oracle.
+# Set noise_std to the goal head's current FDE (watch goal_fde_m).
+teacher_goal_dropout_p: 0.0
+teacher_goal_noise_p: 0.2
+teacher_goal_noise_std_xy: 1.0
+
+kl_precision_clip: 25.0
+min_sigma: 0.04
+
+# Collapse detector: metres of endpoint motion per metre of commanded goal
+# motion. Near 0 means the goal channel is dead and self-distillation is a no-op.
+goal_probe_interval: 50
+goal_probe_shift_m: 2.0
+
+collect_viz: false
+viz_interval_steps: 0
