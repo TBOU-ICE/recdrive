@@ -88,7 +88,18 @@ class AgentLightningSceneRouterGoal(AgentLightningSceneRouter):
                         output[key],
                         on_step=True,
                         on_epoch=True,
-                        prog_bar=key in ("distill_loss", "student_fde_gt_m"),
+                        # These four decide whether self-distillation is working
+                        # at all, so they must reach run.log and not only the
+                        # TensorBoard event files.
+                        prog_bar=key
+                        in (
+                            "distill_loss",
+                            "student_fde_gt_m",
+                            "goal_fde_m",
+                            "kd_il_ratio",
+                            "x0_gap_m",
+                            "goal_effect_follow_ratio",
+                        ),
                         sync_dist=False,
                     )
             for key in list(output.keys()):
@@ -98,7 +109,7 @@ class AgentLightningSceneRouterGoal(AgentLightningSceneRouter):
                         output[key],
                         on_step=True,
                         on_epoch=True,
-                        prog_bar=False,
+                        prog_bar=key == "goal_effect_follow_ratio",
                         sync_dist=False,
                     )
 

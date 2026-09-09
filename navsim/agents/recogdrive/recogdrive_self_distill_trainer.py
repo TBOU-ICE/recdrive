@@ -54,6 +54,7 @@ class ReCogDriveSelfDistillTrainer(ReCogDriveGoalBridgeDistillTrainer):
         teacher_goal_dropout_p: float = 0.0,
         teacher_goal_noise_p: float = 0.0,
         teacher_goal_noise_std_xy: float = 1.0,
+        kd_warmup_steps: int = 0,
         goal_probe_interval: int = 50,
         goal_probe_shift_m: float = 2.0,
         **kwargs,
@@ -70,6 +71,7 @@ class ReCogDriveSelfDistillTrainer(ReCogDriveGoalBridgeDistillTrainer):
         self.teacher_goal_dropout_p = float(teacher_goal_dropout_p)
         self.teacher_goal_noise_p = float(teacher_goal_noise_p)
         self.teacher_goal_noise_std_xy = float(teacher_goal_noise_std_xy)
+        self.kd_warmup_steps = int(kd_warmup_steps)
         self.goal_probe_interval = int(goal_probe_interval)
         self.goal_probe_shift_m = float(goal_probe_shift_m)
         self._step_counter = 0
@@ -141,6 +143,22 @@ class ReCogDriveSelfDistillTrainer(ReCogDriveGoalBridgeDistillTrainer):
             pred_goal_norm[..., :goal_dims], gt_goal_norm[..., :goal_dims], reduction="mean"
         )
 
+        # KD has two descent directions: improve pred_goal (wanted), or make the
+        # policy goal-insensitive so both passes agree regardless (collapse).
+        # The second is far cheaper -- the DiT trunk is large, the AdaLN goal
+        # branch is thin -- and the IL term does NOT forbid it, because a
+        # goal-blind but accurate policy satisfies IL on every unimodal scene.
+        # Gating KD by how close the predicted goal already is removes exactly
+        # that pressure: samples whose two conditionings are far apart, i.e. the
+        # ones that would be "fixed" by deleting the goal channel, are muted.
+        goal_err_xy = (pred_goal.float()[..., :2] - gt_goal[..., :2]).norm(dim=-1)
+        if self.recoverability_tau_m > 0.0:
+            tau = self.recoverability_tau_m
+            recoverability = torch.exp(-(goal_err_xy.detach() ** 2) / (2.0 * tau * tau))
+            recoverability = recoverability.clamp(min=self.recoverability_floor, max=1.0)
+        else:
+            recoverability = torch.ones_like(goal_err_xy)
+
         # On-policy states: sampled from the deployable (predicted-goal) policy,
         # detached so no gradient flows through the rollout.
         with torch.no_grad():
@@ -196,7 +214,8 @@ class ReCogDriveSelfDistillTrainer(ReCogDriveGoalBridgeDistillTrainer):
             # The KD target must not be trainable, otherwise the cheapest descent
             # direction is to move the teacher toward the student.
             mu_t = self._shared_ddim_mean(planner, z_t, idx_batch, x0_t.detach(), sigma_geom)
-            total_kd = total_kd + ((mu_s - mu_t).pow(2) * precision).mean()
+            kd_per_sample = ((mu_s - mu_t).pow(2) * precision).mean(dim=(1, 2))
+            total_kd = total_kd + (kd_per_sample * recoverability).mean()
 
             # IL in metric space so its scale is comparable to the FDE numbers we
             # actually track, instead of normalised-unit noise.
@@ -207,7 +226,7 @@ class ReCogDriveSelfDistillTrainer(ReCogDriveGoalBridgeDistillTrainer):
 
             with torch.no_grad():
                 x0_gap_steps.append(self._waypoint_gap_m(planner, x0_s, x0_t))
-            kl_steps.append(((mu_s - mu_t).pow(2) * precision).mean().detach())
+            kl_steps.append(kd_per_sample.mean().detach())
             last_student_x0 = x0_s
             last_teacher_x0 = x0_t
 
@@ -233,9 +252,15 @@ class ReCogDriveSelfDistillTrainer(ReCogDriveGoalBridgeDistillTrainer):
 
         kd_loss = total_kd / max(num_steps, 1)
         il_loss = total_il / max(num_steps, 1)
+        # Ramp KD in. At step 0 the goal head is randomly initialised, so every
+        # sample has a huge goal error and KD is pure collapse pressure; let the
+        # goal regression pull pred_goal into range first.
+        kd_scale = self.kd_weight
+        if self.kd_warmup_steps > 0:
+            kd_scale = kd_scale * min(1.0, self._step_counter / self.kd_warmup_steps)
         loss = (
             self.il_weight * il_loss
-            + self.kd_weight * kd_loss
+            + kd_scale * kd_loss
             + self.goal_loss_weight * goal_loss
         )
 
@@ -259,14 +284,15 @@ class ReCogDriveSelfDistillTrainer(ReCogDriveGoalBridgeDistillTrainer):
             "il_loss": il_loss.detach(),
             "goal_loss": goal_loss.detach(),
             "weighted_il_loss": (self.il_weight * il_loss).detach(),
-            "weighted_kd_loss": (self.kd_weight * kd_loss).detach(),
+            "weighted_kd_loss": (kd_scale * kd_loss).detach(),
+            "recoverability_mean": recoverability.mean().detach(),
             "weighted_goal_loss": (self.goal_loss_weight * goal_loss).detach(),
             # The number to tune kd_weight on. KD lives in normalised precision
             # units and IL in metres, so out of the box KD is orders of magnitude
             # smaller and contributes nothing -- the exact failure the previous
             # GoalBridge OPD run had. Aim for roughly 0.2-0.5.
             "kd_il_ratio": (
-                (self.kd_weight * kd_loss) / (self.il_weight * il_loss + 1e-8)
+                (kd_scale * kd_loss) / (self.il_weight * il_loss + 1e-8)
             ).detach(),
             "goal_fde_m": goal_fde.detach(),
             "student_fde_gt_m": student_err[:, -1].mean().detach(),

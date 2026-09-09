@@ -49,6 +49,11 @@ GOAL_LOSS_WEIGHT="${GOAL_LOSS_WEIGHT:-1.0}"
 TEACHER_GOAL_NOISE_P="${TEACHER_GOAL_NOISE_P:-0.2}"
 TEACHER_GOAL_NOISE_STD_XY="${TEACHER_GOAL_NOISE_STD_XY:-1.0}"
 TEACHER_GOAL_DROPOUT_P="${TEACHER_GOAL_DROPOUT_P:-0.0}"
+KD_WARMUP_STEPS="${KD_WARMUP_STEPS:-500}"
+# Gate off by default: the v1 run showed no goal-channel collapse, and at a 3.3m
+# goal error a tau=2.0 gate would scale KD down by 4x for no benefit.
+RECOVERABILITY_TAU_M="${RECOVERABILITY_TAU_M:-0.0}"
+RECOVERABILITY_FLOOR="${RECOVERABILITY_FLOOR:-0.0}"
 GOAL_DETACH_ENCODERS="${GOAL_DETACH_ENCODERS:-False}"
 KL_PRECISION_CLIP="${KL_PRECISION_CLIP:-25.0}"
 GOAL_PROBE_INTERVAL="${GOAL_PROBE_INTERVAL:-50}"
@@ -90,6 +95,7 @@ HYDRA_RESUME=(); [[ -n "${RESUME_CKPT}" ]] && HYDRA_RESUME+=("+ckpt_path='${RESU
 echo "[SelfDistill] stage0_ckpt=${STUDENT_CKPT}"
 echo "[SelfDistill] il_w=${IL_WEIGHT} kd_w=${KD_WEIGHT} goal_w=${GOAL_LOSS_WEIGHT}"
 echo "[SelfDistill] teacher goal noise ${TEACHER_GOAL_NOISE_P}@${TEACHER_GOAL_NOISE_STD_XY}m, masked ${TEACHER_GOAL_DROPOUT_P}"
+echo "[SelfDistill] anti-collapse: kd_warmup=${KD_WARMUP_STEPS} steps, recoverability_tau=${RECOVERABILITY_TAU_M}m floor=${RECOVERABILITY_FLOOR}"
 
 torchrun --nnodes="${NNODES}" --node_rank="${RANK}" --master_addr="${MASTER_ADDR}" --nproc_per_node="${GPUS}" --master_port="${MASTER_PORT}" \
   "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_training_recogdrive_scene_router_dit_goal_distill.py" \
@@ -98,6 +104,8 @@ torchrun --nnodes="${NNODES}" --node_rank="${RANK}" --master_addr="${MASTER_ADDR
   agent.il_weight="${IL_WEIGHT}" agent.kd_weight="${KD_WEIGHT}" agent.goal_loss_weight="${GOAL_LOSS_WEIGHT}" \
   agent.teacher_goal_noise_p="${TEACHER_GOAL_NOISE_P}" agent.teacher_goal_noise_std_xy="${TEACHER_GOAL_NOISE_STD_XY}" \
   agent.teacher_goal_dropout_p="${TEACHER_GOAL_DROPOUT_P}" \
+  agent.kd_warmup_steps="${KD_WARMUP_STEPS}" \
+  agent.recoverability_tau_m="${RECOVERABILITY_TAU_M}" agent.recoverability_floor="${RECOVERABILITY_FLOOR}" \
   agent.goal_detach_encoders="${GOAL_DETACH_ENCODERS}" \
   agent.kl_precision_clip="${KL_PRECISION_CLIP}" agent.goal_probe_interval="${GOAL_PROBE_INTERVAL}" \
   agent.lr="${LR}" agent.collect_viz="${COLLECT_VIZ}" agent.viz_interval_steps="${VIZ_INTERVAL_STEPS}" \

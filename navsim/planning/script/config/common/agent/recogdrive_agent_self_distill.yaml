@@ -49,6 +49,17 @@ teacher_goal_dropout_p: 0.0
 teacher_goal_noise_p: 0.2
 teacher_goal_noise_std_xy: 1.0
 
+# KD can in principle be minimised by making the policy ignore the goal rather
+# than by predicting the goal better. Measured on the v1 run that is NOT what
+# happens: goal_effect_follow_ratio sits at ~0.44 over 4400 steps. So the gate
+# is off by default -- at a 3.3m goal error tau=2.0 would scale KD by 0.25 and
+# further weaken a term that is already only 1% of the objective.
+# Turn it on (tau 2.0, floor 0.05) only if follow_ratio starts trending to 0.
+# The warmup stays: goal_fde starts near 15m on a freshly initialised head.
+kd_warmup_steps: 500
+recoverability_tau_m: 0.0
+recoverability_floor: 0.0
+
 kl_precision_clip: 25.0
 min_sigma: 0.04
 

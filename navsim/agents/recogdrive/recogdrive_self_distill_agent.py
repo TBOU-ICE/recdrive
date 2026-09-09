@@ -42,6 +42,9 @@ class ReCogDriveSelfDistillAgent(ReCogDriveAgent):
         teacher_goal_dropout_p: float = 0.0,
         teacher_goal_noise_p: float = 0.2,
         teacher_goal_noise_std_xy: float = 1.0,
+        kd_warmup_steps: int = 0,
+        recoverability_tau_m: float = 0.0,
+        recoverability_floor: float = 0.0,
         kl_precision_clip: float = 25.0,
         min_sigma: float = 0.04,
         goal_probe_interval: int = 50,
@@ -98,8 +101,9 @@ class ReCogDriveSelfDistillAgent(ReCogDriveAgent):
             teacher_goal_dropout_p=teacher_goal_dropout_p,
             teacher_goal_noise_p=teacher_goal_noise_p,
             teacher_goal_noise_std_xy=teacher_goal_noise_std_xy,
-            recoverability_tau_m=2.0,
-            recoverability_floor=0.0,
+            kd_warmup_steps=kd_warmup_steps,
+            recoverability_tau_m=recoverability_tau_m,
+            recoverability_floor=recoverability_floor,
             kl_precision_clip=kl_precision_clip,
             goal_probe_interval=goal_probe_interval,
             goal_probe_shift_m=goal_probe_shift_m,
@@ -110,7 +114,8 @@ class ReCogDriveSelfDistillAgent(ReCogDriveAgent):
             "[SelfDistill] one-model privileged self-distillation "
             f"mode={goal_mode} il_w={il_weight:g} kd_w={kd_weight:g} goal_w={goal_loss_weight:g} "
             f"teacher_goal noisy={teacher_goal_noise_p:g}@{teacher_goal_noise_std_xy:g}m "
-            f"masked={teacher_goal_dropout_p:g} goal_detach_encoders={goal_detach_encoders}"
+            f"masked={teacher_goal_dropout_p:g} goal_detach_encoders={goal_detach_encoders} "
+            f"kd_warmup={kd_warmup_steps} recoverability_tau={recoverability_tau_m:g}m"
         )
 
     def forward(self, features: Dict[str, torch.Tensor], targets=None, tokens_list=None):
