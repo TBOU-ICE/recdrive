@@ -164,6 +164,12 @@ class ReCogDriveSelfDistillTrainer(ReCogDriveGoalBridgeDistillTrainer):
         x0_gap_steps: List[torch.Tensor] = []
         last_student_x0 = None
         last_teacher_x0 = None
+        # Early / middle / late states of the student's own chain. This is the
+        # only view that answers "is the privileged pass actually better than the
+        # deployable one, at the states the deployable one visits".
+        diagnostic_steps = {0, num_steps // 2, num_steps - 1}
+        teacher_step_metrics: Dict[str, torch.Tensor] = {}
+        viz_step_predictions: List[Dict] = []
 
         for step in range(num_steps):
             z_t = chain[:, step].to(dtype)
@@ -204,6 +210,26 @@ class ReCogDriveSelfDistillTrainer(ReCogDriveGoalBridgeDistillTrainer):
             kl_steps.append(((mu_s - mu_t).pow(2) * precision).mean().detach())
             last_student_x0 = x0_s
             last_teacher_x0 = x0_t
+
+            if step in diagnostic_steps:
+                with torch.no_grad():
+                    student_step_traj = planner.denorm_odo(x0_s.float())
+                    teacher_step_traj = planner.denorm_odo(x0_t.float())
+                    teacher_step_err = (
+                        teacher_step_traj[..., :2] - gt_traj[..., :2]
+                    ).norm(dim=-1)
+                    teacher_step_metrics[f"fde_gt_teacher_step_{step}_m"] = (
+                        teacher_step_err[:, -1].mean().detach()
+                    )
+                    teacher_step_metrics[f"fde_gt_teacher_step_{step}_ade_m"] = (
+                        teacher_step_err.mean().detach()
+                    )
+                    if self.collect_viz:
+                        viz_step_predictions.append({
+                            "step": step,
+                            "student_x0": student_step_traj.detach().cpu(),
+                            "teacher_x0": teacher_step_traj.detach().cpu(),
+                        })
 
         kd_loss = total_kd / max(num_steps, 1)
         il_loss = total_il / max(num_steps, 1)
@@ -255,6 +281,7 @@ class ReCogDriveSelfDistillTrainer(ReCogDriveGoalBridgeDistillTrainer):
             "pred_goal_x_mean": pred_goal[:, 0].float().mean().detach(),
             "pred_goal_y_mean": pred_goal[:, 1].float().mean().detach(),
         }
+        data.update(teacher_step_metrics)
         data.update(
             self._goal_sensitivity_probe(
                 planner, chain, vl_e, his_e, ego_e, gt_goal, num_steps, batch_size, device, dtype
@@ -268,8 +295,8 @@ class ReCogDriveSelfDistillTrainer(ReCogDriveGoalBridgeDistillTrainer):
                 "pred_goal": pred_goal.detach().float().cpu(),
                 "student_traj": student_traj.detach().float().cpu(),
                 "teacher_traj": teacher_traj.detach().float().cpu(),
-                "step_predictions": [],
-                "buckets": ["self"] * batch_size,
+                "step_predictions": viz_step_predictions,
+                "buckets": ["gt-goal vs pred-goal"] * batch_size,
             }
 
         return BatchFeature(data=data)

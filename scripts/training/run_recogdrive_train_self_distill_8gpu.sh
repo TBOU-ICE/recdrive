@@ -29,7 +29,7 @@ NNODES="${NNODES:-1}"; RANK="${RANK:-0}"; GPUS="${GPUS:-8}"
 MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"; MASTER_PORT="${MASTER_PORT:-23541}"
 TRAIN_TEST_SPLIT="${TRAIN_TEST_SPLIT:-navtrain}"
 
-STUDENT_CKPT="${STUDENT_CKPT:?set STUDENT_CKPT to the Stage 0 checkpoint}"
+STUDENT_CKPT="${STUDENT_CKPT:-/workspace/volumes/ad-e2e-bd-su01/nby/exp/training_selfdistill_stage0_all_data_goal/2026.09.08.14.39.46/checkpoints/epoch=29-step=42540.ckpt}"
 RESUME_CKPT="${RESUME_CKPT:-}"
 
 VLM_PATH="${VLM_PATH:-/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
