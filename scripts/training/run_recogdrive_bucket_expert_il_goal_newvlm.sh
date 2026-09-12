@@ -73,16 +73,14 @@ LIMIT_VAL_BATCHES="${LIMIT_VAL_BATCHES:-1.0}"
 
 SIM_AGENT_CACHE_ROOT="${SIM_AGENT_CACHE_ROOT:-/mnt/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim}"
 NAV_CACHE_PATH="${NAV_CACHE_PATH:-${SIM_AGENT_CACHE_ROOT}/recogdrive_agent_cache_dir_train}"
-SIM_QUALITY_CACHE_ROOT="${SIM_QUALITY_CACHE_ROOT:-/mnt/datasets/simscale/20260709/data/simscale/new_vlm_quality_views}"
 SIMSCALE_BUCKET_ROOT="${SIMSCALE_BUCKET_ROOT:-/mnt/datasets/simscale/20260709/data/simscale}"
 NAVTRAIN_OUTPUT_DIR="${NAVTRAIN_OUTPUT_DIR:-/mnt/datasets/simscale/20260709/data/navtrain_scene/output/navtrain}"
 SIM_ROUNDS="${SIM_ROUNDS:-${SIM_ROUND:-0,1}}"
 
-# Same views as no-goal IL. Goal vs no-goal is the agent, not the cache tree.
-MIX_ROOT="${MIX_ROOT:-/mnt/datasets/simscale/20260709/data/simscale/il_training_newvlm/${BUCKET_NAME}_fullmix}"
-NAV_BUCKET_CACHE_PATH="${NAV_BUCKET_CACHE_PATH:-${MIX_ROOT}/navtrain_bucket_cache}"
-SIM_BUCKET_CACHE_PATH="${SIM_BUCKET_CACHE_PATH:-${MIX_ROOT}/simscale_bucket_cache}"
-MIX_INFO_DIR="${MIX_INFO_DIR:-${MIX_ROOT}/metadata}"
+# Portable indexes point directly at the original /mnt caches. They contain no
+# symlinks and can be reused on any cluster mounting the same data paths.
+DIRECT_INDEX_ROOT="${DIRECT_INDEX_ROOT:-/mnt/datasets/simscale/20260709/data/simscale/il_training_newvlm_direct}"
+BUCKET_INDEX_DIR="${BUCKET_INDEX_DIR:-${DIRECT_INDEX_ROOT}/${BUCKET_NAME}}"
 
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_teacher_${BUCKET_NAME}_200il_30goal_${GOAL_MODE}_newvlm}"
 TORCHRUN_BIN="${TORCHRUN_BIN:-/opt/conda/envs/recdrive/bin/torchrun}"
@@ -155,36 +153,49 @@ if [[ -z "${RESUME_CKPT}" && -n "${BASE_CKPT}" && ! -f "${BASE_CKPT}" ]]; then
   exit 1
 fi
 
-PREP_PY="${NAVSIM_DEVKIT_ROOT}/scripts/data/prep_bucket_il_newvlm.py"
-TRAIN_INDEX_PATH="${TRAIN_INDEX_PATH:-${MIX_INFO_DIR}/train_index.json}"
-VAL_INDEX_PATH="${VAL_INDEX_PATH:-/mnt/datasets/simscale/20260709/data/simscale/il_training_newvlm/navtrain_cache_index.json}"
-SUMMARY_JSON="${MIX_INFO_DIR}/bucket_il_sources_summary.json"
+PREP_PY="${NAVSIM_DEVKIT_ROOT}/scripts/data/prep_bucket_il_direct_indexes.py"
+TRAIN_INDEX_PATH="${TRAIN_INDEX_PATH:-${BUCKET_INDEX_DIR}/train_index.json}"
+VAL_SCOPE="${VAL_SCOPE:-full}"
+case "${VAL_SCOPE}" in
+  full)
+    VAL_INDEX_PATH="${VAL_INDEX_PATH:-${DIRECT_INDEX_ROOT}/navtrain_full_val_index.json}"
+    ;;
+  bucket)
+    VAL_INDEX_PATH="${VAL_INDEX_PATH:-${BUCKET_INDEX_DIR}/navtrain_bucket_val_index.json}"
+    ;;
+  *)
+    echo "[ERROR] VAL_SCOPE must be 'full' or 'bucket', got: ${VAL_SCOPE}" >&2
+    exit 1
+    ;;
+esac
+SUMMARY_JSON="${BUCKET_INDEX_DIR}/summary.json"
 
 if [[ "${SKIP_PREP}" == "true" ]]; then
-  if [[ ! -f "${SUMMARY_JSON}" ]]; then
-    echo "[ERROR] SKIP_PREP=true but summary missing: ${SUMMARY_JSON}" >&2
+  if [[ ! -f "${SUMMARY_JSON}" || ! -f "${TRAIN_INDEX_PATH}" || ! -f "${VAL_INDEX_PATH}" ]]; then
+    echo "[ERROR] SKIP_PREP=true but a direct index is missing." >&2
+    echo "  summary=${SUMMARY_JSON}" >&2
+    echo "  train=${TRAIN_INDEX_PATH}" >&2
+    echo "  val=${VAL_INDEX_PATH}" >&2
     exit 1
   fi
-  echo "[teacher-il-goal] SKIP_PREP=true; reuse existing bucket views at ${MIX_ROOT}"
+  echo "[teacher-il-goal] SKIP_PREP=true; reuse direct indexes at ${BUCKET_INDEX_DIR}"
 elif [[ -f "${SUMMARY_JSON}" && -f "${TRAIN_INDEX_PATH}" ]]; then
-  echo "[teacher-il-goal] bucket views + train index already present; skip linking"
+  echo "[teacher-il-goal] direct train index already present; skip preparation"
 else
-  echo "[teacher-il-goal] building bucket symlinks + train index via ${PREP_PY}"
+  echo "[teacher-il-goal] building direct-path indexes via ${PREP_PY}"
   "${PYTHON_BIN}" "${PREP_PY}" \
     --bucket-file "${BUCKET_FILE}" \
     --navtrain-output-dir "${NAVTRAIN_OUTPUT_DIR}" \
     --nav-cache "${NAV_CACHE_PATH}" \
     --sim-agent-cache-root "${SIM_AGENT_CACHE_ROOT}" \
-    --sim-quality-cache-root "${SIM_QUALITY_CACHE_ROOT}" \
     --simscale-bucket-root "${SIMSCALE_BUCKET_ROOT}" \
-    --mix-root-parent "$(dirname "${MIX_ROOT}")" \
+    --output-root "${DIRECT_INDEX_ROOT}" \
     --sim-rounds "${SIM_ROUNDS}" \
-    --nav-index-path "${VAL_INDEX_PATH}" \
     --workers "${PREP_WORKERS:-4}"
 fi
 
 if [[ "${PREP_ONLY}" == "true" ]]; then
-  echo "[teacher-il-goal] PREP_ONLY=true; bucket views ready at ${MIX_ROOT}. Exiting before torchrun."
+  echo "[teacher-il-goal] PREP_ONLY=true; direct indexes ready at ${BUCKET_INDEX_DIR}. Exiting before torchrun."
   exit 0
 fi
 
@@ -192,13 +203,13 @@ echo "======================================================================"
 echo "[teacher-il-goal] BUCKET_NAME=${BUCKET_NAME}  BUCKET_FILE=${BUCKET_FILE}"
 echo "[teacher-il-goal] GOAL_MODE=${GOAL_MODE}  (privileged goal point = GT 8th waypoint)"
 echo "[teacher-il-goal] goal corruption: clean=$("${PYTHON_BIN}" -c "print(1 - ${GOAL_DROPOUT_P} - ${GOAL_NOISE_P})") masked(GOAL_DROPOUT_P)=${GOAL_DROPOUT_P} noisy(GOAL_NOISE_P)=${GOAL_NOISE_P} noise_std_xy=${GOAL_NOISE_STD_XY}m noise_std_heading=${GOAL_NOISE_STD_HEADING}rad"
-echo "[teacher-il-goal] MIXTURE: reuse no-goal IL views (navtrain_bucket + simscale_bucket)"
+echo "[teacher-il-goal] MIXTURE: direct original-cache paths (navtrain_bucket + simscale_bucket)"
 echo "[teacher-il-goal] BASE_CKPT=${BASE_CKPT:-<random-init DiT>}"
 echo "[teacher-il-goal] RESUME_CKPT=${RESUME_CKPT:-<none>}"
 echo "[teacher-il-goal] VLM_PATH=${VLM_PATH}"
-echo "[teacher-il-goal] MIX_ROOT=${MIX_ROOT}"
+echo "[teacher-il-goal] DIRECT_INDEX_ROOT=${DIRECT_INDEX_ROOT}"
 echo "[teacher-il-goal] TRAIN_INDEX_PATH=${TRAIN_INDEX_PATH}"
-echo "[teacher-il-goal] VAL_INDEX_PATH=${VAL_INDEX_PATH}"
+echo "[teacher-il-goal] VAL_SCOPE=${VAL_SCOPE}  VAL_INDEX_PATH=${VAL_INDEX_PATH}"
 echo "[teacher-il-goal] LR=${LR}  MAX_EPOCHS=${MAX_EPOCHS}  BATCH_SIZE=${BATCH_SIZE}"
 echo "[teacher-il-goal] EXPERIMENT_NAME=${EXPERIMENT_NAME}"
 echo "[teacher-il-goal] NAVSIM_DEVKIT_ROOT=${NAVSIM_DEVKIT_ROOT}"
@@ -207,7 +218,6 @@ echo "======================================================================"
 if [[ ! -f "${TRAIN_INDEX_PATH}" ]]; then
   echo "[ERROR] train index missing: ${TRAIN_INDEX_PATH}" >&2
   echo "  Build it first: bash scripts/training/prep_all_bucket_il_newvlm.sh" >&2
-  echo "  Or reuse: MIX_ROOT=/mnt/datasets/simscale/20260709/data/simscale/il_training_newvlm/${BUCKET_NAME}_fullmix SKIP_PREP=true" >&2
   exit 1
 fi
 
@@ -258,7 +268,7 @@ stop_gpu_keepalive
   use_cache_without_dataset=true \
   force_cache_computation=False \
   use_mixed_cache=true \
-  mixed_cache.paths="[${NAV_BUCKET_CACHE_PATH},${SIM_BUCKET_CACHE_PATH}]" \
+  mixed_cache.paths="[${NAV_CACHE_PATH},${SIM_AGENT_CACHE_ROOT}]" \
   mixed_cache.names="[navtrain_bucket,simscale_bucket]" \
   mixed_cache.fullmix=true \
   "${INDEX_ARGS[@]}" \
