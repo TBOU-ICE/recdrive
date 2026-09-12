@@ -4,6 +4,7 @@
 #
 #   SKIP_PREP=true GPUS=8 bash scripts/training/run_recogdrive_bucket_expert_safety_il_goal_channel_newvlm.sh
 set -euo pipefail
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/datasets/recdrive/20260513/exp}"
 export BUCKET_NAME="${BUCKET_NAME:-safety_dynamics_interaction}"
 export BUCKET_FILE="${BUCKET_FILE:-exclusive_safety_dynamics_interaction_tokens.json}"
 export GOAL_MODE="${GOAL_MODE:-channel}"
