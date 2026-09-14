@@ -4,7 +4,7 @@
 #
 #   SKIP_PREP=true GPUS=8 bash scripts/training/run_recogdrive_bucket_expert_general_il_goal_cross_newvlm.sh
 set -euo pipefail
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/volumes/ad-e2e-al-sh01/nby/exp}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/datasets/recdrive/20260513/exp2/exp}"
 export BUCKET_NAME="${BUCKET_NAME:-general_or_no_tag}"
 export BUCKET_FILE="${BUCKET_FILE:-exclusive_general_or_no_tag_tokens.json}"
 export GOAL_MODE="${GOAL_MODE:-cross}"
