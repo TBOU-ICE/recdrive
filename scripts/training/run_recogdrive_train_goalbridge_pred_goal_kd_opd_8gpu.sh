@@ -6,10 +6,11 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+OUTPUT_BASE="${OUTPUT_BASE:-/workspace/output/tensorboard}"
 export PATH="${CONDA_BIN:-/opt/conda/envs/recdrive/bin}:$PATH"
 export NUPLAN_MAP_VERSION="${NUPLAN_MAP_VERSION:-nuplan-maps-v1.0}"
 export NUPLAN_MAPS_ROOT="${NUPLAN_MAPS_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download/maps/nuplan-maps-v1.0}"
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/datasets/recdrive/20260513/exp2/exp}"
+export NAVSIM_EXP_ROOT="${OUTPUT_BASE}"
 export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-${REPO_ROOT}}"
 export OPENSCENE_DATA_ROOT="${OPENSCENE_DATA_ROOT:-/mnt/datasets/recdrive/20260513/nby/recdrive/download}"
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
@@ -67,8 +68,9 @@ NUM_WORKERS="${NUM_WORKERS:-8}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_goalbridge_pred_goal_teacher_student_kd_opd_v1}"
 OUTPUT_ROOT="${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}"
 LOG_FILE="${LOG_FILE:-${OUTPUT_ROOT}/run.log}"
-TENSORBOARD_DIR="${TENSORBOARD_DIR:-${NAVSIM_EXP_ROOT}/tensorboard}"
-mkdir -p "$(dirname "${LOG_FILE}")" "${TENSORBOARD_DIR}"
+TENSORBOARD_DIR="${TENSORBOARD_DIR:-${OUTPUT_BASE}}"
+CHECKPOINT_DIR="${CHECKPOINT_DIR:-${TENSORBOARD_DIR}/${EXPERIMENT_NAME}/checkpoints}"
+mkdir -p "$(dirname "${LOG_FILE}")" "${TENSORBOARD_DIR}" "${CHECKPOINT_DIR}"
 
 require_file() {
   [[ -f "$1" ]] || { echo "[ERROR] required file missing: $1" >&2; exit 1; }
@@ -146,6 +148,7 @@ echo "======================================================================"
   dataloader.params.prefetch_factor=4 \
   +dataloader.params.persistent_workers=true \
   "+tensorboard_dir='${TENSORBOARD_DIR}'" \
+  "+checkpoint_dir='${CHECKPOINT_DIR}'" \
   experiment_name="${EXPERIMENT_NAME}" \
   train_test_split="${TRAIN_TEST_SPLIT}" \
   cache_path="${NAV_CACHE_PATH}" \

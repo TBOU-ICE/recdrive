@@ -238,6 +238,7 @@ class ReCogDriveGoalBridgeGoalKDDistillTrainer(ReCogDriveGoalBridgeDistillTraine
                         viz_step_predictions.append(
                             {
                                 "step": step,
+                                "timestep": ddim_t_list[step],
                                 "student_x0": student_step_traj.detach().cpu(),
                                 "teacher_x0": teacher_step_traj.detach().cpu(),
                             }

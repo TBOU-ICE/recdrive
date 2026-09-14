@@ -488,8 +488,15 @@ def main(cfg: DictConfig) -> None:
     logger.info("Num training samples: %d", len(train_data))
     logger.info("Num validation samples: %d", len(val_data))
 
+    checkpoint_dir = cfg.get("checkpoint_dir", None)
     checkpoint_cb = pl.callbacks.ModelCheckpoint(
-        dirpath=str(Path(cfg.output_dir) / "checkpoints") if tensorboard_dir else None,
+        dirpath=(
+            str(checkpoint_dir)
+            if checkpoint_dir
+            else str(Path(cfg.output_dir) / "checkpoints")
+            if tensorboard_dir
+            else None
+        ),
         monitor="val/loss_epoch",
         mode="min",
         save_top_k=5,

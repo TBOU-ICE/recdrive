@@ -5,8 +5,8 @@ Extends ``AgentLightningSceneRouter`` with:
   ``ReCogDriveDiTSceneRouterGoalDistillTrainer`` (only ``loss`` uses
   ``sync_dist=True``; other scalars / per-bucket keys are rank-local to avoid
   NCCL SeqNum skew with DDP);
-* periodic BEV visualisation (rank 0, ``on_train_batch_end``): GT trajectory +
-  goal point, the routed teacher's final x0 and the student's final trajectory.
+* periodic BEV visualisation (rank 0, ``on_train_batch_end``): a sample-by-step
+  matrix comparing matched teacher/student x0 predictions and error proxies.
 """
 
 import os
@@ -128,76 +128,123 @@ class AgentLightningSceneRouterGoal(AgentLightningSceneRouter):
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        gt = viz["gt_traj"]            # (B, H, 3) metres
-        goal = viz["goal"]             # (B, 3) GT endpoint
+        gt = viz["gt_traj"]  # (B, H, 3) metres
+        goal = viz["goal"]  # (B, 3) GT endpoint
         pred_goal = viz.get("pred_goal")  # (B, 3) student Goal Head
         student = viz["student_traj"]  # (B, H, 3)
         teacher = viz["teacher_traj"]  # (B, H, 3)
         step_predictions = viz.get("step_predictions", [])
         buckets = viz["buckets"]
-        # Light -> dark so early / mid / late chain states are separable.
-        teacher_step_colors = ("#FFD27A", "#FF8C1A", "#9A3412")
-        student_step_colors = ("#A5F3FC", "#22D3EE", "#0E7490")
 
-        n = min(gt.shape[0], 8)
-        cols = min(n, 4)
-        rows = (n + cols - 1) // cols
-        fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows), squeeze=False)
-        for i in range(rows * cols):
-            ax = axes[i // cols][i % cols]
-            if i >= n:
-                ax.axis("off")
-                continue
-            # ego frame: x forward -> plot as vertical axis (BEV convention)
-            # Draw chain diagnostics first so the solid final trajectories stay on top.
+        # Matrix layout: rows are samples and columns are matched student/teacher
+        # predictions at one shared student-chain state. This avoids overlaying
+        # every denoising stage in one crowded panel.
+        if not step_predictions:
+            step_predictions = [
+                {
+                    "step": "final",
+                    "timestep": 0,
+                    "student_x0": student,
+                    "teacher_x0": teacher,
+                }
+            ]
+        n = min(gt.shape[0], 6)
+        cols = len(step_predictions)
+        fig, axes = plt.subplots(
+            n,
+            cols,
+            figsize=(4.2 * cols, 3.6 * n),
+            squeeze=False,
+        )
+
+        student_fde = torch.linalg.vector_norm(
+            student[..., :2] - gt[..., :2], dim=-1
+        )[:, -1]
+        teacher_fde = torch.linalg.vector_norm(
+            teacher[..., :2] - gt[..., :2], dim=-1
+        )[:, -1]
+        goal_error = (
+            torch.linalg.vector_norm(pred_goal[..., :2] - goal[..., :2], dim=-1)
+            if pred_goal is not None
+            else torch.full_like(student_fde, float("nan"))
+        )
+        high_error_threshold_m = 2.0
+
+        for i in range(n):
+            high_error = float(student_fde[i]) >= high_error_threshold_m
             for j, step_pred in enumerate(step_predictions):
-                step = step_pred["step"]
+                ax = axes[i][j]
                 teacher_x0 = step_pred["teacher_x0"]
                 student_x0 = step_pred["student_x0"]
-                t_color = teacher_step_colors[min(j, len(teacher_step_colors) - 1)]
-                s_color = student_step_colors[min(j, len(student_step_colors) - 1)]
+                step = step_pred["step"]
+                timestep = step_pred.get("timestep", "?")
+
+                ax.plot(
+                    -gt[i, :, 1],
+                    gt[i, :, 0],
+                    "k.-",
+                    label="GT",
+                    linewidth=1.6,
+                )
                 ax.plot(
                     -teacher_x0[i, :, 1],
                     teacher_x0[i, :, 0],
-                    color=t_color,
-                    linestyle="--",
-                    alpha=1.0,
-                    linewidth=1.6,
-                    label=f"teacher x0 @ student z[{step}]" if i == 0 else None,
+                    "r.--",
+                    label="teacher x0",
+                    linewidth=1.8,
                 )
                 ax.plot(
                     -student_x0[i, :, 1],
                     student_x0[i, :, 0],
-                    color=s_color,
-                    linestyle=":",
-                    alpha=1.0,
-                    linewidth=1.6,
-                    label=f"student x0 @ z[{step}]" if i == 0 else None,
+                    "b.:",
+                    label="student x0",
+                    linewidth=1.8,
                 )
-            ax.plot(-gt[i, :, 1], gt[i, :, 0], "k.-", label="GT", linewidth=1.5)
-            ax.plot(-teacher[i, :, 1], teacher[i, :, 0], "r.-", label="teacher x0 (final z)", linewidth=1.8)
-            ax.plot(-student[i, :, 1], student[i, :, 0], "b.-", label="student x0 (final z)", linewidth=1.8)
-            ax.scatter([-goal[i, 1]], [goal[i, 0]], marker="*", s=180, c="g", label="GT goal", zorder=5)
-            if pred_goal is not None:
                 ax.scatter(
-                    [-pred_goal[i, 1]],
-                    [pred_goal[i, 0]],
-                    marker="D",
-                    s=55,
-                    c="magenta",
-                    edgecolors="white",
-                    linewidths=0.6,
-                    label="student pred goal" if i == 0 else None,
-                    zorder=6,
+                    [-goal[i, 1]],
+                    [goal[i, 0]],
+                    marker="*",
+                    s=150,
+                    c="green",
+                    label="GT goal",
+                    zorder=5,
                 )
-            ax.scatter([0.0], [0.0], marker="^", s=60, c="gray", zorder=5)
-            ax.set_title(f"[{i}] {buckets[i]}", fontsize=9)
-            ax.set_aspect("equal", adjustable="datalim")
-            ax.grid(True, alpha=0.3)
-            if i == 0:
-                ax.legend(fontsize=7, loc="best")
-        fig.suptitle(f"goal-OPD step {self.global_step}", fontsize=11)
-        fig.tight_layout()
+                if pred_goal is not None:
+                    ax.scatter(
+                        [-pred_goal[i, 1]],
+                        [pred_goal[i, 0]],
+                        marker="D",
+                        s=50,
+                        c="magenta",
+                        edgecolors="white",
+                        linewidths=0.6,
+                        label="pred goal",
+                        zorder=6,
+                    )
+                ax.scatter([0.0], [0.0], marker="^", s=55, c="gray", zorder=5)
+                if high_error:
+                    ax.set_facecolor("#FFF1F2")
+                ax.set_title(f"student z[{step}] / DDIM t={timestep}", fontsize=9)
+                ax.set_aspect("equal", adjustable="datalim")
+                ax.grid(True, alpha=0.3)
+                if j == 0:
+                    status = "HIGH-ERR" if high_error else "OK"
+                    ax.set_ylabel(
+                        f"[{i}] {buckets[i]} | {status}\n"
+                        f"S-FDE={float(student_fde[i]):.2f}m  "
+                        f"T-FDE={float(teacher_fde[i]):.2f}m  "
+                        f"goal={float(goal_error[i]):.2f}m",
+                        fontsize=8,
+                    )
+                if i == 0 and j == 0:
+                    ax.legend(fontsize=7, loc="best")
+
+        fig.suptitle(
+            f"GoalBridge matched x0 comparisons — step {self.global_step}\n"
+            f"HIGH-ERR proxy: final student FDE >= {high_error_threshold_m:.1f}m",
+            fontsize=11,
+        )
+        fig.tight_layout(rect=(0, 0, 1, 0.97))
 
         configured_out_dir = getattr(self.agent, "viz_output_dir", None)
         if configured_out_dir:
