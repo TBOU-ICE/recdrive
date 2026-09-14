@@ -39,6 +39,16 @@ class ReCogDriveGoalBridgeGoalKDDistillTrainer(ReCogDriveGoalBridgeDistillTraine
             **kwargs,
         )
 
+    def _teacher_condition_goal(
+        self,
+        pred_goal: torch.Tensor,
+        gt_goal: torch.Tensor,
+        indices: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return the privileged teacher goal used by existing experiments."""
+        del pred_goal
+        return gt_goal[indices]
+
     def compute_loss(
         self,
         student_planner,
@@ -166,7 +176,10 @@ class ReCogDriveGoalBridgeGoalKDDistillTrainer(ReCogDriveGoalBridgeDistillTraine
                 teacher = teacher_planners[bucket]
                 enc = teacher_encodings[bucket]
                 with torch.no_grad():
-                    with teacher.goal_context(gt_goal[sel]):
+                    teacher_goal = self._teacher_condition_goal(
+                        pred_goal, gt_goal, sel
+                    )
+                    with teacher.goal_context(teacher_goal):
                         _, _, x0_t = teacher.p_mean_variance(
                             z_t[sel].float(),
                             t_batch[sel],

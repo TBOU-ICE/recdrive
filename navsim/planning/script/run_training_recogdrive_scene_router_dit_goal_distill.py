@@ -21,7 +21,11 @@ from torch.utils.data import ConcatDataset, DataLoader
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.common.dataclasses import SceneFilter
 from navsim.common.dataloader import SceneLoader
-from navsim.planning.training.dataset import CacheOnlyDataset, Dataset
+from navsim.planning.training.dataset import (
+    CacheOnlyDataset,
+    Dataset,
+    load_feature_target_from_pickle,
+)
 from navsim.planning.training.agent_lightning_module_scene_router_goal import AgentLightningSceneRouterGoal
 
 logger = logging.getLogger(__name__)
@@ -136,6 +140,93 @@ class ResilientCacheDataset(torch.utils.data.Dataset):
         raise RuntimeError(
             f"Could not load a valid cache sample after {self.max_retries} retries"
         ) from last_exc
+
+
+class DirectIndexCacheDataset(torch.utils.data.Dataset):
+    """Read one or more direct-path indexes without walking cache roots."""
+
+    def __init__(
+        self,
+        index_paths: List[str],
+        feature_builders,
+        target_builders,
+        log_names: Optional[List[str]] = None,
+    ):
+        super().__init__()
+        if not index_paths:
+            raise ValueError("At least one direct index path is required.")
+        self._feature_builders = feature_builders
+        self._target_builders = target_builders
+        self._valid_cache_paths: Dict[str, Path] = {}
+        expected_builders = sorted(
+            builder.get_unique_name()
+            for builder in list(feature_builders) + list(target_builders)
+        )
+        allowed_logs = set(log_names) if log_names is not None else None
+
+        for index_path in index_paths:
+            path = Path(index_path)
+            if not path.is_file():
+                raise FileNotFoundError(f"direct cache index not found: {path}")
+            payload = json.loads(path.read_text())
+            if sorted(payload.get("builders", [])) != expected_builders:
+                raise ValueError(
+                    f"direct index {path} builders mismatch: "
+                    f"{payload.get('builders')} vs {expected_builders}"
+                )
+
+            if "samples" in payload:
+                entries = (
+                    (str(sample["token"]), Path(sample["path"]))
+                    for sample in payload["samples"]
+                )
+            else:
+                cache_root = Path(payload.get("cache_path", ""))
+                entries = (
+                    (str(token), cache_root / relative_path)
+                    for token, relative_path in payload.get("tokens", {}).items()
+                )
+
+            loaded = 0
+            for token, token_path in entries:
+                if allowed_logs is not None and token_path.parent.name not in allowed_logs:
+                    continue
+                previous = self._valid_cache_paths.get(token)
+                if previous is not None and previous != token_path:
+                    raise ValueError(
+                        f"duplicate token {token!r} maps to both "
+                        f"{previous} and {token_path}"
+                    )
+                if previous is None:
+                    self._valid_cache_paths[token] = token_path
+                    loaded += 1
+            logger.info("Direct index %s: loaded %d samples", path, loaded)
+
+        if not self._valid_cache_paths:
+            raise ValueError("No samples remain after loading direct indexes.")
+        self.tokens = list(self._valid_cache_paths)
+
+    def __len__(self) -> int:
+        return len(self.tokens)
+
+    def __getitem__(self, idx: int):
+        token = self.tokens[idx]
+        token_path = self._valid_cache_paths[token]
+        features = {}
+        for builder in self._feature_builders:
+            features.update(
+                load_feature_target_from_pickle(
+                    token_path / f"{builder.get_unique_name()}.gz"
+                )
+            )
+        targets = {}
+        for builder in self._target_builders:
+            targets.update(
+                load_feature_target_from_pickle(
+                    token_path / f"{builder.get_unique_name()}.gz"
+                )
+            )
+        return features, targets, token
 
 
 # The datasets/simscale root is exposed under both a /workspace symlink and the
@@ -292,60 +383,81 @@ def main(cfg: DictConfig) -> None:
         assert not cfg.force_cache_computation
         assert cfg.cache_path is not None
 
-        nav_manifest = cfg.get("scene_router_cache_manifest", None)
-        extra_cache_manifests = list(cfg.get("scene_router_extra_cache_manifests", []) or [])
+        direct_train_indexes = list(
+            cfg.get("scene_router_direct_train_indexes", []) or []
+        )
+        if direct_train_indexes:
+            direct_val_index = cfg.get("scene_router_direct_val_index", None)
+            if not direct_val_index:
+                raise ValueError(
+                    "scene_router_direct_val_index is required with direct training indexes."
+                )
+            train_data = DirectIndexCacheDataset(
+                index_paths=direct_train_indexes,
+                feature_builders=feature_builders,
+                target_builders=target_builders,
+            )
+            val_data = DirectIndexCacheDataset(
+                index_paths=[str(direct_val_index)],
+                feature_builders=feature_builders,
+                target_builders=target_builders,
+                log_names=cfg.val_logs,
+            )
+        else:
+            nav_manifest = cfg.get("scene_router_cache_manifest", None)
+            extra_cache_manifests = list(cfg.get("scene_router_extra_cache_manifests", []) or [])
 
-        # navtrain full cache (filtered by train/val log split)
-        train_datasets = [
-            CacheOnlyDataset(
+            # navtrain full cache (filtered by train/val log split)
+            train_datasets = [
+                CacheOnlyDataset(
+                    cache_path=cfg.cache_path,
+                    feature_builders=feature_builders,
+                    target_builders=target_builders,
+                    log_names=cfg.train_logs,
+                    manifest_path=nav_manifest,
+                )
+            ]
+            # optional extra caches (e.g. simscale rounds). Repeat each `rep` times to
+            # up-weight it (DDP-safe: ConcatDataset + shuffle, no custom sampler).
+            extra_cache_paths = list(cfg.get("scene_router_extra_cache_paths", []) or [])
+            extra_cache_repeats = list(cfg.get("scene_router_extra_cache_repeats", []) or [])
+            extra_cache_token_json = list(cfg.get("scene_router_extra_cache_token_json", []) or [])
+            for i, extra_path in enumerate(extra_cache_paths):
+                rep = int(extra_cache_repeats[i]) if i < len(extra_cache_repeats) else 1
+                rep = max(rep, 1)
+                extra_manifest = extra_cache_manifests[i] if i < len(extra_cache_manifests) else None
+                extra_ds = CacheOnlyDataset(
+                    cache_path=extra_path,
+                    feature_builders=feature_builders,
+                    target_builders=target_builders,
+                    log_names=None,
+                    manifest_path=extra_manifest,
+                )
+                # token-filter to the (quality) bucket tokens for this cache, matching how
+                # the experts consumed simscale (full cache linked only for quality-bucket tokens).
+                token_json = extra_cache_token_json[i] if i < len(extra_cache_token_json) else None
+                filtered = False
+                if token_json:
+                    allowed = _load_allowed_tokens(token_json)
+                    _token_filter_cache_dataset(extra_ds, allowed)
+                    filtered = True
+                logger.info(
+                    "Extra cache %s: %d samples (filtered=%s, manifest=%s) x repeat %d",
+                    extra_path, len(extra_ds), filtered, bool(extra_manifest), rep,
+                )
+                if len(extra_ds) > 0:
+                    train_datasets.extend([extra_ds] * rep)
+                else:
+                    logger.warning("Extra cache %s has 0 samples after filtering; skipped.", extra_path)
+
+            train_data = train_datasets[0] if len(train_datasets) == 1 else ConcatDataset(train_datasets)
+            val_data = CacheOnlyDataset(
                 cache_path=cfg.cache_path,
                 feature_builders=feature_builders,
                 target_builders=target_builders,
-                log_names=cfg.train_logs,
+                log_names=cfg.val_logs,
                 manifest_path=nav_manifest,
             )
-        ]
-        # optional extra caches (e.g. simscale rounds). Repeat each `rep` times to
-        # up-weight it (DDP-safe: ConcatDataset + shuffle, no custom sampler).
-        extra_cache_paths = list(cfg.get("scene_router_extra_cache_paths", []) or [])
-        extra_cache_repeats = list(cfg.get("scene_router_extra_cache_repeats", []) or [])
-        extra_cache_token_json = list(cfg.get("scene_router_extra_cache_token_json", []) or [])
-        for i, extra_path in enumerate(extra_cache_paths):
-            rep = int(extra_cache_repeats[i]) if i < len(extra_cache_repeats) else 1
-            rep = max(rep, 1)
-            extra_manifest = extra_cache_manifests[i] if i < len(extra_cache_manifests) else None
-            extra_ds = CacheOnlyDataset(
-                cache_path=extra_path,
-                feature_builders=feature_builders,
-                target_builders=target_builders,
-                log_names=None,
-                manifest_path=extra_manifest,
-            )
-            # token-filter to the (quality) bucket tokens for this cache, matching how
-            # the experts consumed simscale (full cache linked only for quality-bucket tokens).
-            token_json = extra_cache_token_json[i] if i < len(extra_cache_token_json) else None
-            filtered = False
-            if token_json:
-                allowed = _load_allowed_tokens(token_json)
-                _token_filter_cache_dataset(extra_ds, allowed)
-                filtered = True
-            logger.info(
-                "Extra cache %s: %d samples (filtered=%s, manifest=%s) x repeat %d",
-                extra_path, len(extra_ds), filtered, bool(extra_manifest), rep,
-            )
-            if len(extra_ds) > 0:
-                train_datasets.extend([extra_ds] * rep)
-            else:
-                logger.warning("Extra cache %s has 0 samples after filtering; skipped.", extra_path)
-
-        train_data = train_datasets[0] if len(train_datasets) == 1 else ConcatDataset(train_datasets)
-        val_data = CacheOnlyDataset(
-            cache_path=cfg.cache_path,
-            feature_builders=feature_builders,
-            target_builders=target_builders,
-            log_names=cfg.val_logs,
-            manifest_path=nav_manifest,
-        )
     else:
         logger.info("Building SceneLoader")
         train_data, val_data = build_datasets(cfg, agent)
