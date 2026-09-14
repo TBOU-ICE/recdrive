@@ -4,7 +4,7 @@
 #
 #   SKIP_PREP=true GPUS=8 bash scripts/training/run_recogdrive_bucket_expert_progress_il_goal_cross_newvlm.sh
 set -euo pipefail
-export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/mnt/datasets/recdrive/20260513/exp2/exp}"
+export NAVSIM_EXP_ROOT="${NAVSIM_EXP_ROOT:-/workspace/output/tensorboard}"
 export BUCKET_NAME="${BUCKET_NAME:-progress_curbside_stopgo}"
 export BUCKET_FILE="${BUCKET_FILE:-exclusive_progress_curbside_stopgo_tokens.json}"
 export GOAL_MODE="${GOAL_MODE:-cross}"
