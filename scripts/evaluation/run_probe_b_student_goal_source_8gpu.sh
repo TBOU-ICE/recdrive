@@ -35,10 +35,20 @@ export NAVSIM_DEVKIT_ROOT="${NAVSIM_DEVKIT_ROOT:-/workspace/volumes/ad-e2e-bd-su
 export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export OPENSCENE_DATA_ROOT="/workspace/datasets/recdrive/20260513/nby/recdrive/download"
 
-TRAIN_TEST_SPLIT="${TRAIN_TEST_SPLIT:-navtest}"
+# Probe A scores one bucket-specific teacher per navtest_<bucket> split, so the
+# student must be scored on those same splits for the 2x2 to be comparable.
+# Set BUCKETS="" to score the whole navtest split instead.
+BUCKETS="${BUCKETS-rule_intersection progress_curbside_stopgo safety_dynamics_interaction general_or_no_tag}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-8}"
 MASTER_PORT="${MASTER_PORT:-63791}"
 MAX_SCENES="${MAX_SCENES:-}"
+
+if [[ -z "${BUCKETS}" ]]; then
+  SPLITS="${TRAIN_TEST_SPLIT:-navtest}"
+else
+  SPLITS=""
+  for b in ${BUCKETS}; do SPLITS="${SPLITS} navtest_${b}"; done
+fi
 
 STUDENT_GOAL_MODE="${STUDENT_GOAL_MODE:-adaln}"
 GOAL_SOURCES="${GOAL_SOURCES:-pred gt}"
@@ -51,40 +61,42 @@ METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/workspace/datasets/recdrive/20260513/nb
 
 TORCHRUN="/workspace/volumes/ad-e2e-bd-su01/nby/conda_envs/recdrive/bin/torchrun"
 
-for GOAL_SOURCE in ${GOAL_SOURCES}; do
-  echo "==================== probe B: goal_source=${GOAL_SOURCE} ===================="
-  EXP="${EXPERIMENT_PREFIX:-probeB-goalbridge-student}-${GOAL_SOURCE}"
-  if [[ "${GOAL_SOURCE}" == "gt_noisy" ]]; then
-    EXP="${EXP}-std${GOAL_NOISE_STD}"
-  fi
+for SPLIT in ${SPLITS}; do
+  for GOAL_SOURCE in ${GOAL_SOURCES}; do
+    echo "========== probe B: ${SPLIT} / goal_source=${GOAL_SOURCE} =========="
+    EXP="${EXPERIMENT_PREFIX:-probeB-student}-${SPLIT#navtest_}-${GOAL_SOURCE}"
+    if [[ "${GOAL_SOURCE}" == "gt_noisy" ]]; then
+      EXP="${EXP}-std${GOAL_NOISE_STD}"
+    fi
 
-  HYDRA_OVERRIDES=(
-    train_test_split="${TRAIN_TEST_SPLIT}"
-    agent=recogdrive_agent_goalbridge_probe
-    agent.student_goal_mode="${STUDENT_GOAL_MODE}"
-    agent.goal_source="${GOAL_SOURCE}"
-    agent.goal_noise_std="${GOAL_NOISE_STD}"
-  )
-  if [[ -n "${MAX_SCENES}" ]]; then
-    HYDRA_OVERRIDES+=(train_test_split.scene_filter.max_scenes="${MAX_SCENES}")
-  fi
+    HYDRA_OVERRIDES=(
+      train_test_split="${SPLIT}"
+      agent=recogdrive_agent_goalbridge_probe
+      agent.student_goal_mode="${STUDENT_GOAL_MODE}"
+      agent.goal_source="${GOAL_SOURCE}"
+      agent.goal_noise_std="${GOAL_NOISE_STD}"
+    )
+    if [[ -n "${MAX_SCENES}" ]]; then
+      HYDRA_OVERRIDES+=(train_test_split.scene_filter.max_scenes="${MAX_SCENES}")
+    fi
 
-  "${TORCHRUN}" --nproc_per_node="${NPROC_PER_NODE}" --master_port="${MASTER_PORT}" \
-    "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_pdm_score_one_stage.py" \
-    "${HYDRA_OVERRIDES[@]}" \
-    experiment_name="${EXP}" \
-    "agent.checkpoint_path='${CHECKPOINT}'" \
-    "agent.vlm_path='${VLM_PATH}'" \
-    "agent.vlm_weights_path='${VLM_WEIGHTS_PATH}'" \
-    agent.cam_type=single \
-    agent.grpo=False \
-    agent.cache_hidden_state=False \
-    agent.cache_mode=False \
-    agent.vlm_type=internvl \
-    agent.dit_type=small \
-    agent.vlm_size=small \
-    agent.sampling_method=ddim \
-    metric_cache_path="${METRIC_CACHE_PATH}" \
-    "agent.metric_cache_path='${METRIC_CACHE_PATH}'" \
-    worker=sequential
+    "${TORCHRUN}" --nproc_per_node="${NPROC_PER_NODE}" --master_port="${MASTER_PORT}" \
+      "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_pdm_score_one_stage.py" \
+      "${HYDRA_OVERRIDES[@]}" \
+      experiment_name="${EXP}" \
+      "agent.checkpoint_path='${CHECKPOINT}'" \
+      "agent.vlm_path='${VLM_PATH}'" \
+      "agent.vlm_weights_path='${VLM_WEIGHTS_PATH}'" \
+      agent.cam_type=single \
+      agent.grpo=False \
+      agent.cache_hidden_state=False \
+      agent.cache_mode=False \
+      agent.vlm_type=internvl \
+      agent.dit_type=small \
+      agent.vlm_size=small \
+      agent.sampling_method=ddim \
+      metric_cache_path="${METRIC_CACHE_PATH}" \
+      "agent.metric_cache_path='${METRIC_CACHE_PATH}'" \
+      worker=sequential
+  done
 done
