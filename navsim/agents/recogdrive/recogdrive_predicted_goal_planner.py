@@ -58,14 +58,26 @@ class PredictedGoalDiffusionPlanner(GoalCondDiffusionPlanner):
         goal_use_heading: bool = False,
         goal_predictor_hidden_dim: int = 512,
         goal_predictor_dropout: float = 0.0,
+        goal_dropout_p: float = 0.0,
+        goal_noise_p: float = 0.0,
+        goal_noise_std_xy: float = 0.0,
+        goal_noise_std_heading: float = 0.0,
     ):
+        # Goal corruption stays off by default so OPD behaviour is unchanged.
+        # Teacher SFT turns it on: conditioning only ever on goals that are
+        # exactly consistent with the target trajectory teaches the DiT to treat
+        # the goal as a hard constraint, which collapses the moment OPD starts
+        # feeding it a predicted goal that carries real error.
         super().__init__(
             config,
             goal_mode=goal_mode,
             goal_sincos_dim=goal_sincos_dim,
             goal_hidden_dim=goal_hidden_dim,
             goal_use_heading=goal_use_heading,
-            goal_dropout_p=0.0,
+            goal_dropout_p=goal_dropout_p,
+            goal_noise_p=goal_noise_p,
+            goal_noise_std_xy=goal_noise_std_xy,
+            goal_noise_std_heading=goal_noise_std_heading,
         )
         self.goal_predictor = GoalPredictionHead(
             config.input_embedding_dim,

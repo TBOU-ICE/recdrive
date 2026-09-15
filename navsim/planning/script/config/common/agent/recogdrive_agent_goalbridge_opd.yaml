@@ -54,6 +54,12 @@ anchor_checkpoint: '/workspace/volumes/ad-e2e-bd-su01/nby/exp/training_scene_rou
 recoverability_tau_m: 2.0
 recoverability_floor: 0.05
 kl_precision_clip: 25.0
+# 'gt' is the historical behaviour (teacher sees the GT goal while the student
+# sees its own prediction -- the KD target is then not achievable).
+# Switch to 'pred' after teacher SFT, once the goal head is actually trained:
+# it matches the teacher's conditioning to the student's, so OPD is left with
+# only the on-policy z_t drift to fix.
+teacher_goal_source: 'gt'
 
 collect_viz: false
 viz_interval_steps: 0

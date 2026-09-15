@@ -38,6 +38,7 @@ class ReCogDriveGoalBridgeDistillTrainer(ReCogDriveDiTSceneRouterDistillTrainer)
         recoverability_tau_m: float = 2.0,
         recoverability_floor: float = 0.05,
         kl_precision_clip: float = 25.0,
+        teacher_goal_source: str = "gt",
         collect_viz: bool = False,
         **kwargs,
     ):
@@ -52,6 +53,23 @@ class ReCogDriveGoalBridgeDistillTrainer(ReCogDriveDiTSceneRouterDistillTrainer)
         self.recoverability_tau_m = float(recoverability_tau_m)
         self.recoverability_floor = float(recoverability_floor)
         self.kl_precision_clip = float(kl_precision_clip)
+        if teacher_goal_source not in ("gt", "pred"):
+            raise ValueError(f"teacher_goal_source must be 'gt' or 'pred', got {teacher_goal_source!r}")
+        # Which goal the *teacher* is conditioned on when producing the KD target.
+        #
+        # 'gt' keeps the historical behaviour: the target is teacher(obs, gt_goal)
+        # while the student is conditioned on pred_goal.  Their difference is a
+        # function of (gt_goal - pred_goal), which the student cannot observe, so
+        # the KD loss carries an irreducible floor and the cheapest way for the
+        # student to shrink it is to desensitise its own goal channel.  That is
+        # tolerable only while the student's goal branch is dead anyway.
+        #
+        # 'pred' matches the teacher's conditioning to the student's, making the
+        # target achievable and leaving OPD to fix only the on-policy z_t drift.
+        # It relies on the goal head already being trained (i.e. after teacher
+        # SFT) and on the teachers' own goal-noise robustness; with a zero-init
+        # goal head, pred_goal is identically zero and this would feed garbage.
+        self.teacher_goal_source = teacher_goal_source
         self.collect_viz = bool(collect_viz)
         self.last_viz = None
 
@@ -133,6 +151,16 @@ class ReCogDriveGoalBridgeDistillTrainer(ReCogDriveDiTSceneRouterDistillTrainer)
         goal_dims = 3 if use_heading else 2
         goal_loss = F.smooth_l1_loss(
             pred_goal_norm[..., :goal_dims], gt_goal_norm[..., :goal_dims], reduction="mean"
+        )
+
+        # Goal the teacher is conditioned on when producing the KD target. Under
+        # 'pred' it matches the student's own conditioning, so the target becomes
+        # achievable instead of encoding an endpoint the student cannot observe.
+        # Detached either way: the KD target must never backprop into the goal head.
+        teacher_goal = (
+            pred_goal.detach().to(gt_goal.dtype)
+            if self.teacher_goal_source == "pred"
+            else gt_goal
         )
 
         # Recoverability is deliberately detached: it is a curriculum/gating
@@ -239,7 +267,7 @@ class ReCogDriveGoalBridgeDistillTrainer(ReCogDriveDiTSceneRouterDistillTrainer)
                 teacher = teacher_planners[bucket]
                 enc = teacher_encodings[bucket]
                 with torch.no_grad():
-                    with teacher.goal_context(gt_goal[sel]):
+                    with teacher.goal_context(teacher_goal[sel]):
                         _, _, x0_t = teacher.p_mean_variance(
                             z_t[sel].float(), t_batch[sel], idx_batch[sel],
                             enc[0][sel], enc[1][sel], enc[2][sel],

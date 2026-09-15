@@ -40,6 +40,7 @@ class ReCogDriveGoalBridgeAgent(ReCogDriveSceneRouterGoalAgent):
         recoverability_tau_m: float = 2.0,
         recoverability_floor: float = 0.05,
         kl_precision_clip: float = 25.0,
+        teacher_goal_source: str = "gt",
         collect_viz: bool = False,
         **kwargs,
     ):
@@ -99,13 +100,15 @@ class ReCogDriveGoalBridgeAgent(ReCogDriveSceneRouterGoalAgent):
             recoverability_tau_m=recoverability_tau_m,
             recoverability_floor=recoverability_floor,
             kl_precision_clip=kl_precision_clip,
+            teacher_goal_source=teacher_goal_source,
             collect_viz=collect_viz,
         )
 
         print(
             "[GoalBridge] student=PredictedGoalDiffusionPlanner "
             f"mode={student_goal_mode}, goal_w={goal_loss_weight:g}, kd_w={kd_weight:g}, "
-            f"anchor_w={anchor_weight:g}, tau={recoverability_tau_m:g}m"
+            f"anchor_w={anchor_weight:g}, tau={recoverability_tau_m:g}m, "
+            f"teacher_goal={teacher_goal_source}"
         )
 
     def forward(self, features: Dict[str, torch.Tensor], targets=None, tokens_list=None):

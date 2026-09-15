@@ -53,6 +53,10 @@ ANCHOR_WEIGHT="${ANCHOR_WEIGHT:-0.15}"
 RECOVERABILITY_TAU_M="${RECOVERABILITY_TAU_M:-2.0}"
 RECOVERABILITY_FLOOR="${RECOVERABILITY_FLOOR:-0.05}"
 KL_PRECISION_CLIP="${KL_PRECISION_CLIP:-25.0}"
+# Set to "pred" once STUDENT_CKPT is a teacher-SFT checkpoint: with a trained
+# goal head, matching the teacher's conditioning to the student's removes the
+# KD error floor that otherwise pushes the student to ignore its goal channel.
+TEACHER_GOAL_SOURCE="${TEACHER_GOAL_SOURCE:-gt}"
 LR="${LR:-5e-5}"; MAX_EPOCHS="${MAX_EPOCHS:-50}"; BATCH_SIZE="${BATCH_SIZE:-8}"
 
 TOKEN_JSON_LIST=("${TOKEN_TO_BUCKET_JSON}"); EXTRA_CACHE_LIST=(); EXTRA_REPEAT_LIST=(); EXTRA_TOKEN_JSON_LIST=(); EXTRA_MANIFEST_LIST=()
@@ -103,6 +107,7 @@ torchrun --nnodes="${NNODES}" --node_rank="${RANK}" --master_addr="${MASTER_ADDR
   agent.goal_loss_weight="${GOAL_LOSS_WEIGHT}" agent.kd_weight="${KD_WEIGHT}" agent.anchor_weight="${ANCHOR_WEIGHT}" \
   agent.recoverability_tau_m="${RECOVERABILITY_TAU_M}" agent.recoverability_floor="${RECOVERABILITY_FLOOR}" \
   agent.kl_precision_clip="${KL_PRECISION_CLIP}" agent.lr="${LR}" \
+  "agent.teacher_goal_source='${TEACHER_GOAL_SOURCE}'" \
   trainer.params.max_epochs="${MAX_EPOCHS}" trainer.params.precision=bf16-mixed trainer.params.num_nodes="${NNODES}" \
   trainer.params.devices="${GPUS}" trainer.params.strategy=ddp_find_unused_parameters_true \
   dataloader.params.batch_size="${BATCH_SIZE}" dataloader.params.num_workers=8 dataloader.params.prefetch_factor=4 \

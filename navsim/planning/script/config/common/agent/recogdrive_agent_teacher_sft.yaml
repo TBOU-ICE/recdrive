@@ -1,0 +1,62 @@
+_target_: navsim.agents.recogdrive.recogdrive_teacher_sft_agent.ReCogDriveTeacherSFTAgent
+_convert_: 'all'
+
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+
+# Same goal-free IL base the GoalBridge OPD run starts from; SFT is what closes
+# the gap to the 200-epoch teachers before OPD begins.
+checkpoint_path: '/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt'
+vlm_path: '/workspace/models/recdrive/v1.0.0/vlm_simscale_lora_merged'
+cam_type: 'single'
+vlm_type: 'internvl'
+dit_type: 'small'
+sampling_method: 'ddim'
+cache_mode: false
+cache_hidden_state: true
+metric_cache_path: ''
+reference_policy_checkpoint: ''
+vlm_size: 'small'
+train_backbone: false
+grpo: false
+lr: 1e-4
+
+# Phase A output. Overridden by the launch script.
+teacher_rollout_dir: ''
+
+# Must match the teachers' goal interface so the SFT checkpoint loads cleanly
+# into the GoalBridge student.
+student_goal_mode: 'adaln'
+goal_sincos_dim: 128
+goal_hidden_dim: 1024
+goal_use_heading: false
+goal_predictor_hidden_dim: 512
+goal_predictor_dropout: 0.0
+student_adaln_bound: 8.0
+
+# L_goal only updates goal_predictor (its inputs are detached), so its weight
+# relative to the trajectory loss is not a sensitive knob.
+goal_loss_weight: 1.0
+# 'gt' matches the OPD trainer's own goal target, so the head arrives aligned.
+# 'teacher_canonical' is the ablation that keeps SFT free of any direct GT use.
+goal_target: 'gt'
+
+# Wider than the teachers' 0.10/0.20/1.0m recipe: the teacher was calibrated for
+# a model that always sees a GT goal at eval, whereas this student will be fed
+# its own predicted goal, whose error is larger. Re-tune goal_noise_std_xy from
+# the measured per-bucket goal_fde_m once a short goal-head-only run exists.
+goal_dropout_p: 0.10
+goal_noise_p: 0.30
+goal_noise_std_xy: 2.0
+# Inert while goal_use_heading=false: GoalEncoder consumes goal_norm[..., :2].
+goal_noise_std_heading: 0.0
+
+# Fail loudly if the rollout cache does not cover the scenes being trained on,
+# rather than silently training on whatever fraction happens to be present.
+min_rollout_coverage: 0.90
+# Validation-only goal ablation (0 = off). Costs two extra DDIM rollouts on the
+# batches it fires, and is the only metric that proves the goal branch is used.
+goal_sensitivity_interval: 0
