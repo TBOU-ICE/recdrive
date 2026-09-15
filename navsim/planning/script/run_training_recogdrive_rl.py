@@ -2,11 +2,9 @@ from typing import Tuple
 from pathlib import Path
 import logging
 import os
-import json
-
 import hydra
 from hydra.utils import instantiate
-from omegaconf import DictConfig, ListConfig, OmegaConf, open_dict
+from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 import torch.distributed as dist
@@ -35,116 +33,26 @@ def custom_collate_fn(
     high_command_one_hot = torch.stack([features['high_command_one_hot'] for features in features_list], dim=0).cpu()
     status_feature = torch.stack([features['status_feature'] for features in features_list], dim=0).cpu()
 
+    last_hidden_state = rnn_utils.pad_sequence(
+        [features['last_hidden_state'] for features in features_list],
+        batch_first=True,
+        padding_value=0.0
+    ).clone().detach()
+
     trajectory = torch.stack([targets['trajectory'] for targets in targets_list], dim=0).cpu()
 
-    if 'last_hidden_state' in features_list[0]:
-        last_hidden_state = rnn_utils.pad_sequence(
-            [features['last_hidden_state'] for features in features_list],
-            batch_first=True,
-            padding_value=0.0
-        ).clone().detach()
-        features = {
-            'history_trajectory': history_trajectory,
-            'high_command_one_hot': high_command_one_hot,
-            'status_feature': status_feature,
-            'last_hidden_state': last_hidden_state,
-        }
-    else:
-        # OPD / no-hidden-state cache: pad image_path_tensor to batch
-        path_tensors = [features['image_path_tensor'] for features in features_list]
-        max_len = max(t.shape[0] for t in path_tensors)
-        padded_paths = []
-        for t in path_tensors:
-            pad = max_len - t.shape[0]
-            padded_paths.append(torch.nn.functional.pad(t, (0, pad), value=0))
-        image_path_tensor = torch.stack(padded_paths, dim=0).cpu()
-        features = {
-            'history_trajectory': history_trajectory,
-            'high_command_one_hot': high_command_one_hot,
-            'status_feature': status_feature,
-            'image_path_tensor': image_path_tensor,
-        }
+
+    features = {
+        'history_trajectory': history_trajectory,
+        'high_command_one_hot': high_command_one_hot,
+        'status_feature': status_feature,
+        'last_hidden_state': last_hidden_state,
+    }
     targets = {
         'trajectory': trajectory
     }
 
     return features, targets, tokens_list
-
-
-
-
-def maybe_override_train_logs_from_file(cfg: DictConfig) -> None:
-    """
-    Optional train_logs_override: YAML (root list or {train_logs: [...] }) or JSON
-    with the same shape, replaces cfg.train_logs (e.g. align cache-only training with an SFT scene list).
-    """
-    tpl = cfg.get("train_logs_path", None)
-    if tpl is None:
-        return
-    s = str(tpl).strip()
-    if s in {"", "null", "~"}:
-        return
-    path = Path(s).expanduser()
-    if not path.is_file():
-        raise FileNotFoundError(f"train_logs_path is not an existing file: {path}")
-
-    logs: List
-    suffix = path.suffix.lower()
-    if suffix == ".json":
-        data = json.loads(path.read_text())
-        logs = data if isinstance(data, list) else data.get("train_logs")
-        if not isinstance(logs, list):
-            raise ValueError("train_logs JSON must be a bare list or an object with key 'train_logs'.")
-    elif suffix in (".yaml", ".yml"):
-        loaded = OmegaConf.load(path)
-        if OmegaConf.is_list(loaded):
-            logs = OmegaConf.to_object(loaded)
-        elif isinstance(loaded, dict) or OmegaConf.is_config(loaded):
-            entry = OmegaConf.select(loaded, "train_logs", default=None)
-            if entry is None:
-                raise ValueError("train_logs YAML must be a bare list root or contain key 'train_logs'.")
-            logs = OmegaConf.to_object(entry)
-        else:
-            raise ValueError(f"Unsupported train_logs YAML shape: {type(loaded).__name__}")
-    else:
-        raise ValueError("train_logs_path must be .json, .yaml, or .yml")
-
-    with open_dict(cfg):
-        cfg.train_logs = ListConfig(logs)
-    logger.info("Overriding train_logs from %s (%d entries)", path, len(logs))
-
-
-def build_pl_logger(cfg: DictConfig):
-    logger_type = str(cfg.get("logger", {}).get("type", "none")).lower()
-    if logger_type in {"none", "false", "off"}:
-        return False
-
-    if logger_type == "tensorboard":
-        from pytorch_lightning.loggers import TensorBoardLogger
-        logger_cfg = cfg.get("logger", {})
-        save_dir = str(logger_cfg.get("save_dir", "/workspace/output/tensorboard"))
-        name = str(logger_cfg.get("name", cfg.get("experiment_name", "recdrive")))
-        return TensorBoardLogger(save_dir=save_dir, name=name, version="")
-
-    if logger_type == "swanlab":
-        try:
-            from swanlab.integration.pytorch_lightning import SwanLabLogger
-        except ImportError as exc:
-            raise ImportError(
-                "SwanLab is not installed. Install with `pip install swanlab`."
-            ) from exc
-
-        logger_cfg = cfg.get("logger", {})
-        project = logger_cfg.get("project", "recdrive")
-        experiment_name = logger_cfg.get("experiment_name", cfg.get("experiment_name", None))
-        kwargs = {"project": project}
-        if experiment_name:
-            kwargs["experiment_name"] = experiment_name
-        if logger_cfg.get("description", None):
-            kwargs["description"] = logger_cfg.description
-        return SwanLabLogger(**kwargs)
-
-    raise ValueError(f"Unsupported logger.type={logger_type}. Use 'none', 'tensorboard', or 'swanlab'.")
 
 
 def build_datasets(cfg: DictConfig, agent: AbstractAgent) -> Tuple[Dataset, Dataset]:
@@ -214,36 +122,16 @@ def main(cfg: DictConfig) -> None:
     world_size = int(os.getenv('WORLD_SIZE', 1))
     rank = int(os.getenv('RANK', 0))
 
-    torch.cuda.set_device(local_rank)
     dist.init_process_group(
         backend='nccl',
         world_size=world_size,
         rank=rank,
-        device_id=torch.device(f'cuda:{local_rank}'),
     )
+    torch.cuda.set_device(local_rank)
     pl.seed_everything(cfg.seed, workers=True)
     logger.info(f"Global Seed set to {cfg.seed}")
 
-    maybe_override_train_logs_from_file(cfg)
-
     logger.info(f"Path where all results are stored: {cfg.output_dir}")
-
-    meta_json = cfg.get("pretrain_meta_json")
-    if meta_json not in (None, False, ""):
-        ms = str(meta_json).strip()
-        if ms and ms.lower() not in ("null", "~", "false"):
-            from navsim.planning.script.utils.pretrain_navsim_logs import logs_from_pretrain_meta_json
-
-            train_logs, val_logs = logs_from_pretrain_meta_json(ms)
-            with open_dict(cfg):
-                cfg.train_logs = ListConfig(train_logs)
-                cfg.val_logs = ListConfig(val_logs)
-            logger.info(
-                "pretrain_meta_json=%s: %d train logs, %d val logs (from Navsim+Navsim_QA)",
-                ms,
-                len(train_logs),
-                len(val_logs),
-            )
 
     logger.info("Building Agent")
     agent: AbstractAgent = instantiate(cfg.agent)
@@ -253,9 +141,6 @@ def main(cfg: DictConfig) -> None:
     lightning_module = AgentLightningDiT(
         agent=agent,
     )
-    # DiT-OPD debug log config: write JSONL summaries every N steps.
-    lightning_module.debug_log_root = str(Path(cfg.output_dir).expanduser())
-    lightning_module.debug_log_interval = int(cfg.get("dit_opd_debug_log_interval", 50))
 
     if cfg.use_cache_without_dataset:
         logger.info("Using cached data without building SceneLoader")
@@ -288,30 +173,7 @@ def main(cfg: DictConfig) -> None:
     logger.info("Num validation samples: %d", len(val_data))
 
     logger.info("Building Trainer")
-    pl_logger = build_pl_logger(cfg)
-    logger.info(f"Using trainer logger: {type(pl_logger).__name__ if pl_logger else 'disabled'}")
-    ckpt_root = Path(cfg.output_dir).expanduser() / "checkpoints"
-    if rank == 0:
-        ckpt_root.mkdir(parents=True, exist_ok=True)
-    dist.barrier()
-
-    ckpt_every_1k = pl.callbacks.ModelCheckpoint(
-        dirpath=str(ckpt_root),
-        monitor=None,
-        save_top_k=-1,
-        every_n_train_steps=1000,
-        filename="epoch{epoch:03d}-step{step:08d}",
-        save_weights_only=False,
-        save_last=True,
-        enable_version_counter=False,
-    )
-    callbacks = [ckpt_every_1k]
-
-    trainer = pl.Trainer(
-        **cfg.trainer.params,
-        logger=pl_logger,
-        callbacks=callbacks,
-    )
+    trainer = pl.Trainer(**cfg.trainer.params, callbacks=[pl.callbacks.ModelCheckpoint(monitor="val/loss_epoch",mode='min', save_top_k=5,every_n_epochs=1)])
 
     logger.info("Starting Training")
     trainer.fit(

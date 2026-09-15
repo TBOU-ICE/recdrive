@@ -16,11 +16,21 @@ def format_number(n, decimal_places=2):
     return f"{n:+.{decimal_places}f}" if abs(round(n, decimal_places)) > 1e-2 else "0.0"
 
 
+def decode_navigation_command(command_one_hot) -> str:
+    navigation_commands = ["turn left", "go straight", "turn right"]
+    for idx, value in enumerate(command_one_hot):
+        value = value.item() if hasattr(value, "item") else value
+        if value == 1 and idx < len(navigation_commands):
+            return navigation_commands[idx]
+    return "unknown"
+
+
 class ReCogDriveFeatureBuilder(AbstractFeatureBuilder):
     def __init__(self,
                  cache_hidden_state: bool = True,
                  model_type: Optional[str] = None,
                  checkpoint_path: Optional[str] = None,
+                 weight_path: Optional[str] = None,
                  device: str = "cuda",
                  cache_mode: bool = False, ):
         """
@@ -34,6 +44,7 @@ class ReCogDriveFeatureBuilder(AbstractFeatureBuilder):
                                        of the image file path.
             model_type (str, optional): The type of model to load ('internvl' or 'qwen'). Required if cache_hidden_state is True.
             checkpoint_path (str, optional): Path to the model checkpoint. Required if cache_hidden_state is True.
+            weight_path (str, optional): Finetuned weights dir (safetensors) if different from checkpoint_path.
             device (str): The device to load the model onto.
         """
         super().__init__()
@@ -47,6 +58,7 @@ class ReCogDriveFeatureBuilder(AbstractFeatureBuilder):
             self.backbone = RecogDriveBackbone(
                 model_type=model_type,
                 checkpoint_path=checkpoint_path,
+                weight_path=weight_path,
                 device=device
             )
 
@@ -93,8 +105,7 @@ class ReCogDriveFeatureBuilder(AbstractFeatureBuilder):
             num_patches_list = [pv.shape[0] for pv in pixel_values_squeezed]
             pixel_values_cat = torch.cat(list(pixel_values_squeezed), dim=0)
 
-            navigation_commands = ['turn left', 'go straight', 'turn right']
-            command_str = next((navigation_commands[i] for i, v in enumerate(high_command_one_hot) if v == 1), "unknown")
+            command_str = decode_navigation_command(high_command_one_hot)
             history_str = " ".join([f'   - t-{3-i}: ({format_number(history_trajectory[i, 0].item())}, {format_number(history_trajectory[i, 1].item())}, {format_number(history_trajectory[i, 2].item())})' for i in range(4)])
             
             prompt = f"<image>\nAs an autonomous driving system, predict the vehicle's trajectory based on:\n1. Visual perception from front camera view\n2. Historical motion context (last 4 timesteps):{history_str}\n3. Active navigation command: [{command_str.upper()}]"

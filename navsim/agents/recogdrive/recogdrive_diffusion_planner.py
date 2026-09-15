@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import copy
+import inspect
 import lzma
 import math
 import pickle
@@ -277,7 +278,10 @@ class ReCogDriveDiffusionPlanner(nn.Module):
         self.train_scorer = PDMScorer(proposal_sampling, cfg.scorer_config)
         
         try:
-            state_dict = torch.load(cfg.reference_policy_checkpoint, map_location="cpu")["state_dict"]
+            load_kw = {"map_location": "cpu"}
+            if "weights_only" in inspect.signature(torch.load).parameters:
+                load_kw["weights_only"] = False
+            state_dict = torch.load(cfg.reference_policy_checkpoint, **load_kw)["state_dict"]
             model_dict = self.state_dict()
             filtered_ckpt = {}
             for k, v in state_dict.items():
@@ -823,7 +827,7 @@ class ReCogDriveDiffusionPlanner(nn.Module):
         tokens_list,
         sample_time: int = 8,
         deterministic=False,
-        bc_coeff: float = 0.1,
+        bc_coeff: float = 0.3,
         use_bc_loss: bool = True
     ) -> BatchFeature:
         """Computes the Diffusion-GRPO loss."""

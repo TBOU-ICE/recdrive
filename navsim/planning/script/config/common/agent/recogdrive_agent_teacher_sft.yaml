@@ -1,0 +1,56 @@
+_target_: navsim.agents.recogdrive.recogdrive_teacher_sft_agent.ReCogDriveTeacherSFTAgent
+_convert_: 'all'
+
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+
+# Phase B starts from the same goal-free fullmix IL weights OPD currently uses,
+# so SFT is the only thing that changes between "OPD from scratch" and
+# "OPD after SFT" -- the comparison stays clean.
+checkpoint_path: '/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt'
+vlm_path: '/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged'
+cam_type: 'single'
+vlm_type: 'internvl'
+dit_type: 'small'
+sampling_method: 'ddim'
+cache_mode: false
+cache_hidden_state: true
+metric_cache_path: ''
+reference_policy_checkpoint: ''
+vlm_size: 'small'
+train_backbone: false
+grpo: false
+lr: 1e-4
+
+# Must match the OPD student exactly, otherwise the SFT checkpoint cannot be
+# loaded as agent.checkpoint_path in Phase C.
+student_goal_mode: 'adaln'
+goal_sincos_dim: 128
+goal_hidden_dim: 1024
+goal_use_heading: false
+goal_predictor_hidden_dim: 512
+goal_predictor_dropout: 0.0
+
+# Robust-teacher goal corruption, disjoint by construction (see encode_goal):
+# 10% masked / 20% noisy / 70% clean. The teachers were trained under exactly
+# this recipe; matching it here is what stops goal_encoder from overfitting to
+# perfectly consistent goals before OPD hands it an imperfect predicted one.
+goal_dropout_p: 0.10
+goal_noise_p: 0.20
+goal_noise_std_xy: 1.0
+goal_noise_std_heading: 0.10
+
+# loss = diffusion_loss(target=teacher rollout, condition=teacher endpoint)
+#      + goal_loss_weight * goal_loss(goal_predictor -> teacher endpoint)
+# The two terms update disjoint parameter sets, so this weight is not sensitive.
+goal_loss_weight: 1.0
+
+# Full DDIM rollout every N steps to log student_fde_teacher_m.
+traj_eval_interval: 50
+
+# Drives the cosine LR schedule; keep in sync with trainer.params.max_epochs.
+sft_epochs: 10
+sft_warmup_epochs: 1

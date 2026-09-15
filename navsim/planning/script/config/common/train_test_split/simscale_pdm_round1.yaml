@@ -1,0 +1,4 @@
+defaults:
+  - scene_filter: simscale_pdm_round0
+
+data_split: synthetic_reaction_pdm_v1.0-1

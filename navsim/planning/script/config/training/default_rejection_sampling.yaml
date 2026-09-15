@@ -1,0 +1,30 @@
+hydra:
+  run:
+    dir: ${rs.output_dir}
+  output_subdir: null
+  searchpath:
+    - pkg://navsim.planning.script.config.common
+  job:
+    chdir: False
+
+defaults:
+  - default_common
+  - default_evaluation
+  - default_train_val_test_log_split
+  - _self_
+
+experiment_name: rejection_sampling
+
+rs:
+  vlm_path: ???
+  metric_cache_path: ???
+  output_dir: ???
+  num_samples: 8
+  pdm_threshold: 0.4
+  plan_threshold: 1.0
+  mot_pred_threshold: 0.5
+  temperature: 0.7
+  top_p: 0.9
+  max_num_tiles: 12
+  log_every: 500
+  max_scenes: null

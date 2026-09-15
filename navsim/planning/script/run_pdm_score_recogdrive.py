@@ -239,10 +239,11 @@ def main(cfg: DictConfig) -> None:
 
     if dist.get_rank() == 0:
         final_results = []
-        for gathered_tensor in gathered_results:
-            gathered_tensor = gathered_tensor[:local_size]  
+        for rank_idx, gathered_tensor in enumerate(gathered_results):
+            actual_size = int(size_list[rank_idx].item())
+            gathered_tensor = gathered_tensor[:actual_size]
             serialized_data = gathered_tensor.cpu().numpy().tobytes()
-            final_results.extend(pickle.loads(serialized_data))  # 
+            final_results.extend(pickle.loads(serialized_data))
     
         pdm_score_df = pd.DataFrame(final_results)
 

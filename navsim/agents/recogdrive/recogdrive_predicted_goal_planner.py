@@ -58,14 +58,25 @@ class PredictedGoalDiffusionPlanner(GoalCondDiffusionPlanner):
         goal_use_heading: bool = False,
         goal_predictor_hidden_dim: int = 512,
         goal_predictor_dropout: float = 0.0,
+        goal_dropout_p: float = 0.0,
+        goal_noise_p: float = 0.0,
+        goal_noise_std_xy: float = 0.0,
+        goal_noise_std_heading: float = 0.0,
     ):
+        # Goal corruption defaults to OFF so every existing OPD run keeps its
+        # exact behaviour.  Teacher-rollout SFT turns it on (0.10 / 0.20 / 1.0m,
+        # the robust-teacher recipe) so goal_encoder is trained against the same
+        # imperfect goals it will face once OPD switches to the predicted goal.
         super().__init__(
             config,
             goal_mode=goal_mode,
             goal_sincos_dim=goal_sincos_dim,
             goal_hidden_dim=goal_hidden_dim,
             goal_use_heading=goal_use_heading,
-            goal_dropout_p=0.0,
+            goal_dropout_p=goal_dropout_p,
+            goal_noise_p=goal_noise_p,
+            goal_noise_std_xy=goal_noise_std_xy,
+            goal_noise_std_heading=goal_noise_std_heading,
         )
         self.goal_predictor = GoalPredictionHead(
             config.input_embedding_dim,

@@ -1,0 +1,12 @@
+_target_: navsim.common.dataclasses.SceneFilter
+_convert_: 'all'
+
+# SimScale round0 pkls contain exactly 12 frames per sample (not full logs).
+num_history_frames: 4
+num_future_frames: 8
+frame_interval: null
+has_route: true
+
+max_scenes: null
+log_names: null
+tokens: null

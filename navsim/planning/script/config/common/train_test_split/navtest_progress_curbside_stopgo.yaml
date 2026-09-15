@@ -1,0 +1,4 @@
+defaults:
+  - scene_filter: navtest_progress_curbside_stopgo
+
+data_split: test

@@ -1,7 +1,7 @@
 TRAIN_TEST_SPLIT=navtrain
 export NUPLAN_MAP_VERSION="nuplan-maps-v1.0"
 export NUPLAN_MAPS_ROOT="/path/to/NAVSIM/dataset/maps"
-export NAVSIM_EXP_ROOT="/workspace/volumes/ad-e2e-bd-su01/nby/exp"
+export NAVSIM_EXP_ROOT="/mnt/volumes/ad-e2e-bd-su01/nby/exp"
 export NAVSIM_DEVKIT_ROOT="/path/to/NAVSIM/navsim-main"
 export OPENSCENE_DATA_ROOT="/path/to/NAVSIM/dataset"
 CACHE_PATH=$NAVSIM_EXP_ROOT/recogdrive_agent_cache_dir_train_no_hidden_state
