@@ -24,6 +24,8 @@ grpo: False
 lr: 1e-4
 
 student_goal_mode: 'adaln'
+# pred: deployable predicted-goal path; off: same checkpoint with goal injection disabled.
+goal_source: 'pred'
 goal_sincos_dim: 128
 goal_hidden_dim: 1024
 goal_use_heading: false

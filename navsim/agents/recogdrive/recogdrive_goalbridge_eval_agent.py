@@ -6,6 +6,8 @@ This agent is intentionally separate from training
 
 * no frozen teachers / anchors are loaded
 * no Scene / GT goal is consumed
+* optional ``goal_source=off`` keeps the same model/checkpoint but disables goal
+  injection, for a controlled ablation only
 * PDMS uses the same ``run_pdm_score_recogdrive.py`` worker (requires_scene=False)
 
 Existing ``agent=recogdrive_agent`` evals are unchanged.
@@ -14,6 +16,7 @@ Existing ``agent=recogdrive_agent`` evals are unchanged.
 from __future__ import annotations
 
 import inspect
+import os
 from typing import Any, Dict, Optional, Set
 
 import torch
@@ -22,12 +25,32 @@ from transformers.feature_extraction_utils import BatchFeature
 from navsim.agents.recogdrive.goal_cond import TRAINABLE_GOAL_MODES
 from navsim.agents.recogdrive.recogdrive_agent import (
     ReCogDriveAgent,
-    _resolve_checkpoint_path,
     make_recogdrive_config,
 )
 from navsim.agents.recogdrive.recogdrive_predicted_goal_planner import (
     PredictedGoalDiffusionPlanner,
 )
+
+
+def _resolve_checkpoint_path(path_like: Optional[str]) -> str:
+    """Resolve a checkpoint file while keeping this eval agent self-contained."""
+    if not path_like:
+        return ""
+    path = os.path.expanduser(str(path_like))
+    if os.path.isfile(path):
+        return path
+    if os.path.isdir(path):
+        last = os.path.join(path, "last.ckpt")
+        if os.path.isfile(last):
+            return last
+        candidates = sorted(
+            os.path.join(path, name)
+            for name in os.listdir(path)
+            if name.endswith(".ckpt") and os.path.isfile(os.path.join(path, name))
+        )
+        if candidates:
+            return candidates[-1]
+    return path
 
 
 def _student_goal_keys(keys) -> Set[str]:
@@ -54,6 +77,7 @@ class ReCogDriveGoalBridgeEvalAgent(ReCogDriveAgent):
         self,
         *args,
         student_goal_mode: str = "adaln",
+        goal_source: str = "pred",
         goal_sincos_dim: int = 128,
         goal_hidden_dim: int = 1024,
         goal_use_heading: bool = False,
@@ -67,13 +91,20 @@ class ReCogDriveGoalBridgeEvalAgent(ReCogDriveAgent):
                 f"student_goal_mode must be one of {TRAINABLE_GOAL_MODES}, "
                 f"got {student_goal_mode!r}"
             )
+        if goal_source not in ("pred", "off"):
+            raise ValueError(
+                f"goal_source must be 'pred' or 'off', got {goal_source!r}"
+            )
 
-        kwargs["dit_distill"] = False
-        kwargs["opd"] = False
+        # ReCogDriveAgent does not accept the OPD-only constructor flags. Hydra
+        # configs shared with OPD may still provide them, so discard them here.
+        kwargs.pop("dit_distill", None)
+        kwargs.pop("opd", None)
         kwargs["grpo"] = False
         super().__init__(*args, **kwargs)
 
         self.student_goal_mode = student_goal_mode
+        self.goal_source = goal_source
         self.goal_sincos_dim = int(goal_sincos_dim)
         self.goal_hidden_dim = int(goal_hidden_dim)
         self.goal_use_heading = bool(goal_use_heading)
@@ -107,8 +138,13 @@ class ReCogDriveGoalBridgeEvalAgent(ReCogDriveAgent):
 
         print(
             "[GoalBridge-Eval] PredictedGoalDiffusionPlanner "
-            f"mode={student_goal_mode}, adaln_bound={self.student_adaln_bound:g}. "
-            "Inference uses the student's predicted goal (not GT)."
+            f"mode={student_goal_mode}, goal_source={goal_source}, "
+            f"adaln_bound={self.student_adaln_bound:g}. "
+            + (
+                "Inference uses the student's predicted goal (not GT)."
+                if goal_source == "pred"
+                else "Goal injection is disabled (ablation only)."
+            )
         )
 
     def initialize(self) -> None:
@@ -156,7 +192,7 @@ class ReCogDriveGoalBridgeEvalAgent(ReCogDriveAgent):
             )
 
     def forward(self, features: Dict[str, torch.Tensor], targets=None, tokens_list=None):
-        """Online/cached VLM encode, then predicted-goal DiT (never GT goal)."""
+        """Online/cached VLM encode, then pred-goal or goal-off DiT (never GT)."""
         if self.training:
             raise RuntimeError(
                 "ReCogDriveGoalBridgeEvalAgent is eval-only. "
@@ -175,7 +211,8 @@ class ReCogDriveGoalBridgeEvalAgent(ReCogDriveAgent):
             history_flat = action_input.data["his_traj"]
             status_feature = action_input.data["status_feature"]
             pred_goal, _ = planner.predict_goal(vl_features, history_flat, status_feature)
-            with planner.goal_context(pred_goal):
+            injected_goal = pred_goal if self.goal_source == "pred" else None
+            with planner.goal_context(injected_goal):
                 out = original_get_action(
                     vl_features, action_input, init_actions, deterministic
                 )
