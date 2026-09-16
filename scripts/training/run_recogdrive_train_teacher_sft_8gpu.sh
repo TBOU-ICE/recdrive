@@ -33,14 +33,14 @@ GPUS="${GPUS:-8}"
 MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 MASTER_PORT="${MASTER_PORT:-23612}"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_teacher_sft_goalbridge_v1}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_student_to_teacher_sft_goalbridge_v1}"
 TENSORBOARD_DIR="${TENSORBOARD_DIR:-${OUTPUT_ROOT}}"
 LOG_FILE="${LOG_FILE:-${OUTPUT_ROOT}/${EXPERIMENT_NAME}/sft.log}"
 mkdir -p "$(dirname "${LOG_FILE}")" "${TENSORBOARD_DIR}"
 
 # ---- Phase A output -------------------------------------------------------
 ROLLOUT_EXPERIMENT="${ROLLOUT_EXPERIMENT:-teacher_rollout_v1}"
-ROLLOUT_PATH="${ROLLOUT_PATH:-${OUTPUT_ROOT}/${ROLLOUT_EXPERIMENT}/teacher_rollout.pt}"
+ROLLOUT_PATH="${ROLLOUT_PATH:-/mnt/datasets/recdrive/20260513/teacher_rollout_v1/teacher_rollout.pt}"
 # The teacher is not an oracle; regressing onto its failures teaches the student
 # nothing OPD would later reward. Set to 0 to keep every rollout.
 MAX_TEACHER_FDE_M="${MAX_TEACHER_FDE_M:-3.0}"

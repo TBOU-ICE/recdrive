@@ -53,8 +53,9 @@ class ReCogDriveTeacherSFTAgent(ReCogDriveAgent):
         sft_warmup_epochs: int = 1,
         **kwargs,
     ):
-        kwargs["dit_distill"] = False
-        kwargs["opd"] = False
+        # ReCogDriveAgent.__init__ does not accept dit_distill/opd.
+        kwargs.pop("dit_distill", None)
+        kwargs.pop("opd", None)
         kwargs["grpo"] = False
         super().__init__(*args, **kwargs)
 
