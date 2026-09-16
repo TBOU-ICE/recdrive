@@ -52,7 +52,7 @@ VAL_INDEX_PATH="${VAL_INDEX_PATH:-${INDEX_ROOT}/navtrain_full_val_index.json}"
 VAL_CACHE_PATH="${VAL_CACHE_PATH:-/mnt/datasets/simscale/20260709/new_vlm_hidden_state_nav_sim/recogdrive_agent_cache_dir_train}"
 
 # ---- model / optimisation -------------------------------------------------
-BASE_CKPT="${BASE_CKPT:-/workspace/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
+BASE_CKPT="${BASE_CKPT:-/mnt/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
 RESUME_CKPT="${RESUME_CKPT:-}"
 VLM_PATH="${VLM_PATH:-/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 
