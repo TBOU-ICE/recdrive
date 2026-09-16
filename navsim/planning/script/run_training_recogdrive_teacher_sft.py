@@ -1,13 +1,15 @@
 """Training entry for teacher-rollout SFT (Phase B). Additive file.
 
 Train data comes from the four exclusive bucket indexes under
-``il_training_newvlm_direct``: their union is the full navtrain + SimScale
-trainable mixture, addressed by absolute path straight into the original /mnt
-caches, so nothing is symlinked or copied.  Each sample is paired with the
-teacher trajectory Phase A cached for it, and samples whose teacher missed the
-logged GT by more than ``teacher_sft.max_teacher_fde_m`` are dropped.
+``il_training_newvlm_direct``. NavTrain rows are restricted to ``cfg.train_logs``
+while all SimScale rows are retained, and samples are addressed by absolute path
+straight into the original /mnt caches, so nothing is symlinked or copied. Each
+sample is paired with the teacher trajectory Phase A cached for it, and samples
+whose teacher missed the logged GT by more than
+``teacher_sft.max_teacher_fde_m`` are dropped.
 
-Validation reuses ``navtrain_full_val_index.json``.  That index is in the
+Validation reuses ``navtrain_full_val_index.json`` filtered by ``cfg.val_logs``.
+That index is in the
 ``direct-absolute-root-v1`` (cache_path + token -> relpath) shape, which is
 exactly what ``CacheOnlyDataset``'s manifest loader already consumes, so
 validation needs no new code and no rollout cache -- it scores against GT.
@@ -162,12 +164,62 @@ def main(cfg: DictConfig) -> None:
     max_teacher_fde_m = float(sft_cfg.get("max_teacher_fde_m", 3.0))
     val_index_path = sft_cfg.get("val_index_path", None)
     val_cache_path = sft_cfg.get("val_cache_path", None)
+    train_logs = {str(log_name) for log_name in cfg.train_logs}
+    val_logs = {str(log_name) for log_name in cfg.val_logs}
+    if not train_logs or not val_logs:
+        raise ValueError("teacher SFT requires non-empty cfg.train_logs and cfg.val_logs")
+    configured_log_overlap = train_logs & val_logs
+    if configured_log_overlap:
+        raise ValueError(
+            f"configured train/val log overlap: {len(configured_log_overlap)} logs"
+        )
 
     base_train = DirectIndexDataset(
         bucket_indexes=[(b, str(index_root / b / index_name)) for b in BUCKETS],
         feature_builders=feature_builders,
         target_builders=target_builders,
+        # The direct indexes contain the full NavTrain cache. Keep SimScale in
+        # full, but restrict NavTrain to the repository's official train logs.
+        navtrain_log_names=train_logs,
     )
+
+    # Validation scores the deployable student (predicted goal) against GT.
+    # navtrain_full_val_index.json is a full-cache manifest, so cfg.val_logs is
+    # the actual split boundary; passing None here would leak all train scenes.
+    val_data = CacheOnlyDataset(
+        cache_path=str(val_cache_path),
+        feature_builders=feature_builders,
+        target_builders=target_builders,
+        log_names=list(cfg.val_logs),
+        index_path=str(val_index_path),
+    )
+
+    # Fail before loading the large rollout if a future index/config change
+    # reintroduces leakage. Check sample identity, physical cache path, and log.
+    train_tokens = set(base_train.tokens)
+    val_tokens = set(val_data.tokens)
+    train_paths = {str(path) for path in base_train.paths}
+    val_paths = {str(path) for path in val_data._valid_cache_paths.values()}
+    train_log_names = {path.parent.name for path in base_train.paths}
+    val_log_names = {path.parent.name for path in val_data._valid_cache_paths.values()}
+    overlaps = {
+        "tokens": train_tokens & val_tokens,
+        "paths": train_paths & val_paths,
+        "logs": train_log_names & val_log_names,
+    }
+    if any(overlaps.values()):
+        raise RuntimeError(
+            "teacher SFT train/val leakage: "
+            + ", ".join(f"{name}={len(values)}" for name, values in overlaps.items())
+        )
+    logger.info(
+        "Leakage check passed: train=%d samples/%d logs, val=%d samples/%d logs; "
+        "token/path/log overlap=0",
+        len(base_train), len(train_log_names), len(val_data), len(val_log_names),
+    )
+
+    # The existing rollout is intentionally reusable: it is a superset keyed
+    # by token, and TeacherRolloutDataset ignores rows absent from base_train.
     train_data = TeacherRolloutDataset(
         base=base_train,
         rollout_path=rollout_path,
@@ -179,16 +231,6 @@ def main(cfg: DictConfig) -> None:
         len(train_data), len(base_train), train_data.n_missing,
         train_data.n_filtered, max_teacher_fde_m,
     )
-
-    # Validation scores the deployable student (predicted goal) against GT.
-    val_data = CacheOnlyDataset(
-        cache_path=str(val_cache_path),
-        feature_builders=feature_builders,
-        target_builders=target_builders,
-        log_names=None,
-        manifest_path=str(val_index_path),
-    )
-    logger.info("Validation set: %d samples", len(val_data))
 
     train_data = ResilientDataset(train_data)
     val_data = ResilientDataset(val_data)

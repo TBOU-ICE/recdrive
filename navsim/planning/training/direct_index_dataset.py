@@ -60,6 +60,8 @@ class DirectIndexDataset(torch.utils.data.Dataset):
     :param bucket_indexes: ordered ``(bucket_name, index_path)`` pairs.  A token
         that appears in more than one index keeps its first occurrence, which
         matters only if the indexes stop being exclusive.
+    :param navtrain_log_names: optional log whitelist applied only to samples
+        whose index source is ``navtrain_bucket``.  SimScale samples are kept.
     """
 
     def __init__(
@@ -68,6 +70,7 @@ class DirectIndexDataset(torch.utils.data.Dataset):
         feature_builders: List[AbstractFeatureBuilder],
         target_builders: List[AbstractTargetBuilder],
         allowed_tokens: Optional[set] = None,
+        navtrain_log_names: Optional[set] = None,
     ):
         super().__init__()
         self._feature_builders = list(feature_builders)
@@ -78,18 +81,30 @@ class DirectIndexDataset(torch.utils.data.Dataset):
         self.buckets: List[str] = []
         seen: set = set()
         per_bucket: Dict[str, int] = {}
+        allowed_nav_logs = (
+            {str(log_name) for log_name in navtrain_log_names}
+            if navtrain_log_names is not None
+            else None
+        )
 
         for bucket, index_path in bucket_indexes:
             kept = 0
             for sample in load_direct_index(index_path):
                 token = sample["token"]
+                token_path = Path(sample["path"])
                 if token in seen:
                     continue
                 if allowed_tokens is not None and token not in allowed_tokens:
                     continue
+                if (
+                    allowed_nav_logs is not None
+                    and sample.get("source") == "navtrain_bucket"
+                    and token_path.parent.name not in allowed_nav_logs
+                ):
+                    continue
                 seen.add(token)
                 self.tokens.append(token)
-                self.paths.append(Path(sample["path"]))
+                self.paths.append(token_path)
                 self.buckets.append(bucket)
                 kept += 1
             per_bucket[bucket] = kept
