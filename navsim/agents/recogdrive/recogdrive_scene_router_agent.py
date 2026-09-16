@@ -111,8 +111,12 @@ class ReCogDriveSceneRouterAgent(ReCogDriveAgent):
         student_adaln_bound: float = 8.0,
         **kwargs,
     ):
-        # Force dit_distill off so the base agent does NOT build IL/RL teachers.
-        kwargs["dit_distill"] = False
+        # ReCogDriveAgent no longer accepts the legacy dit_distill/opd flags.
+        # This scene-router builds its routed teachers below, so discarding the
+        # stale flags preserves the intended behaviour and keeps old configs
+        # compatible with the current base-agent signature.
+        kwargs.pop("dit_distill", None)
+        kwargs.pop("opd", None)
         super().__init__(*args, **kwargs)
 
         if teacher_select != "scene_route":
