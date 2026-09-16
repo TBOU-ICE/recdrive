@@ -3,17 +3,12 @@
 Kept separate from the probe so a plot can be restyled without re-running any
 inference: the probe writes a ``.pt`` payload, this module reads it.
 
-Two figures per payload:
+Summary plus per-sample figures per payload:
 
-``*_bev.png``
-    Rows are DDIM steps, columns are samples, and every panel overlays the GT
-    trajectory with the x0 predictions of each probed condition.  Step 0 is
-    dropped by default: at ``sqrt(alpha_bar) ~ 0.31`` the x0 reconstruction
-    amplifies any eps error roughly threefold before the clamp, so that row is
-    ragged for every model and carries no signal about guidance quality.
-    **All panels share one set of axis limits** -- per-panel autoscaling makes a
-    perfectly ordinary trajectory look chaotic, which is exactly the misreading
-    this diagnostic exists to avoid.
+``*_bev_by_error/{q1_low,q2_mid_low,q3_mid_high,q4_high}/*.png``
+    One sample per image.  Four large panels show z1 through z4 left-to-right,
+    with shared per-sample axis limits and dense metric ticks.  Every one of the
+    balanced probe samples is saved and organized by error quartile.
 
 ``*_summary.png``
     The conclusion figure.  Per-step ADE of each condition, plus the second
@@ -24,6 +19,7 @@ Two figures per payload:
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Dict, List, Optional, Sequence
 
 import torch
@@ -100,6 +96,175 @@ def _shared_limits(payload, sample_idx, step_idx, conditions, pad: float = 2.0):
         (float(x.min()) - pad, float(x.max()) + pad),
         (float(y.min()) - pad, float(y.max()) + pad),
     )
+
+
+def _stratification_error(payload: Dict[str, Any]) -> tuple[torch.Tensor, str]:
+    """Return the per-sample error used to form visualization strata."""
+    goal_err = payload["goal_err_m"].float()
+    if torch.isfinite(goal_err).all():
+        return goal_err, "goal error"
+    return payload["steps"][-1]["fde_m"]["student_pred"].float(), "final student FDE"
+
+
+def _error_strata(payload: Dict[str, Any]):
+    """Split every sample into four equally sized, error-sorted strata."""
+    error, metric_name = _stratification_error(payload)
+    order = torch.argsort(error)
+    names = ("q1_low", "q2_mid_low", "q3_mid_high", "q4_high")
+    chunks = torch.tensor_split(order, 4)
+    return [
+        (name, chunk.tolist(), error, metric_name)
+        for name, chunk in zip(names, chunks)
+    ]
+
+
+def _safe_filename(value: object) -> str:
+    text = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value or "no-token"))
+    return text[:96]
+
+
+def _plot_one_sample_bev(
+    payload: Dict[str, Any],
+    sample_index: int,
+    step_idx: Sequence[int],
+    out_path: str,
+    stratum: str,
+    error_value: float,
+    metric_name: str,
+) -> str:
+    """One large figure per sample, with z1..z4 shown left-to-right."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MultipleLocator
+
+    conditions = list(payload["conditions"])
+    steps = payload["steps"]
+    xlim, ylim = _shared_limits(
+        payload, [sample_index], step_idx, conditions, pad=1.0
+    )
+    fig, axes = plt.subplots(
+        1, len(step_idx), figsize=(5.8 * len(step_idx), 8.2), squeeze=False
+    )
+    axes = axes[0]
+    gt = payload["gt_traj"]
+    gt_goal = payload["gt_goal"]
+    pred_goal = payload.get("pred_goal")
+
+    for column, s in enumerate(step_idx):
+        ax = axes[column]
+        record = steps[s]
+        ax.plot(
+            -gt[sample_index, :, 1], gt[sample_index, :, 0],
+            color="black", linestyle="--", linewidth=3.0, alpha=0.72,
+            label="GT", zorder=2,
+        )
+        for key in conditions:
+            style = CONDITION_STYLE[key]
+            traj = record["traj"][key]
+            ax.plot(
+                -traj[sample_index, :, 1], traj[sample_index, :, 0],
+                color=style["color"], linestyle=style["linestyle"],
+                linewidth=max(2.0, style["linewidth"]), alpha=style["alpha"],
+                zorder=style["zorder"], label=style["label"],
+            )
+        ax.scatter(
+            [-gt_goal[sample_index, 1]], [gt_goal[sample_index, 0]],
+            marker="*", s=190, c="black", zorder=8, label="GT goal",
+        )
+        if pred_goal is not None:
+            ax.scatter(
+                [-pred_goal[sample_index, 1]], [pred_goal[sample_index, 0]],
+                marker="*", s=190, c="#1F77B4", edgecolors="white",
+                linewidths=0.8, zorder=9, label="pred goal",
+            )
+        ax.scatter([0.0], [0.0], marker="^", s=70, c="gray", zorder=7)
+
+        ax.set_xlim(*xlim)
+        ax.set_ylim(*ylim)
+        ax.set_aspect("equal", adjustable="box")
+        # Dense metric ticks make lateral/longitudinal deviations readable.
+        ax.xaxis.set_major_locator(MultipleLocator(2.0))
+        ax.yaxis.set_major_locator(MultipleLocator(2.0))
+        ax.xaxis.set_minor_locator(MultipleLocator(1.0))
+        ax.yaxis.set_minor_locator(MultipleLocator(1.0))
+        ax.grid(True, which="major", alpha=0.34, linewidth=0.8)
+        ax.grid(True, which="minor", alpha=0.16, linewidth=0.5)
+        ax.tick_params(labelsize=10)
+        ax.set_xlabel("lateral (m), 2 m/tick", fontsize=11)
+        if column == 0:
+            ax.set_ylabel("longitudinal (m), 2 m/tick", fontsize=11)
+
+        clamp_bits = "  ".join(
+            f"{key}={float(record['clamp_frac'][key][sample_index]):.2f}"
+            for key in conditions
+        )
+        ax.set_title(
+            f"z{record['step']}   DDIM t={record['timestep']}\n"
+            f"sqrt(a_bar)={record['alpha_bar'] ** 0.5:.3f}   "
+            f"|z| ratio={record['z_second_moment_ratio']:.3f}\n"
+            f"clamp: {clamp_bits}",
+            fontsize=10,
+        )
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(
+        handles, labels, loc="lower center", ncol=3, fontsize=10, frameon=False
+    )
+    token = payload.get("tokens")
+    token_text = token[sample_index] if token is not None else "n/a"
+    meta = payload.get("meta", {})
+    fig.suptitle(
+        f"{meta.get('tag', '')} | sample={sample_index} | "
+        f"bucket={payload['buckets'][sample_index]} | {stratum}\n"
+        f"{metric_name}={error_value:.3f} m | token={token_text}",
+        fontsize=14,
+    )
+    fig.tight_layout(rect=(0, 0.09, 1, 0.91))
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    fig.savefig(out_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def plot_bev_by_error_strata(
+    payload: Dict[str, Any],
+    out_dir: str,
+    step_numbers: Sequence[int] = (1, 2, 3, 4),
+) -> List[str]:
+    """Save every sample separately under four error-quantile directories."""
+    step_to_index = {int(record["step"]): i for i, record in enumerate(payload["steps"])}
+    missing = [step for step in step_numbers if step not in step_to_index]
+    if missing:
+        raise ValueError(
+            f"Requested DDIM chain steps {missing}, available={sorted(step_to_index)}"
+        )
+    step_idx = [step_to_index[step] for step in step_numbers]
+
+    written: List[str] = []
+    tokens = payload.get("tokens")
+    for stratum, sample_indices, error, metric_name in _error_strata(payload):
+        stratum_dir = os.path.join(out_dir, stratum)
+        for rank, sample_index in enumerate(sample_indices):
+            token = tokens[sample_index] if tokens is not None else f"sample-{sample_index}"
+            filename = (
+                f"{rank:03d}_sample-{sample_index:04d}_"
+                f"{_safe_filename(payload['buckets'][sample_index])}_"
+                f"{_safe_filename(token)}.png"
+            )
+            written.append(
+                _plot_one_sample_bev(
+                    payload=payload,
+                    sample_index=sample_index,
+                    step_idx=step_idx,
+                    out_path=os.path.join(stratum_dir, filename),
+                    stratum=stratum,
+                    error_value=float(error[sample_index]),
+                    metric_name=metric_name,
+                )
+            )
+    return written
 
 
 def plot_bev(
@@ -274,15 +439,17 @@ def plot_summary(payload: Dict[str, Any], out_path: str) -> str:
     return out_path
 
 
-def plot_payload(payload_path: str, out_dir: str, n_samples: int = 6,
-                 skip_steps: Sequence[int] = (0,)) -> List[str]:
+def plot_payload(payload_path: str, out_dir: str) -> List[str]:
     payload = torch.load(payload_path, map_location="cpu", weights_only=False)
     tag = payload.get("meta", {}).get("tag", "probe")
-    return [
-        plot_summary(payload, os.path.join(out_dir, f"{tag}_summary.png")),
-        plot_bev(payload, os.path.join(out_dir, f"{tag}_bev.png"),
-                 n_samples=n_samples, skip_steps=skip_steps),
-    ]
+    outputs = [plot_summary(payload, os.path.join(out_dir, f"{tag}_summary.png"))]
+    outputs.extend(
+        plot_bev_by_error_strata(
+            payload, os.path.join(out_dir, f"{tag}_bev_by_error"),
+            step_numbers=(1, 2, 3, 4),
+        )
+    )
+    return outputs
 
 
 def main() -> None:
@@ -291,15 +458,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("payload", help="path to a .pt written by the diagnostic entry")
     parser.add_argument("--out-dir", default=None, help="default: alongside the payload")
-    parser.add_argument("--n-samples", type=int, default=6)
-    parser.add_argument(
-        "--skip-steps", default="0",
-        help="comma-separated chain steps to omit from the BEV grid (default: 0)",
-    )
     args = parser.parse_args()
     out_dir = args.out_dir or os.path.dirname(os.path.abspath(args.payload))
-    skip = tuple(int(s) for s in args.skip_steps.split(",") if s.strip() != "")
-    for path in plot_payload(args.payload, out_dir, args.n_samples, skip):
+    for path in plot_payload(args.payload, out_dir):
         print(f"[guidance-plot] wrote {path}")
 
 

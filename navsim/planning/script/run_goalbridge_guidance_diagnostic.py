@@ -27,12 +27,15 @@ import hydra
 import torch
 from hydra.utils import instantiate
 from omegaconf import DictConfig
-from torch.utils.data import ConcatDataset, DataLoader
+from torch.utils.data import ConcatDataset, DataLoader, Subset
 
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.agents.recogdrive.goalbridge_guidance_probe import GoalBridgeGuidanceProbe
 from navsim.planning.training.dataset import CacheOnlyDataset
-from navsim.planning.training.goalbridge_guidance_plot import plot_bev, plot_summary
+from navsim.planning.training.goalbridge_guidance_plot import (
+    plot_bev_by_error_strata,
+    plot_summary,
+)
 
 # Reuse the training entry's dataset plumbing verbatim so the diagnostic cannot
 # silently drift from the batches training consumes.
@@ -141,6 +144,53 @@ def _merge(batches: List[Dict[str, Any]]) -> Dict[str, Any]:
     return merged
 
 
+def _balanced_bucket_subset(dataset, agent, samples_per_bucket: int, seed: int):
+    """Select exactly ``samples_per_bucket`` items from every routed bucket.
+
+    The direct-index dataset exposes its ordered token list, so balancing can be
+    done before any cache tensor is loaded.  Selection is deterministic for a
+    seed and round-robin interleaved so every loader batch covers the buckets.
+    """
+    base = getattr(dataset, "base", dataset)
+    tokens = getattr(base, "tokens", None)
+    if not tokens:
+        raise RuntimeError(
+            "Balanced guidance sampling requires a dataset with an exposed token list."
+        )
+
+    bucket_names = list(agent.scene_router_trainer.bucket_names)
+    routed = [
+        agent.scene_router_trainer._resolve_bucket(name)
+        for name in agent._buckets_for_tokens(tokens, len(tokens))
+    ]
+    by_bucket = {name: [] for name in bucket_names}
+    for index, bucket in enumerate(routed):
+        if bucket in by_bucket:
+            by_bucket[bucket].append(index)
+
+    selected = {}
+    for bucket_index, bucket in enumerate(bucket_names):
+        candidates = by_bucket[bucket]
+        if len(candidates) < samples_per_bucket:
+            raise RuntimeError(
+                f"Bucket {bucket!r} has only {len(candidates)} samples; "
+                f"requested {samples_per_bucket}."
+            )
+        generator = torch.Generator().manual_seed(seed + 7919 * bucket_index)
+        order = torch.randperm(len(candidates), generator=generator)[:samples_per_bucket]
+        selected[bucket] = [candidates[int(i)] for i in order]
+
+    # Interleave buckets so partial progress remains balanced and every normal
+    # batch (batch_size divisible by four) contains equal bucket coverage.
+    indices = [
+        selected[bucket][sample_index]
+        for sample_index in range(samples_per_bucket)
+        for bucket in bucket_names
+    ]
+    counts = {bucket: len(selected[bucket]) for bucket in bucket_names}
+    return Subset(dataset, indices), counts
+
+
 @hydra.main(config_path=CONFIG_PATH, config_name=CONFIG_NAME, version_base=None)
 def main(cfg: DictConfig) -> None:
     guidance = cfg.get("guidance", {}) or {}
@@ -148,9 +198,8 @@ def main(cfg: DictConfig) -> None:
     tag = str(guidance.get("tag", "probe"))
     student_goal_source = str(guidance.get("student_goal_source", "pred"))
     num_batches = int(guidance.get("num_batches", 1))
-    n_samples = int(guidance.get("n_samples", 6))
+    samples_per_bucket = int(guidance.get("samples_per_bucket", 0))
     seed = int(guidance.get("seed", 0))
-    skip_steps = tuple(int(s) for s in str(guidance.get("skip_steps", "0")).split(",") if s.strip())
 
     torch.cuda.set_device(0)
     os.makedirs(out_dir, exist_ok=True)
@@ -162,6 +211,15 @@ def main(cfg: DictConfig) -> None:
 
     dataset = _build_probe_dataset(cfg, agent)
     logger.info("Probe dataset: %d samples", len(dataset))
+    bucket_counts = None
+    if samples_per_bucket > 0:
+        dataset, bucket_counts = _balanced_bucket_subset(
+            dataset, agent, samples_per_bucket, seed
+        )
+        logger.info(
+            "Balanced probe dataset: %d samples, bucket counts=%s",
+            len(dataset), bucket_counts,
+        )
     loader = DataLoader(
         dataset,
         batch_size=int(cfg.dataloader.params.batch_size),
@@ -176,10 +234,11 @@ def main(cfg: DictConfig) -> None:
 
     payloads = []
     for i, (features, targets, tokens_list) in enumerate(loader):
-        if i >= num_batches:
+        if samples_per_bucket <= 0 and i >= num_batches:
             break
         payloads.append(probe.run_batch(features, targets, tokens_list))
-        logger.info("Probed batch %d/%d", i + 1, num_batches)
+        total_batches = len(loader) if samples_per_bucket > 0 else num_batches
+        logger.info("Probed batch %d/%d", i + 1, total_batches)
     if not payloads:
         raise RuntimeError("Probe dataset yielded no batches.")
 
@@ -190,6 +249,9 @@ def main(cfg: DictConfig) -> None:
         "student_goal_source": student_goal_source,
         "agent": str(cfg.agent.get("_target_", "")),
         "num_batches": len(payloads),
+        "num_samples": len(payload["buckets"]),
+        "samples_per_bucket": samples_per_bucket,
+        "bucket_counts": bucket_counts,
         "seed": seed,
     }
 
@@ -197,15 +259,9 @@ def main(cfg: DictConfig) -> None:
     torch.save(payload, payload_path)
     print(f"[guidance] payload -> {payload_path}")
     print(f"[guidance] {plot_summary(payload, os.path.join(out_dir, f'{tag}_summary.png'))}")
-    print(
-        "[guidance] "
-        + plot_bev(
-            payload,
-            os.path.join(out_dir, f"{tag}_bev.png"),
-            n_samples=n_samples,
-            skip_steps=skip_steps,
-        )
-    )
+    bev_dir = os.path.join(out_dir, f"{tag}_bev_by_error")
+    written = plot_bev_by_error_strata(payload, bev_dir, step_numbers=(1, 2, 3, 4))
+    print(f"[guidance] per-sample BEV -> {bev_dir} ({len(written)} images)")
 
     # Per-step table: the numbers the conclusion should rest on.
     print("\nstep  t   sqrt(a)  |z|ratio  " + "  ".join(f"{k:>14s}" for k in payload["conditions"]))

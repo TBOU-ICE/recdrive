@@ -62,8 +62,9 @@ Two runs by default (`RUNS=both`; also `after` / `base`):
 
 Together they separate **already broken at init** from **degraded during OPD**.
 
-Useful env vars: `NUM_BATCHES` (default 2), `N_SAMPLES` (6), `BATCH_SIZE` (8),
-`SEED` (0), `SKIP_STEPS` (`0`), `AGENT`, `OUT_DIR`.
+The default probe is balanced across all four routed scene buckets:
+`SAMPLES_PER_BUCKET=64`, i.e. 256 samples per checkpoint. Useful env vars:
+`SAMPLES_PER_BUCKET`, `BATCH_SIZE` (8), `SEED` (0), `AGENT`, and `OUT_DIR`.
 
 ## Outputs
 
@@ -71,16 +72,17 @@ Per run, under `$OUT_DIR`:
 
 - `<tag>_summary.png` — **read this first.** Per-step ADE per condition, clamp
   saturation, and the `z_t` second-moment ratio.
-- `<tag>_bev.png` — rows are DDIM steps, columns are samples stratified by goal
-  error (final student FDE when goal-free). **All panels share one set of axis
-  limits**; per-panel autoscaling is what makes an ordinary trajectory look
-  chaotic. Step 0 is dropped by default: at `sqrt(a) ≈ 0.31` the reconstruction
-  amplifies eps error ~3× for every model, so that row carries no signal.
+- `<tag>_bev_by_error/` — all 256 samples, split into four equal error strata:
+  `q1_low`, `q2_mid_low`, `q3_mid_high`, and `q4_high`. Each PNG contains one
+  sample only, with four large panels showing z1 through z4 left-to-right.
+  Panels share per-sample axis limits and use 2 m major / 1 m minor ticks.
+  `opd_after` is stratified by goal error; goal-free `base_il` uses final
+  student FDE.
 - `<tag>_payload.pt` — raw tensors, so restyling needs no re-inference:
 
 ```bash
 python -m navsim.planning.training.goalbridge_guidance_plot \
-    $OUT_DIR/opd_after_payload.pt --n-samples 8 --skip-steps 0
+    $OUT_DIR/opd_after_payload.pt
 ```
 
 ## Reading the result

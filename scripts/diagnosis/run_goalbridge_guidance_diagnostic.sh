@@ -18,7 +18,8 @@
 # Outputs per run, under ${OUT_DIR}:
 #   <tag>_payload.pt   raw probe tensors (replot without re-running inference)
 #   <tag>_summary.png  per-step ADE / clamp saturation / z_t second-moment ratio
-#   <tag>_bev.png      sample x step BEV grid, shared axis limits
+#   <tag>_bev_by_error/{q1_low,...,q4_high}/*.png
+#                       one sample per image, with z1..z4 shown left-to-right
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -63,12 +64,9 @@ GENERAL_TRAIN_INDEX="${GENERAL_TRAIN_INDEX:-${DIRECT_INDEX_ROOT}/general_or_no_t
 
 AGENT="${AGENT:-recogdrive_agent_goalbridge_pred_goal_kd_opd}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
-NUM_BATCHES="${NUM_BATCHES:-2}"
-N_SAMPLES="${N_SAMPLES:-6}"
+# Balanced diagnostic set: four routed buckets x 64 samples = 256 per run.
+SAMPLES_PER_BUCKET="${SAMPLES_PER_BUCKET:-64}"
 SEED="${SEED:-0}"
-# Step 0 is pure noise at sqrt(alpha_bar) ~ 0.31: the x0 reconstruction amplifies
-# any eps error ~3x and then clamps, so that row is ragged for every model.
-SKIP_STEPS="${SKIP_STEPS:-0}"
 # Which runs to do: "both" (default), "after", or "base".
 RUNS="${RUNS:-both}"
 
@@ -116,10 +114,8 @@ run_probe() {
     "+guidance.out_dir='${OUT_DIR}'" \
     "+guidance.tag='${tag}'" \
     "+guidance.student_goal_source='${goal_source}'" \
-    "+guidance.num_batches=${NUM_BATCHES}" \
-    "+guidance.n_samples=${N_SAMPLES}" \
+    "+guidance.samples_per_bucket=${SAMPLES_PER_BUCKET}" \
     "+guidance.seed=${SEED}" \
-    "+guidance.skip_steps='${SKIP_STEPS}'" \
     dataloader.params.batch_size="${BATCH_SIZE}" \
     experiment_name="${EXPERIMENT_NAME}_${tag}" \
     train_test_split="${TRAIN_TEST_SPLIT:-navtrain}" \
@@ -141,4 +137,4 @@ echo
 echo "[guidance] outputs in ${OUT_DIR}"
 echo "[guidance] replot without re-running inference:"
 echo "  ${PYTHON_BIN} -m navsim.planning.training.goalbridge_guidance_plot \\"
-echo "      ${OUT_DIR}/opd_after_payload.pt --n-samples 8 --skip-steps 0"
+echo "      ${OUT_DIR}/opd_after_payload.pt"
