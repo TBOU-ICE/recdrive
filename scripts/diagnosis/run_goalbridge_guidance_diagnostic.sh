@@ -2,7 +2,7 @@
 # GoalBridge teacher-guidance probe: is the routed teacher's x0 sane at the
 # states the student actually visits?
 #
-# Pure inference on ONE GPU. Trains nothing, writes no checkpoint.
+# Pure inference on eight GPUs. Trains nothing, writes no checkpoint.
 #
 # Runs two checkpoints so the gap can be read as "already broken at init" vs
 # "degraded during OPD":
@@ -34,9 +34,10 @@ export PYTHONPATH="${NAVSIM_DEVKIT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD="${TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD:-1}"
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
 export SCENE_ROUTER_BAD_CACHE_LIST="${SCENE_ROUTER_BAD_CACHE_LIST:-${REPO_ROOT}/data/epdms/bad_cache_shards_newvlm.txt}"
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
 
 PYTHON_BIN="${PYTHON_BIN:-/opt/conda/envs/recdrive/bin/python}"
+NUM_GPUS="${NUM_GPUS:-8}"
 
 # The GoalBridge student under test. Point this at the checkpoint whose viz
 # looked wrong; it is the run being explained.
@@ -98,7 +99,9 @@ run_probe() {
   echo "[guidance] tag=${tag} goal_source=${goal_source}"
   echo "[guidance] ckpt=${ckpt}"
   echo "======================================================================"
-  "${PYTHON_BIN}" \
+  "${PYTHON_BIN}" -m torch.distributed.run \
+    --standalone \
+    --nproc_per_node="${NUM_GPUS}" \
     "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_goalbridge_guidance_diagnostic.py" \
     agent="${AGENT}" \
     "agent.checkpoint_path='${ckpt}'" \

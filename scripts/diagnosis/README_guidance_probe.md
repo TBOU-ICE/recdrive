@@ -6,7 +6,7 @@ and if not, is that the teacher being weak, the student's `z_t` having left the
 teacher's training distribution, or the chain and the teacher disagreeing about
 the goal?
 
-Pure inference on one GPU. Trains nothing, writes no checkpoint, and is not
+Pure inference on eight GPUs. Trains nothing, writes no checkpoint, and is not
 imported by the training path.
 
 ## What it computes
@@ -64,7 +64,11 @@ Together they separate **already broken at init** from **degraded during OPD**.
 
 The default probe is balanced across all four routed scene buckets:
 `SAMPLES_PER_BUCKET=64`, i.e. 256 samples per checkpoint. Useful env vars:
-`SAMPLES_PER_BUCKET`, `BATCH_SIZE` (8), `SEED` (0), `AGENT`, and `OUT_DIR`.
+`NUM_GPUS` (8), `CUDA_VISIBLE_DEVICES` (`0,1,2,3,4,5,6,7`),
+`SAMPLES_PER_BUCKET`, `BATCH_SIZE` (8 per GPU), `SEED` (0), `AGENT`, and
+`OUT_DIR`. The 256 samples are sharded exactly across ranks without padding or
+duplication; rank 0 gathers the payloads and is the only process that writes
+summary and BEV outputs.
 
 ## Outputs
 

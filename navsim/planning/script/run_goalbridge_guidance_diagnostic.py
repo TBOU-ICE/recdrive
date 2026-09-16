@@ -25,6 +25,7 @@ import os
 
 import hydra
 import torch
+import torch.distributed as dist
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 from torch.utils.data import ConcatDataset, DataLoader, Subset
@@ -201,10 +202,22 @@ def main(cfg: DictConfig) -> None:
     samples_per_bucket = int(guidance.get("samples_per_bucket", 0))
     seed = int(guidance.get("seed", 0))
 
-    torch.cuda.set_device(0)
-    os.makedirs(out_dir, exist_ok=True)
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    distributed = world_size > 1
+    torch.cuda.set_device(local_rank)
+    if distributed:
+        dist.init_process_group(backend="nccl")
+    if rank == 0:
+        os.makedirs(out_dir, exist_ok=True)
+    if distributed:
+        dist.barrier()
 
-    logger.info("Building agent (student_goal_source=%s)", student_goal_source)
+    logger.info(
+        "Building agent (student_goal_source=%s, rank=%d/%d, cuda=%d)",
+        student_goal_source, rank, world_size, local_rank,
+    )
     agent: AbstractAgent = instantiate(cfg.agent)
     agent.initialize()
     agent.eval()
@@ -220,6 +233,16 @@ def main(cfg: DictConfig) -> None:
             "Balanced probe dataset: %d samples, bucket counts=%s",
             len(dataset), bucket_counts,
         )
+    global_num_samples = len(dataset)
+    if distributed:
+        # Exact strided sharding: no DistributedSampler padding/duplication.
+        # With 4-way bucket interleaving and 8 ranks, the global union retains
+        # exactly 64 samples per bucket while every item is evaluated once.
+        local_indices = list(range(rank, global_num_samples, world_size))
+        dataset = Subset(dataset, local_indices)
+        logger.info(
+            "Rank %d shard: %d/%d samples", rank, len(dataset), global_num_samples
+        )
     loader = DataLoader(
         dataset,
         batch_size=int(cfg.dataloader.params.batch_size),
@@ -229,7 +252,9 @@ def main(cfg: DictConfig) -> None:
     )
 
     probe = GoalBridgeGuidanceProbe(
-        agent, student_goal_source=student_goal_source, seed=seed
+        agent,
+        student_goal_source=student_goal_source,
+        seed=seed + 100000 * rank,
     )
 
     payloads = []
@@ -238,11 +263,22 @@ def main(cfg: DictConfig) -> None:
             break
         payloads.append(probe.run_batch(features, targets, tokens_list))
         total_batches = len(loader) if samples_per_bucket > 0 else num_batches
-        logger.info("Probed batch %d/%d", i + 1, total_batches)
+        logger.info("Rank %d probed batch %d/%d", rank, i + 1, total_batches)
     if not payloads:
-        raise RuntimeError("Probe dataset yielded no batches.")
+        raise RuntimeError(f"Probe dataset yielded no batches on rank {rank}.")
 
-    payload = _merge(payloads)
+    local_payload = _merge(payloads)
+    if distributed:
+        gathered = [None] * world_size if rank == 0 else None
+        dist.gather_object(local_payload, gathered, dst=0)
+        if rank != 0:
+            dist.barrier()
+            dist.destroy_process_group()
+            return
+        payload = _merge(gathered)
+    else:
+        payload = local_payload
+
     payload["meta"] = {
         "tag": tag,
         "student_ckpt": str(cfg.agent.get("checkpoint_path", "")),
@@ -252,6 +288,7 @@ def main(cfg: DictConfig) -> None:
         "num_samples": len(payload["buckets"]),
         "samples_per_bucket": samples_per_bucket,
         "bucket_counts": bucket_counts,
+        "world_size": world_size,
         "seed": seed,
     }
 
@@ -273,6 +310,10 @@ def main(cfg: DictConfig) -> None:
             f"{record['step']:>4d}  {record['timestep']:>3d}  "
             f"{record['alpha_bar'] ** 0.5:>7.3f}  {record['z_second_moment_ratio']:>8.3f}  {ades}"
         )
+
+    if distributed:
+        dist.barrier()
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":
