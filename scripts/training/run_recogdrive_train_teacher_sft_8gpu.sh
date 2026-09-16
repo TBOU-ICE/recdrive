@@ -49,10 +49,13 @@ GOAL_NOISE_STD_XY="${GOAL_NOISE_STD_XY:-2.0}"
 MIN_ROLLOUT_COVERAGE="${MIN_ROLLOUT_COVERAGE:-0.90}"
 GOAL_SENSITIVITY_INTERVAL="${GOAL_SENSITIVITY_INTERVAL:-0}"
 
-# SFT is a warmup on static offline labels, i.e. pure off-policy. Stop when
-# student->teacher FDE flattens; training it to convergence overfits the fixed
-# teacher output and costs plasticity in the OPD stage.
-LR="${LR:-1e-4}"; MAX_EPOCHS="${MAX_EPOCHS:-8}"; BATCH_SIZE="${BATCH_SIZE:-16}"
+# SFT is a warmup on static offline labels, i.e. pure off-policy. At 8x16 one
+# epoch is ~1560 steps over the ~200k-scene union (the four bucket teachers sum
+# to 1562 steps/epoch at this config, and the IL base ckpt's 4683 steps / 3
+# epochs agrees). This is a CAP, not a target: checkpoints are written every
+# epoch, so run it out and pick by the val/student_fde_teacher_m curve. Training
+# to convergence memorises a fixed teacher output and costs OPD plasticity.
+LR="${LR:-1e-4}"; MAX_EPOCHS="${MAX_EPOCHS:-10}"; BATCH_SIZE="${BATCH_SIZE:-16}"
 
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_teacher_sft_goalbridge_student_v1}"
 LOG_FILE="${LOG_FILE:-${NAVSIM_EXP_ROOT}/${EXPERIMENT_NAME}/run.log}"

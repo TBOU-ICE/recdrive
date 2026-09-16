@@ -34,6 +34,41 @@ from navsim.planning.training.dataset import load_feature_target_from_pickle
 logger = logging.getLogger(__name__)
 
 
+def _iter_index(payload, index_path: Path, log_names):
+    """Yield ``(token, absolute token dir)`` from either direct-index format.
+
+    ``direct-absolute-paths-v1`` (the per-bucket ``train_index.json``) stores a
+    ``samples`` list of already-absolute paths that merge several cache roots,
+    so a log filter cannot be applied and none is needed.
+
+    ``direct-absolute-root-v1`` (``navtrain_full_val_index.json``) stores a
+    ``tokens`` map of paths relative to one ``cache_path``, and covers the whole
+    nav cache -- train logs included. The train/val split comes from filtering
+    those relative paths by log name, exactly as ``CacheOnlyDataset._load_from_index``
+    does; skipping the filter would silently validate on training scenes.
+    """
+    if "samples" in payload:
+        if log_names is not None:
+            logger.warning(
+                "log_names ignored for %s: absolute-path indexes carry no log structure", index_path
+            )
+        for sample in payload["samples"]:
+            yield str(sample["token"]), Path(sample["path"])
+        return
+
+    tokens = payload.get("tokens")
+    if not tokens:
+        raise ValueError(f"direct index has neither 'samples' nor 'tokens': {index_path}")
+    cache_path = Path(payload.get("cache_path", ""))
+    for token, rel in tokens.items():
+        rel = str(rel).strip()
+        if not rel:
+            continue
+        if log_names is not None and rel.split("/", 1)[0] not in log_names:
+            continue
+        yield str(token), (cache_path / rel if cache_path else Path(rel))
+
+
 class DirectIndexCacheDataset(torch.utils.data.Dataset):
     """Loads cached features/targets from one or more direct index JSONs.
 
@@ -43,6 +78,10 @@ class DirectIndexCacheDataset(torch.utils.data.Dataset):
     :param feature_builders: feature builders whose ``get_unique_name()`` names
         the ``.gz`` to load from each token directory.
     :param target_builders: same, for targets.
+    :param log_names: restrict to these nuPlan logs. Only meaningful for
+        ``direct-absolute-root-v1`` indexes, whose entries are paths relative to
+        a cache root and therefore carry a log name; this is how the train/val
+        split is actually applied, since those indexes cover the whole cache.
     """
 
     def __init__(
@@ -51,6 +90,7 @@ class DirectIndexCacheDataset(torch.utils.data.Dataset):
         feature_builders: List[AbstractFeatureBuilder],
         target_builders: List[AbstractTargetBuilder],
         labels: Optional[Sequence[str]] = None,
+        log_names: Optional[Sequence[str]] = None,
     ):
         super().__init__()
         if not index_paths:
@@ -60,6 +100,7 @@ class DirectIndexCacheDataset(torch.utils.data.Dataset):
 
         self._feature_builders = feature_builders
         self._target_builders = target_builders
+        log_names = {str(n) for n in log_names} if log_names is not None else None
 
         self.tokens: List[str] = []
         self.paths: List[Path] = []
@@ -73,21 +114,22 @@ class DirectIndexCacheDataset(torch.utils.data.Dataset):
             if not path.is_file():
                 raise FileNotFoundError(f"direct index not found: {index_path}")
             payload = json.loads(path.read_text(encoding="utf-8"))
-            samples = payload.get("samples", [])
-            if not samples:
-                raise ValueError(f"direct index is empty: {index_path}")
             label = labels[i] if labels is not None else None
             kept = 0
-            for sample in samples:
-                token = str(sample["token"])
+            for token, token_path in _iter_index(payload, path, log_names):
                 if token in seen:
                     duplicates += 1
                     continue
                 seen[token] = len(self.tokens)
                 self.tokens.append(token)
-                self.paths.append(Path(sample["path"]))
+                self.paths.append(token_path)
                 self.labels.append(label)
                 kept += 1
+            if kept == 0:
+                raise ValueError(
+                    f"direct index yielded no samples: {index_path}"
+                    + (f" (log filter kept nothing: {sorted(log_names)[:5]}...)" if log_names else "")
+                )
             per_index[label or path.name] = kept
 
         self._token_to_row = seen

@@ -375,6 +375,12 @@ class ReCogDriveTeacherSFTAgent(ReCogDriveAgent):
         # before SFT is stopped -- driving it to zero overfits the static labels
         # and costs plasticity in the OPD stage.
         rows, teacher_traj = self._lookup_rollouts(tokens_list, last_hidden.shape[0], training=False)
+        # Surfaced even when zero: the val scenes come from a different index than
+        # the Phase A rollouts, so a 0% hit rate here is a real possibility and
+        # would otherwise just make the acceptance metric quietly never appear.
+        out["val_rollout_coverage"] = torch.tensor(
+            rows.numel() / max(last_hidden.shape[0], 1), device=last_hidden.device
+        )
         if rows.numel() > 0:
             sel = rows.to(out["pred_traj"].device)
             student_end = out["pred_traj"].float().index_select(0, sel)[:, -1, :2]
@@ -415,7 +421,7 @@ class ReCogDriveTeacherSFTAgent(ReCogDriveAgent):
         tgt = tgt.to(device=pred.device, dtype=pred.dtype)
         loss = F.l1_loss(pred, tgt)
         data = {"loss": loss}
-        for key in ("goal_sensitivity_m", "student_fde_teacher_m"):
+        for key in ("goal_sensitivity_m", "student_fde_teacher_m", "val_rollout_coverage"):
             if key in predictions:
                 data[key] = predictions[key]
         if "pred_goal" in predictions:

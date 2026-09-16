@@ -77,11 +77,15 @@ def main(cfg: DictConfig) -> None:
         target_builders=target_builders,
         labels=list(BUCKET_NAMES),
     )
+    # navtrain_full_val_index.json covers the WHOLE nav cache, train logs
+    # included -- the split is the log filter, so it must be applied here or
+    # validation silently runs on training scenes.
     val_index_path = str(index_root / cfg.teacher_sft_val_index_name)
     val_data = DirectIndexCacheDataset(
         index_paths=[val_index_path],
         feature_builders=feature_builders,
         target_builders=target_builders,
+        log_names=list(cfg.val_logs),
     )
 
     bad_list_path = os.environ.get("SCENE_ROUTER_BAD_CACHE_LIST", "").strip()
