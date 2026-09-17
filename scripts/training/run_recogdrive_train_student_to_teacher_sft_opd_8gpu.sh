@@ -77,6 +77,10 @@ PROBE_EVERY_N_EPOCHS="${PROBE_EVERY_N_EPOCHS:-1}"
 PROBE_INTERVAL_STEPS="${PROBE_INTERVAL_STEPS:-0}"
 
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-${DEFAULT_EXPERIMENT}}"
+# Resolve the Hydra timestamp once in the parent shell. Without this override,
+# each torchrun rank evaluates ${now:...} independently and ranks that cross a
+# second boundary write probe shards into two adjacent output directories.
+RUN_UID="${RUN_UID:-$(date -u +%Y.%m.%d.%H.%M.%S)}"
 TENSORBOARD_DIR="${TENSORBOARD_DIR:-${OUTPUT_ROOT}}"
 LOG_FILE="${LOG_FILE:-${OUTPUT_ROOT}/${EXPERIMENT_NAME}/phase_c.log}"
 mkdir -p "$(dirname "${LOG_FILE}")" "${TENSORBOARD_DIR}"
@@ -172,6 +176,7 @@ TORCHRUN_BIN="${TORCHRUN_BIN:-/opt/conda/envs/recdrive/bin/torchrun}"
   +dataloader.params.persistent_workers=true \
   seed="${SEED}" \
   experiment_name="${EXPERIMENT_NAME}" \
+  experiment_uid="${RUN_UID}" \
   train_test_split=navtrain \
   use_cache_without_dataset=true \
   force_cache_computation=false \

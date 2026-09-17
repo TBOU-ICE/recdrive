@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Mapping, Sequence, Tuple
 
@@ -162,10 +163,53 @@ def _step_dir(run: Path, step: int) -> Path:
     return run / "probe_outputs" / f"step_{step:08d}"
 
 
+def _probe_shard_dirs(run: Path) -> List[Path]:
+    """Find DDP shard directories split by per-rank Hydra ``now`` resolution.
+
+    Hydra resolves ``experiment_uid=${now:...}`` independently in every
+    torchrun process.  When ranks cross a wall-clock second, rank outputs land
+    in two adjacent timestamp directories.  The directory containing the run
+    manifest is canonical; only manifest-less siblings within two seconds are
+    accepted as shard-only companions, so unrelated reruns are never mixed.
+    """
+    directories = [run]
+    try:
+        run_time = datetime.strptime(run.name, "%Y.%m.%d.%H.%M.%S")
+    except ValueError:
+        return directories
+    for sibling in run.parent.iterdir():
+        if sibling == run or not sibling.is_dir():
+            continue
+        if (sibling / "run_manifest.json").exists():
+            continue
+        if not (sibling / "probe_outputs").is_dir():
+            continue
+        try:
+            sibling_time = datetime.strptime(sibling.name, "%Y.%m.%d.%H.%M.%S")
+        except ValueError:
+            continue
+        if abs((sibling_time - run_time).total_seconds()) <= 2.0:
+            directories.append(sibling)
+    return sorted(directories)
+
+
 def _load_records(run: Path, step: int) -> Dict[str, dict]:
-    files = sorted(_step_dir(run, step).glob("rank_*.pt"))
+    files = sorted(
+        path
+        for shard_dir in _probe_shard_dirs(run)
+        for path in _step_dir(shard_dir, step).glob("rank_*.pt")
+    )
     if not files:
         raise FileNotFoundError(f"No rank outputs for step {step} under {run}")
+    manifest = _json(run / "run_manifest.json")
+    expected_ranks = int(manifest.get("world_size", 1))
+    rank_names = {path.name for path in files}
+    if len(rank_names) != expected_ranks:
+        raise RuntimeError(
+            f"Incomplete probe shards for {run} step {step}: "
+            f"found {sorted(rank_names)}, expected {expected_ranks} ranks; "
+            f"searched {[str(path) for path in _probe_shard_dirs(run)]}"
+        )
     records: Dict[str, dict] = {}
     for path in files:
         rows = torch.load(path, map_location="cpu", weights_only=False)
@@ -295,6 +339,125 @@ def _plot_bucket_bars(
     fig.suptitle(f"Fixed probe by scene class — optimizer step {step}", fontsize=15)
     fig.tight_layout()
     fig.savefig(output / f"bucket_comparison_step_{step:08d}.png", dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_gap_delta_curves(
+    output: Path,
+    steps: Sequence[int],
+    base_summary: Mapping[int, dict],
+    sft_summary: Mapping[int, dict],
+) -> None:
+    """Plot SFT-minus-base directly; negative means SFT has the smaller gap."""
+    panels = (
+        ("Trajectory gap", ("student_teacher_ade_m", "student_teacher_fde_m")),
+        ("Goal endpoint gap", ("goal_fde_m",)),
+        ("Denoised x0 gap", ("x0_gap_m", "z1_x0_gap_m", "z3_x0_gap_m")),
+        ("Reverse-transition gap", ("reverse_kl_loss",)),
+    )
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10), squeeze=False)
+    colors = ("#6A1B9A", "#00897B", "#C62828")
+    for ax, (title, metrics) in zip(axes.flat, panels):
+        for color, metric in zip(colors, metrics):
+            delta = [
+                float(sft_summary[step]["overall"][metric])
+                - float(base_summary[step]["overall"][metric])
+                for step in steps
+            ]
+            ax.plot(steps, delta, marker="o", linewidth=2, color=color, label=METRIC_TITLES[metric])
+        ax.axhline(0.0, color="black", linewidth=1.2, linestyle="--")
+        ax.fill_between(steps, 0.0, ax.get_ylim()[0], color="#2E7D32", alpha=0.06)
+        ax.set_title(f"{title}: SFT − No-SFT")
+        ax.set_xlabel("optimizer step")
+        ax.set_ylabel("delta (negative = SFT better)")
+        ax.grid(True, alpha=0.25)
+        ax.legend(fontsize=8)
+    fig.suptitle("SFT advantage over the same fixed probe", fontsize=15)
+    fig.tight_layout()
+    fig.savefig(output / "gap_delta_curves.png", dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _paired_sample_stats(
+    base_records: Mapping[str, dict], sft_records: Mapping[str, dict]
+) -> Dict[str, dict]:
+    metrics = (
+        "student_teacher_ade_m",
+        "student_teacher_fde_m",
+        "student_gt_ade_m",
+        "student_gt_fde_m",
+        "goal_fde_m",
+        "reverse_kl_loss",
+        "x0_gap_m",
+        "z1_x0_gap_m",
+        "z3_x0_gap_m",
+    )
+    result = {}
+    tokens = sorted(base_records)
+    for metric in metrics:
+        base = np.asarray([float(base_records[token][metric]) for token in tokens])
+        sft = np.asarray([float(sft_records[token][metric]) for token in tokens])
+        delta = sft - base
+        result[metric] = {
+            "num_samples": len(tokens),
+            "base_mean": float(base.mean()),
+            "sft_mean": float(sft.mean()),
+            "mean_delta_sft_minus_base": float(delta.mean()),
+            "median_delta_sft_minus_base": float(np.median(delta)),
+            "sft_better_fraction": float((delta < 0).mean()),
+            "tie_fraction": float(np.isclose(delta, 0.0, atol=1e-9).mean()),
+            "delta_p10": float(np.quantile(delta, 0.10)),
+            "delta_p90": float(np.quantile(delta, 0.90)),
+        }
+    return result
+
+
+def _plot_paired_scatter(
+    output: Path,
+    step: int,
+    base_records: Mapping[str, dict],
+    sft_records: Mapping[str, dict],
+) -> None:
+    metrics = (
+        "student_teacher_ade_m",
+        "student_teacher_fde_m",
+        "goal_fde_m",
+        "x0_gap_m",
+    )
+    tokens = sorted(base_records)
+    bucket_colors = {
+        "general_or_no_tag": "#455A64",
+        "progress_curbside_stopgo": "#1976D2",
+        "rule_intersection": "#7B1FA2",
+        "safety_dynamics_interaction": "#D84315",
+    }
+    fig, axes = plt.subplots(2, 2, figsize=(13, 12), squeeze=False)
+    for ax, metric in zip(axes.flat, metrics):
+        base = np.asarray([float(base_records[token][metric]) for token in tokens])
+        sft = np.asarray([float(sft_records[token][metric]) for token in tokens])
+        buckets = [str(base_records[token]["bucket"]) for token in tokens]
+        for bucket in sorted(set(buckets)):
+            mask = np.asarray([item == bucket for item in buckets])
+            ax.scatter(
+                base[mask], sft[mask], s=28, alpha=0.72,
+                color=bucket_colors[bucket], label=bucket,
+            )
+        low = float(min(base.min(), sft.min()))
+        high = float(max(base.max(), sft.max()))
+        margin = max((high - low) * 0.04, 1e-8)
+        ax.plot([low - margin, high + margin], [low - margin, high + margin], "k--", linewidth=1.2)
+        ax.set_xlim(low - margin, high + margin)
+        ax.set_ylim(low - margin, high + margin)
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlabel("No-SFT")
+        ax.set_ylabel("SFT")
+        ax.set_title(METRIC_TITLES[metric] + "\n(points below diagonal: SFT better)")
+        ax.grid(True, alpha=0.2)
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=9)
+    fig.suptitle(f"Paired 128-sample comparison — optimizer step {step}", fontsize=15)
+    fig.tight_layout(rect=(0, 0.06, 1, 0.97))
+    fig.savefig(output / f"paired_scatter_step_{step:08d}.png", dpi=180, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -514,11 +677,27 @@ def main() -> None:
     sft_summaries = _load_summaries(sft_run, common_steps)
     _write_summary_table(output, base_summaries, sft_summaries)
     _plot_curves(output, common_steps, base_summaries, sft_summaries)
+    _plot_gap_delta_curves(output, common_steps, base_summaries, sft_summaries)
     _plot_bucket_bars(output, step, base_summaries[step], sft_summaries[step])
 
-    base_records = _load_records(base_run, step)
-    sft_records = _load_records(sft_run, step)
-    _validate_records(base_records, sft_records)
+    paired_steps = sorted({0, step})
+    paired_stats = {}
+    records_by_step = {}
+    for paired_step in paired_steps:
+        base_records_at_step = _load_records(base_run, paired_step)
+        sft_records_at_step = _load_records(sft_run, paired_step)
+        _validate_records(base_records_at_step, sft_records_at_step)
+        records_by_step[paired_step] = (base_records_at_step, sft_records_at_step)
+        paired_stats[str(paired_step)] = _paired_sample_stats(
+            base_records_at_step, sft_records_at_step
+        )
+        _plot_paired_scatter(
+            output, paired_step, base_records_at_step, sft_records_at_step
+        )
+    (output / "paired_sample_stats.json").write_text(
+        json.dumps(paired_stats, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    base_records, sft_records = records_by_step[step]
     viz_tokens = sorted(
         token for token, record in base_records.items() if bool(record["draw_viz"])
     )
