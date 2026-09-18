@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# GoalBridge OPD scheme A: cross-attention GT-goal teachers + predicted-goal student.
+# GoalBridge OPD scheme A: cross-attention GT-goal teachers + cross-attention
+# predicted-goal student.
 #
 # Objective: supervised goal recovery + ungated reverse-KL only.
 # The cross teacher consumes GT goal; the deployable student consumes predicted goal.
@@ -33,6 +34,7 @@ TORCHRUN_BIN="${TORCHRUN_BIN:-/opt/conda/envs/recdrive/bin/torchrun}"
 # parameters missing from this checkpoint are intentionally initialized fresh.
 BASE_IL_CKPT="${BASE_IL_CKPT:-/mnt/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
 STUDENT_CKPT="${STUDENT_CKPT:-${BASE_IL_CKPT}}"
+STUDENT_GOAL_MODE="${STUDENT_GOAL_MODE:-cross}"
 RESUME_CKPT="${RESUME_CKPT:-}"
 
 # Scheme A: the four privileged teachers were trained with cross goal injection.
@@ -63,18 +65,20 @@ VAL_INDEX_PATH="${VAL_INDEX_PATH:-${DIRECT_INDEX_ROOT}/navtrain_full_val_index.j
 
 # Two-loss GoalBridge OPD objective; no anchor, jerk or recoverability gate.
 GOAL_LOSS_WEIGHT="${GOAL_LOSS_WEIGHT:-1.0}"
-KD_WEIGHT="${KD_WEIGHT:-1.0}"
+KD_WEIGHT="${KD_WEIGHT:-20.0}"
 KL_PRECISION_CLIP="${KL_PRECISION_CLIP:-25.0}"
 LR="${LR:-5e-5}"
 MAX_EPOCHS="${MAX_EPOCHS:-50}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
+CHECKPOINT_SAVE_TOP_K="${CHECKPOINT_SAVE_TOP_K:-3}"
+CHECKPOINT_EVERY_N_EPOCHS="${CHECKPOINT_EVERY_N_EPOCHS:-5}"
 
 # Use the same BEV visualization path as the pred-goal KD experiment.
 COLLECT_VIZ="${COLLECT_VIZ:-1}"
 VIZ_INTERVAL_STEPS="${VIZ_INTERVAL_STEPS:-500}"
 
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_goalbridge_opd_cross_teacher_scheme_a_v1}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-training_goalbridge_opd_cross_teacher_cross_student_v1}"
 OUTPUT_ROOT="${OUTPUT_BASE}/${EXPERIMENT_NAME}"
 LOG_FILE="${OUTPUT_ROOT}/run.log"
 TENSORBOARD_DIR="${OUTPUT_BASE}"
@@ -115,12 +119,13 @@ HYDRA_RESUME=()
 [[ -z "${RESUME_CKPT}" ]] || HYDRA_RESUME+=("+ckpt_path='${RESUME_CKPT}'")
 
 echo "======================================================================"
-echo "[GoalBridge-OPD-A] teacher_goal=GT teacher_injection=cross student_goal=pred"
+echo "[GoalBridge-OPD-A] teacher_goal=GT teacher_injection=${TEACHER_GOAL_MODE} student_goal=pred student_injection=${STUDENT_GOAL_MODE}"
 echo "[GoalBridge-OPD-A] data=all direct-indexed recdrive + SimScale rounds 0,1"
 echo "[GoalBridge-OPD-A] direct_index_root=${DIRECT_INDEX_ROOT}"
 echo "[GoalBridge-OPD-A] student=${STUDENT_CKPT}"
 echo "[GoalBridge-OPD-A] objective=goal+ungated_reverse_kl anchor=off smooth=off"
 echo "[GoalBridge-OPD-A] goal_w=${GOAL_LOSS_WEIGHT} kd_w=${KD_WEIGHT}"
+echo "[GoalBridge-OPD] checkpoints=top${CHECKPOINT_SAVE_TOP_K}+last every_${CHECKPOINT_EVERY_N_EPOCHS}_epochs"
 echo "[GoalBridge-OPD-A] output=${OUTPUT_ROOT}"
 echo "======================================================================"
 
@@ -134,6 +139,7 @@ echo "======================================================================"
   agent=recogdrive_agent_goalbridge_goal_kd_opd \
   "agent.checkpoint_path='${STUDENT_CKPT}'" \
   "agent.vlm_path='${VLM_PATH}'" \
+  "agent.student_goal_mode='${STUDENT_GOAL_MODE}'" \
   "agent.teacher_goal_mode='${TEACHER_GOAL_MODE}'" \
   "agent.teacher_ckpt_progress_curbside_stopgo='${TEACHER_PROGRESS_CKPT}'" \
   "agent.teacher_ckpt_rule_intersection='${TEACHER_RULE_CKPT}'" \
@@ -157,6 +163,8 @@ echo "======================================================================"
   dataloader.params.num_workers="${NUM_WORKERS}" \
   dataloader.params.prefetch_factor=4 \
   +dataloader.params.persistent_workers=true \
+  +checkpoint_save_top_k="${CHECKPOINT_SAVE_TOP_K}" \
+  +checkpoint_every_n_epochs="${CHECKPOINT_EVERY_N_EPOCHS}" \
   "+tensorboard_dir='${TENSORBOARD_DIR}'" \
   "+checkpoint_dir='${CHECKPOINT_DIR}'" \
   "output_dir='${OUTPUT_ROOT}'" \
