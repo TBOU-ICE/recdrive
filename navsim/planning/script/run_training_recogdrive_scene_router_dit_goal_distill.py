@@ -489,6 +489,12 @@ def main(cfg: DictConfig) -> None:
     logger.info("Num validation samples: %d", len(val_data))
 
     checkpoint_dir = cfg.get("checkpoint_dir", None)
+    checkpoint_save_top_k = int(cfg.get("checkpoint_save_top_k", 5))
+    checkpoint_every_n_epochs = int(cfg.get("checkpoint_every_n_epochs", 1))
+    if checkpoint_save_top_k < 1:
+        raise ValueError("checkpoint_save_top_k must be >= 1")
+    if checkpoint_every_n_epochs < 1:
+        raise ValueError("checkpoint_every_n_epochs must be >= 1")
     checkpoint_cb = pl.callbacks.ModelCheckpoint(
         dirpath=(
             str(checkpoint_dir)
@@ -499,8 +505,8 @@ def main(cfg: DictConfig) -> None:
         ),
         monitor="val/loss_epoch",
         mode="min",
-        save_top_k=5,
-        every_n_epochs=1,
+        save_top_k=checkpoint_save_top_k,
+        every_n_epochs=checkpoint_every_n_epochs,
         save_last=True,
     )
     trainer_logger = (
