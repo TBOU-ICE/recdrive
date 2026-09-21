@@ -28,33 +28,34 @@ export NCCL_IB_DISABLE=0
 export NCCL_P2P_DISABLE=0
 export NCCL_SHM_DISABLE=0
 
-MASTER_PORT="${MASTER_PORT:-63789}"
-PORT="${PORT:-63788}"
-export MASTER_PORT PORT
-
 GPUS="${GPUS:-8}"
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} GPUS=${GPUS}"
 
-# Scheme A: teachers are cross + GT goal; the deployable student is adaln + predicted goal.
-STUDENT_GOAL_MODE="${STUDENT_GOAL_MODE:-adaln}"
-CHECKPOINT="${CHECKPOINT:-/mnt/datasets/recdrive/20260513/training_goalbridge_opd_channel_teacher_v1/checkpoints/epoch=49-step=156050.ckpt}"
+# Channel-teacher/channel-student GoalBridge: predicted goal at deployment.
+STUDENT_GOAL_MODE="${STUDENT_GOAL_MODE:-cross}"
+STUDENT_ADALN_BOUND="${STUDENT_ADALN_BOUND:-8.0}"
+CHECKPOINT="${CHECKPOINT:-/mnt/datasets/recdrive/20260513/training_goalbridge_opd_cross_teacher_cross_student_v1/checkpoints/epoch=49-step=156050.ckpt}"
 VLM_PATH="${VLM_PATH:-/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/datasets/recdrive/20260513/nby/recdrive/metric_cache}"
 MAX_SCENES="${MAX_SCENES:-}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-eval-pdms-channel-opd-v1-${STUDENT_GOAL_MODE}-navtest-49epoch}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-eval-pdms-cross-opd-v1-navtest-49epoch}"
 
 HYDRA_OVERRIDES=(
   train_test_split="${TRAIN_TEST_SPLIT}"
   agent=recogdrive_agent_goalbridge_eval
   agent.student_goal_mode="${STUDENT_GOAL_MODE}"
+  agent.student_adaln_bound="${STUDENT_ADALN_BOUND}"
 )
 if [[ -n "${MAX_SCENES}" ]]; then
   HYDRA_OVERRIDES+=(train_test_split.scene_filter.max_scenes="${MAX_SCENES}")
 fi
 
 /opt/conda/envs/recdrive/bin/torchrun \
+    --nnodes=1 \
     --nproc_per_node="${GPUS}" \
-    --master_port="${MASTER_PORT}" \
+    --rdzv_backend=c10d \
+    --rdzv_endpoint=localhost:0 \
+    --rdzv_id="goalbridge-${EXPERIMENT_NAME}-$$" \
     "${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_pdm_score_recogdrive_goalbridge.py" \
     "${HYDRA_OVERRIDES[@]}" \
     "agent.checkpoint_path=\"${CHECKPOINT}\"" \

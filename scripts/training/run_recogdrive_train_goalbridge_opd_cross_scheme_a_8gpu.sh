@@ -35,6 +35,7 @@ TORCHRUN_BIN="${TORCHRUN_BIN:-/opt/conda/envs/recdrive/bin/torchrun}"
 BASE_IL_CKPT="${BASE_IL_CKPT:-/mnt/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
 STUDENT_CKPT="${STUDENT_CKPT:-${BASE_IL_CKPT}}"
 STUDENT_GOAL_MODE="${STUDENT_GOAL_MODE:-cross}"
+STUDENT_ADALN_BOUND="${STUDENT_ADALN_BOUND:-8.0}"
 RESUME_CKPT="${RESUME_CKPT:-}"
 
 # Scheme A: the four privileged teachers were trained with cross goal injection.
@@ -120,6 +121,7 @@ HYDRA_RESUME=()
 
 echo "======================================================================"
 echo "[GoalBridge-OPD-A] teacher_goal=GT teacher_injection=${TEACHER_GOAL_MODE} student_goal=pred student_injection=${STUDENT_GOAL_MODE}"
+echo "[GoalBridge-OPD-A] student_adaln_bound=${STUDENT_ADALN_BOUND}"
 echo "[GoalBridge-OPD-A] data=all direct-indexed recdrive + SimScale rounds 0,1"
 echo "[GoalBridge-OPD-A] direct_index_root=${DIRECT_INDEX_ROOT}"
 echo "[GoalBridge-OPD-A] student=${STUDENT_CKPT}"
@@ -140,6 +142,7 @@ echo "======================================================================"
   "agent.checkpoint_path='${STUDENT_CKPT}'" \
   "agent.vlm_path='${VLM_PATH}'" \
   "agent.student_goal_mode='${STUDENT_GOAL_MODE}'" \
+  agent.student_adaln_bound="${STUDENT_ADALN_BOUND}" \
   "agent.teacher_goal_mode='${TEACHER_GOAL_MODE}'" \
   "agent.teacher_ckpt_progress_curbside_stopgo='${TEACHER_PROGRESS_CKPT}'" \
   "agent.teacher_ckpt_rule_intersection='${TEACHER_RULE_CKPT}'" \

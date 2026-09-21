@@ -2,7 +2,6 @@ from typing import Any, Dict, List, Union, Tuple
 from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime
-import traceback
 import logging
 import lzma
 import pickle
@@ -102,7 +101,11 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
         if dist.get_rank() == 0:
             logger.info(f"Rank {dist.get_rank()} processing scenario {idx+1} / {len(tokens_to_evaluate)} in thread_id={thread_id}, node_id={node_id}")
 
-        score_row: Dict[str, Any] = {"token": token, "valid": True}
+        score_row: Dict[str, Any] = {
+            "token": token,
+            "valid": True,
+            "rank": dist.get_rank(),
+        }
         try:
             metric_cache_path = metric_cache_loader.metric_cache_paths[token]
             with lzma.open(metric_cache_path, "rb") as f:
@@ -123,10 +126,10 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
                 scorer=scorer,
             )
             score_row.update(asdict(pdm_result))
-            score_row['rank'] = dist.get_rank()
-        except Exception as e:
-            logger.warning(f"----------- Agent failed for token {token}:")
-            traceback.print_exc()
+        except Exception:
+            # Keep the traceback in Hydra's persistent log as well as stderr;
+            # print_exc() alone is lost once an attached terminal disappears.
+            logger.exception("----------- Agent failed for token %s:", token)
             score_row["valid"] = False
 
         pdm_results.append(score_row)
@@ -155,6 +158,37 @@ def broadcast_object(obj: Any, device: torch.device, src: int = 0) -> Any:
         buffer = tensor.cpu().numpy().tobytes()
         obj = pickle.loads(buffer)
     return obj
+
+
+def _deserialize_gathered_score_rows(
+    gathered_results: List[torch.Tensor], size_list: List[torch.Tensor]
+) -> List[Dict[str, Any]]:
+    """Deserialize variable-length pickles gathered from all distributed ranks."""
+    if len(gathered_results) != len(size_list):
+        raise ValueError(
+            "Gathered result/size count mismatch: "
+            f"{len(gathered_results)} results vs {len(size_list)} sizes"
+        )
+
+    final_results: List[Dict[str, Any]] = []
+    for rank, (gathered_tensor, rank_size_tensor) in enumerate(
+        zip(gathered_results, size_list)
+    ):
+        rank_size = int(rank_size_tensor.item())
+        if rank_size < 0 or rank_size > gathered_tensor.numel():
+            raise ValueError(
+                f"Invalid serialized result size from rank {rank}: {rank_size}; "
+                f"gathered buffer has {gathered_tensor.numel()} bytes"
+            )
+        serialized_data = gathered_tensor[:rank_size].cpu().numpy().tobytes()
+        rank_results = pickle.loads(serialized_data)
+        if not isinstance(rank_results, list):
+            raise TypeError(
+                f"Expected rank {rank} to return a list, got "
+                f"{type(rank_results).__name__}"
+            )
+        final_results.extend(rank_results)
+    return final_results
 
 
 @hydra.main(config_path=CONFIG_PATH, config_name=CONFIG_NAME, version_base=None)
@@ -216,7 +250,11 @@ def main(cfg: DictConfig) -> None:
             "tokens": [token],
         })
 
-    serialized_score_rows = run_pdm_score(data_points)
+    # Small smoke tests may assign no scenario to one or more ranks. Those
+    # ranks must still participate in the collectives with an empty result.
+    serialized_score_rows = (
+        run_pdm_score(data_points) if data_points else pickle.dumps([])
+    )
 
 
     device = torch.device("cpu" if not torch.cuda.is_available() else "cuda")
@@ -238,11 +276,12 @@ def main(cfg: DictConfig) -> None:
     dist.all_gather(gathered_results, padded_tensor)
 
     if dist.get_rank() == 0:
-        final_results = []
-        for gathered_tensor in gathered_results:
-            gathered_tensor = gathered_tensor[:local_size]  
-            serialized_data = gathered_tensor.cpu().numpy().tobytes()
-            final_results.extend(pickle.loads(serialized_data))  # 
+        # Each rank can serialize a different number of bytes (uneven shard,
+        # failed scenarios, or an empty rank). Trim with that rank's gathered
+        # size, not rank 0's local_size, before unpickling.
+        final_results = _deserialize_gathered_score_rows(
+            gathered_results, size_list
+        )
     
         pdm_score_df = pd.DataFrame(final_results)
 
@@ -267,6 +306,10 @@ def main(cfg: DictConfig) -> None:
                 Results are stored in: {save_path / f"{timestamp}.csv"}.
             """
         )
+
+    # Let rank 0 finish writing the CSV before every worker tears down NCCL.
+    dist.barrier()
+    dist.destroy_process_group()
 
 
 if __name__ == "__main__":
