@@ -26,7 +26,7 @@ TRAIN_TEST_SPLIT="${TRAIN_TEST_SPLIT:-navtrain}"
 TORCHRUN_BIN="${TORCHRUN_BIN:-/opt/conda/envs/recdrive/bin/torchrun}"
 
 # Goal-free new-VLM IL student and the original goal-free routed RL teachers.
-STUDENT_CKPT="${STUDENT_CKPT:-/m n trecdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
+STUDENT_CKPT="${STUDENT_CKPT:-/mnt/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt}"
 RESUME_CKPT="${RESUME_CKPT:-}"
 TEACHER_PROGRESS_CKPT="${TEACHER_PROGRESS_CKPT:-/mnt/models/recdrive/v1.0.0/training_teacher_progress_curbside_stopgo_rl_newvlm_v1-1/2026.07.30.11.52.25/lightning_logs/version_0/checkpoints/epoch=6-step=1113.ckpt}"
 TEACHER_RULE_CKPT="${TEACHER_RULE_CKPT:-/mnt/models/recdrive/v1.0.0/training_teacher_rule_intersection_rl_newvlm_v1-1/2026.07.30.11.52.22/lightning_logs/version_0/checkpoints/epoch=12-step=1833.ckpt}"
