@@ -28,9 +28,7 @@ DEFAULT_SPLIT = (
     REPO_ROOT
     / "navsim/planning/script/config/training/default_train_val_test_log_split.yaml"
 )
-DEFAULT_OUTPUT = Path(
-    "/workspace/output/tensorboard/state_correction_pre_goal_general_v1/indexes"
-)
+DEFAULT_OUTPUT = REPO_ROOT / "data/state_correction/indexes"
 def read_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
     payload = json.loads(path.read_text())
     builders = payload.get("builders", [])
