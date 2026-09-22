@@ -1,0 +1,10 @@
+{
+  "cpu_tests": 14,
+  "cpu_tests_result": "passed",
+  "syntax_compile": "passed",
+  "shell_syntax": "passed",
+  "patch_apply_check": "passed",
+  "real_checkpoint_gpu_pdms": "not_run_missing_data_and_gpu",
+  "ddp_smoke": "blocked_at_gloo_initialization_Operation_not_permitted",
+  "torch_test_version": "2.14.0+cpu"
+}

@@ -1,0 +1,100 @@
+{
+  "seed": 42,
+  "state_dir": "/FILL/experiments/student_states_v1",
+  "output_dir": "/FILL/experiments/state_correction_v1",
+  "train_indexes": [
+    "/FILL/train_index.json"
+  ],
+  "val_indexes": [
+    "/FILL/val_index.json"
+  ],
+  "metric_cache_path": "",
+  "collector_student": {
+    "checkpoint": "/FILL/opd_after_student.ckpt",
+    "kind": "goal_free",
+    "dit_type": "small",
+    "vlm_size": "small",
+    "steps": 5,
+    "adaln_bound": 8.0,
+    "sampling_attributes": {
+      "denoised_clip_value": 1.0,
+      "eps_clip_value": null,
+      "final_action_clip_value": 1.0
+    }
+  },
+  "teacher": {
+    "checkpoint": "/FILL/original_privileged_teacher.ckpt",
+    "kind": "privileged",
+    "dit_type": "small",
+    "vlm_size": "small",
+    "steps": 5,
+    "adaln_bound": 0.0,
+    "goal_mode": "adaln",
+    "goal_kwargs": {
+      "goal_sincos_dim": 128,
+      "goal_hidden_dim": 1024,
+      "goal_use_heading": false,
+      "goal_dropout_p": 0.1,
+      "goal_noise_p": 0.2,
+      "goal_noise_std_xy": 1.0,
+      "goal_noise_std_heading": 0.1
+    }
+  },
+  "opd_student": {
+    "checkpoint": "/FILL/original_goal_free_base.ckpt",
+    "kind": "goal_free",
+    "dit_type": "small",
+    "vlm_size": "small",
+    "steps": 5,
+    "adaln_bound": 8.0,
+    "sampling_attributes": {
+      "denoised_clip_value": 1.0,
+      "eps_clip_value": null,
+      "final_action_clip_value": 1.0
+    }
+  },
+  "sampler": {
+    "deterministic": false,
+    "min_sigma": 0.04,
+    "noise_clip": 5.0
+  },
+  "collect": {
+    "steps": [
+      4
+    ],
+    "seeds_per_scene": 1,
+    "max_train_samples": 0,
+    "max_val_samples": 0
+  },
+  "finetune": {
+    "epochs": 5,
+    "batch_size": 4,
+    "workers": 4,
+    "lr": 1e-06,
+    "weight_decay": 0.0,
+    "correction_weight": 1.0,
+    "retention_weight": 1.0,
+    "grad_clip": 1.0,
+    "diagnostic_interval": 100,
+    "validation_samples": 0
+  },
+  "opd": {
+    "epochs": 10,
+    "batch_size": 4,
+    "workers": 4,
+    "lr": 1e-05,
+    "weight_decay": 0.0,
+    "kd_weight": 1.0,
+    "loss_min_sigma": 0.04,
+    "precision_clip": 25.0,
+    "grad_clip": 1.0,
+    "diagnostic_interval": 100,
+    "validation_samples": 0
+  },
+  "evaluation_indexes": [],
+  "evaluation_sampler": {
+    "deterministic": false,
+    "min_sigma": 0.0001,
+    "noise_clip": 1.0
+  }
+}

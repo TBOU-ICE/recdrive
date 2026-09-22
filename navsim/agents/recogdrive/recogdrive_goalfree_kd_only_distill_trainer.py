@@ -20,7 +20,7 @@ from navsim.agents.recogdrive.recogdrive_dit_scene_router_distill_trainer import
 class ReCogDriveGoalFreeKDOnlyDistillTrainer(
     ReCogDriveDiTSceneRouterDistillTrainer
 ):
-    """Full-strength reverse-KL mean matching for a goal-free student."""
+    """Clipped-precision shared-DDIM mean matching (KL surrogate)."""
 
     def __init__(
         self,
@@ -28,6 +28,11 @@ class ReCogDriveGoalFreeKDOnlyDistillTrainer(
         kd_weight: float = 1.0,
         kl_precision_clip: float = 25.0,
         collect_viz: bool = True,
+        rollout_min_sigma: Optional[float] = None,
+        rollout_noise_clip: float = 5.0,
+        rollout_deterministic: bool = False,
+        diagnostic_gradients: bool = False,
+        fail_on_nonfinite: bool = False,
         **kwargs,
     ):
         # This ablation always matches shared-variance DDIM reverse means and
@@ -40,6 +45,35 @@ class ReCogDriveGoalFreeKDOnlyDistillTrainer(
         self.kl_precision_clip = float(kl_precision_clip)
         self.collect_viz = bool(collect_viz)
         self.last_viz = None
+        # None preserves existing launchers; new correction pipeline sets this
+        # independently of the variance floor used in the loss precision.
+        self._legacy_rollout_sigma = rollout_min_sigma is None
+        self.rollout_min_sigma = self.min_sigma if rollout_min_sigma is None else float(rollout_min_sigma)
+        self.rollout_noise_clip = float(rollout_noise_clip)
+        self.rollout_deterministic = bool(rollout_deterministic)
+        self.diagnostic_gradients = bool(diagnostic_gradients)
+        self.fail_on_nonfinite = bool(fail_on_nonfinite)
+        if self.rollout_min_sigma < 0 or self.rollout_noise_clip <= 0:
+            raise ValueError("Invalid rollout noise settings")
+
+    def _sample_chain(self, planner, vl, his, ego, batch_size, device, dtype):
+        z = torch.randn((batch_size, planner.config.action_horizon, planner.config.action_dim), device=device, dtype=dtype)
+        chain = [z.clone()]
+        for i in range(planner.ddim_steps):
+            t = planner.make_timesteps(batch_size, int(planner.ddim_t[i]), device)
+            idx = planner.make_timesteps(batch_size, i, device)
+            mu, logvar, _ = planner.p_mean_variance(z, t, idx, vl, his, ego, deterministic=self.rollout_deterministic)
+            sigma = (
+                self._safe_sigma(logvar, self.rollout_min_sigma, dtype)
+                if self._legacy_rollout_sigma
+                else (0.5 * logvar).exp().to(dtype).clamp_min(self.rollout_min_sigma)
+            )
+            if self.rollout_deterministic:
+                sigma = torch.zeros_like(sigma)
+            noise = torch.randn_like(z).clamp(-self.rollout_noise_clip, self.rollout_noise_clip)
+            z = (mu + sigma * noise).detach()
+            chain.append(z.clone())
+        return torch.stack(chain, dim=1)
 
     def _precision(self, sigma2: torch.Tensor) -> torch.Tensor:
         if self.kl_precision_clip <= 0.0:
@@ -187,7 +221,7 @@ class ReCogDriveGoalFreeKDOnlyDistillTrainer(
                 vl_s,
                 his_s,
                 ego_s,
-                deterministic=False,
+                deterministic=self.rollout_deterministic,
             )
             sigma_geom = (
                 0.5 * logvar_s.float().clamp(-40.0, 20.0)
@@ -248,6 +282,9 @@ class ReCogDriveGoalFreeKDOnlyDistillTrainer(
 
             step_kd = step_kd_sum / max(n_used, 1)
             step_gap = step_gap_sum / max(n_used, 1)
+            if self.diagnostic_gradients and torch.is_grad_enabled():
+                gx = torch.autograd.grad(self.kd_weight * step_kd / num_steps, x0_s, retain_graph=True)[0]
+                step_metrics[f"kd_grad_x0_step_{step}"] = gx.detach().norm()
             total_kd = total_kd + step_kd
             kl_steps.append(step_kd.detach())
             x0_gap_steps.append(step_gap.detach())
@@ -298,6 +335,8 @@ class ReCogDriveGoalFreeKDOnlyDistillTrainer(
                 eta_logit, nan=0.0, posinf=0.0, neginf=0.0
             ).sum() * 0.0
         if not torch.isfinite(loss):
+            if self.fail_on_nonfinite:
+                raise FloatingPointError("Non-finite OPD loss")
             loss = self._finite_anchor_loss(student_planner)
 
         pred_traj_s = student_planner.denorm_odo(last_student_x0.float())
@@ -315,7 +354,8 @@ class ReCogDriveGoalFreeKDOnlyDistillTrainer(
         data = {
             "loss": loss,
             "distill_loss": kd_loss.detach(),
-            "reverse_kl_loss": kd_loss.detach(),
+            "reverse_kl_loss": kd_loss.detach(),  # legacy metric name; surrogate, not exact KL
+            "kl_proxy_loss": kd_loss.detach(),
             "student_fde_gt_m": student_err[:, -1].mean().detach(),
             "student_ade_gt_m": student_err.mean().detach(),
             "fde_gt_teacher_final_m": teacher_err[:, -1].mean().detach(),

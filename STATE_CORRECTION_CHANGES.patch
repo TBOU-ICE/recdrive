@@ -1,0 +1,1489 @@
+--- /dev/null
++++ b/README_STATE_CORRECTION.md
+@@ -0,0 +1,257 @@
++# ReCogDrive：学生末期状态上的特权教师纠偏
++
++## 1. 这次实验只回答什么
++
++**教师适应学生实际访问的末期生成状态后，监督质量能否提高，并最终改善 OPD 学生？**
++
++已观察到同样给 GT goal，教师在学生 z4 上 ADE≈0.621，而在 q(GT) 上≈0.119。该现象支持做状态适应实验，但尚不能证明它是学生分数下降的唯一原因。
++
++本实现不添加学生 SFT，不换 backbone，不做多教师路由搜索，不改为除以极小方差的“严格 KL”。首轮只适应一位特权教师，再做原教师/适应后教师的两组 OPD 对照。
++
++| 阶段 | 使用什么模型/数据 | 训练或验证目的 | 主要输出 |
++|---|---|---|---|
++| collect | 已有 OPD 后学生；训练/验证缓存 | 固定学生实际访问的末步状态 | 状态 `.pt` 与 manifest |
++| finetune | 原特权教师；训练集学生状态 + 同场景标准 q(GT) | 学会从学生状态纠偏，同时保留原去噪能力 | 教师 `best.ckpt`、`last.ckpt`、日志 |
++| validate | 微调前/后教师；同一份留出学生状态 | 配对检查纠偏是否改善 | 分步统计、逐样本结果、可选轨迹和 PDMS |
++| opd original/adapted | 同一个原始 goal-free 学生初始化；分别使用两位教师 | 隔离教师状态适应对蒸馏的作用 | 两组学生 checkpoint |
++| evaluate-student | 两组 OPD 学生；同一评测缓存/种子 | 检查最终驾驶效果 | ADE/FDE、可选 PDMS |
++
++**收集状态的学生与 OPD 初始化学生是两个不同角色。** 默认前者是已有 OPD 后模型，后者是这次对照统一使用的原始 goal-free base。不是继续给采集学生做 SFT。
++
++## 2. 文件与安装
++
++新增：
++
++- `navsim/agents/recogdrive/student_state_correction.py`：缓存读取、模型加载、采样、教师纠偏目标、单教师 OPD、PDMS 接口。
++- `navsim/planning/script/run_student_state_correction.py`：五个阶段的 CLI，训练支持单机 torchrun/DDP。
++- `scripts/training/student_state_correction.example.json`：路径占位和全部实验设置。
++- `scripts/training/run_student_state_correction.sh`：统一启动入口。
++- `tests/test_student_state_correction.py`：CPU 数值、状态协议及流程测试。
++- `tests/smoke_correction_ddp.py`：两进程 CPU DDP 计算图测试。
++
++修改：
++
++- `navsim/agents/recogdrive/recogdrive_goalfree_kd_only_distill_trainer.py`：增加独立采样参数、按步 KD 输出梯度指标、非有限 loss 的可选报错；增加 `kl_proxy_loss` 指标，保留旧指标名和旧构造参数默认行为。未修改其他旧实验的配置/启动脚本。
++
++完整代码包基于上传的 `recdrive-multi-opd-v1-gpt-small.zip` 合并上述文件。也可以从包中取出这些文件，按相同相对路径覆盖服务器仓库。已有代码发生过改动时，先对照包内 `STATE_CORRECTION_CHANGES.patch`；不要覆盖自己之后的修改。
++
++运行环境使用原 ReCogDrive/NAVSIM 环境及依赖。本入口直接加载 action head 和已有 VLM hidden-state cache，**不加载 VLM 权重，也不重新提取特征**。小模型默认 hidden state 最后一维为 1536；必须与训练原 checkpoint 的 VLM/cache 一致。
++
++## 3. 必须填写的配置
++
++复制 `student_state_correction.example.json` 为自己的配置，再修改下列内容。`/FILL/` 都是待填写路径，不是有效默认路径。
++
++| 字段 | 填写内容 |
++|---|---|
++| `collector_student.checkpoint` | 已有 OPD 后、确认存在末步退化的学生 checkpoint |
++| `collector_student.kind` | 无 goal 为 `goal_free`；带预测 goal 为 `pred_goal`，不得用 goal-free 类强行丢弃预测头 |
++| `teacher.checkpoint` | 一位原始特权教师 checkpoint |
++| `teacher.goal_mode` | 与教师训练时一致：`adaln`、`cross` 或 `channel` |
++| `teacher.goal_kwargs` | 与原结构一致的 goal encoder 参数；保留训练时的 goal 扰动参数 |
++| `opd_student.checkpoint` | 两组 OPD 共同的原始 goal-free 初始化 checkpoint；不要默认填旧 SFT checkpoint |
++| `train_indexes` / `val_indexes` | 现有 direct index JSON 列表，分割应按 log 且互不重叠；可只填写这位教师对应的数据范围 |
++| `state_dir` | 新的空目录，保存固定学生状态；状态收集拒绝覆盖非空目录 |
++| `output_dir` | 新实验输出目录；训练拒绝覆盖已有 `last.ckpt` |
++| `metric_cache_path` | 可选，NAVSIM v1 PDMS metric cache 根目录；使用 `--pdms` 时必须填写 |
++| `evaluation_indexes` | 可选，最终评测 direct index；空列表时使用 val_indexes，不代表自动用了 navtest |
++| 两个学生的 `adaln_bound` | 必须符合各自 checkpoint 当时的行为；示例 OPD 学生为 8，未使用 soft bound 的 base 可设 0 |
++
++模型加载接受 `agent.action_head.*`、`action_head.*`、相应 `module.*` 前缀及纯 planner checkpoint。只选 action head，不误加载 checkpoint 里的冻结教师。所有模型参数都必须有匹配权重；goal 结构、张量形状或时间表不符会报错，不会静默随机初始化。
++
++如果采集模型是 pred-goal，示例增加：
++
++```json
++"kind": "pred_goal",
++"goal_mode": "adaln",
++"goal_kwargs": {
++  "goal_sincos_dim": 128,
++  "goal_hidden_dim": 1024,
++  "goal_use_heading": false,
++  "goal_predictor_hidden_dim": 512,
++  "goal_predictor_dropout": 0.0
++}
++```
++
++这只改变状态采集模型；首轮下游 OPD 仍固定 goal-free 学生。尽量优先用已经复现该问题的 goal-free OPD 学生采集；如果问题仅在 pred-goal 上确认，就如实记录这次训练用的是 pred-goal 状态，不能声称它与 goal-free 学生访问分布完全相同。
++
++### direct index 格式
++
++沿用原代码 `DirectIndexCacheDataset` 的两种格式。例如：
++
++```json
++{
++  "builders": ["internvl_feature", "trajectory_target"],
++  "samples": [
++    {"token": "场景token", "path": "/cache/log_name/token"}
++  ]
++}
++```
++
++也支持 `cache_path` + `tokens: {token: relative_path}`。每个 token 文件夹需有 `internvl_feature.gz` 与 `trajectory_target.gz`，内容与现有缓存相同。log 按 token 文件夹的父目录名判断；目录布局不同，应先调整索引/分割规则。训练/验证 token 或 log 重叠会报错，不通过随机分帧掩盖泄漏。
++
++## 4. 采样设置必须固定
++
++示例 `sampler` 使用你现有 OPD 的随机采样设定：`min_sigma=0.04`、`noise_clip=5`、`deterministic=false`，用于**状态采集和两组 OPD**。这是保留实验条件，不是建议部署也加大噪声。
++
++`evaluation_sampler` 默认 `min_sigma=0.0001`、`noise_clip=1`，用于最终学生评测和教师完整 rollout，符合原常规推理默认值。固定状态纠偏评测始终使用保存的 z4，无须重新采样。
++
++如果已经修复 OPD 使其与部署一致，就在首次收集前把 `sampler` 也设置为 `0.0001 / 1`，并让两组 OPD 一致。**修改采样设置后必须重新收集状态，不要复用旧 manifest。** 清单会记录并检查设置。
++
++`opd.loss_min_sigma=0.04` 仅用于 KD 代理损失权重，独立于采样下限。它不决定采样轨迹；末步仍使用有限权重，不除以接近零的真实方差。
++
++采集保存每次 DiT 调用前的状态。五步时默认只保存 `step=4`（z4），其真实 timestep 通常为 0；z4 不是最后一次更新后的最终轨迹。需要同时适应 z3 时改 `collect.steps` 为 `[3,4]` 并重新收集。
++
++## 5. 执行顺序
++
++先激活原项目环境，进入仓库根目录：
++
++```bash
++cp scripts/training/student_state_correction.example.json /你的路径/correction.json
++# 编辑 JSON，填完 /FILL/ 路径及模型/数据设置。
++export CONFIG=/你的路径/correction.json
++export GPUS=8
++# python/torchrun 不在 PATH 时设置 PYTHON_BIN、TORCHRUN_BIN。
++```
++
++### A. 收集状态：只推理，不训练学生
++
++```bash
++bash scripts/training/run_student_state_correction.sh collect
++```
++
++默认单进程、使用一张可见 GPU。固定种子按 token 派生，不依赖样本顺序。收集 train 和 val 两份状态；缓存包括原始 hidden-state/history/status/GT、归一化 z4、step/timestep、学生最终轨迹与种子。保存原始条件而非教师编码，以允许教师编码器继续学习。
++
++`seeds_per_scene=1`；`max_train_samples=0` 和 `max_val_samples=0` 表示全部。首次联调可设为 32/16，验证运行链路后换新目录收集正式数据。限量时用固定哈希顺序抽取，不按时间顺序截取。
++
++### B. 教师微调：学生状态纠偏 + 原始去噪保持
++
++```bash
++bash scripts/training/run_student_state_correction.sh finetune
++```
++
++目标：
++
++```text
++L = correction_weight × MSE(x0_T(z4_student, GT_goal), GT_trajectory_normalized)
++  + retention_weight × 原教师标准 q(GT) epsilon 回归损失
++```
++
++每个训练样本都计算一份纠偏损失和一份保持损失，相当于 1:1 的两类训练目标；不是随机一半样本不纠偏。两项数值尺度不同，示例权重 1/1 是起点，并不保证梯度贡献相等。
++
++- 纠偏分支给干净 GT goal，关闭 goal mask/noise；输入真实缓存 z4，不再额外加噪。
++- **只做一次教师前向，预测 epsilon 并转换为 x0**；不从 z4 再虚构多个去噪步骤。
++- 保持分支沿用 `GoalCondDiffusionPlanner.forward`：随机训练 timestep、标准前向噪声、原 goal 扰动。
++- 原教师仍是 epsilon 参数化；没有换成直接 x0 输出网络。回归目标用 x0，避免给非标准学生状态套用随机噪声标签。
++- 损失在实际裁剪后的 x0 上计算，与你后续 OPD 取到的教师输出一致；如果严重饱和，裁剪可能阻断梯度，此时日志会暴露问题，不能把 loss 权重放大当作解决方案。
++- 更新整个 planner 的可训练参数；固定 eta 不训练；没有 VLM 训练。
++- FP32、小学习率、梯度裁剪；默认单卡 batch=4、5 epochs，只是初始预算，非已验证最优参数。
++
++每个 epoch 用相同留出状态验证，`best.ckpt` 按最晚收集步骤的教师 ADE 选择，`last.ckpt` 是最后一轮。**best 不是按 PDMS 选出的“最优驾驶模型”**；请结合下一阶段 PDMS 和正常 rollout 结果判断。
++
++### C. 配对验证教师
++
++只计算几何指标：
++
++```bash
++bash scripts/training/run_student_state_correction.sh validate --export-trajectories
++```
++
++填写 metric cache 后，同时计算学生状态上 x0 的 PDMS，以及教师完整 rollout 的保持情况：
++
++```bash
++bash scripts/training/run_student_state_correction.sh validate \
++  --pdms --full-rollout --export-trajectories
++```
++
++默认比较 `teacher.checkpoint` 与 `output_dir/finetune/best.ckpt`；可用 `--checkpoint /path/to/teacher.ckpt` 指定其他 epoch。
++
++输出在 `paired_validation/`：
++
++- `summary.json`：每一步分别统计 mean/median/P90、数量；`step=-1` 单独代表完整 rollout。
++- `per_sample.json`：同一 token/seed/step 上两位教师的配对结果；可选物理坐标轨迹，便于现有 viz 读取。
++- `provenance.json`：checkpoint SHA256、状态清单 SHA256、设置及是否启用 PDMS。
++
++`x0_pdm_score` 是**教师在固定学生 z4 上单次输出的轨迹**经 NAVSIM simulator/scorer 后的 PDMS；`full_pdms` 是教师从初始噪声完成完整采样的 PDMS。两者不能混为一谈。
++
++PDMS 接入使用仓库中的 NAVSIM v1 `pdm_score`、40×0.1s proposal sampling 和默认评分权重，分值通常为 0–1，展示 0–100 时统一乘 100。没有实现 v2 EPDMS 的新评分器；最终 EPDMS/NavHard 继续用服务器原有对应评测入口，加载这里导出的学生 checkpoint。开启 PDMS 时任何缺失 token metric cache/评分异常直接报错，不填零或悄悄丢样本。
++
++### D. 两组单教师 OPD
++
++```bash
++bash scripts/training/run_student_state_correction.sh opd --arm original
++bash scripts/training/run_student_state_correction.sh opd --arm adapted
++```
++
++两组都从 `opd_student.checkpoint` 开始，分别冻结原教师和 `finetune/best.ckpt`，训练数据、seed、采样、优化器、预算相同。两组必须使用相同 GPU 数量与 batch size。
++
++保留原 goal-free KD trainer 的共享学生 DDIM 方差重建均值，以及有裁剪的 precision 加权均方差；**是 KL 代理损失，不是严格 KL**。五步平均；关闭外推、goal head、anchor、额外 jerk loss；一个教师覆盖选定训练集，不再进行语义 bucket 路由。学生状态每次按当前学生生成并 detach。
++
++训练入口为独立 FP32 runner：与旧 Lightning 实验可能存在优化器、精度、缓存 padding 等差异。因此有效对照是**此入口中的 original vs adapted**，不能把其中一组直接与历史旧 runner 的单个分数当作唯一因果证据。
++
++输出 `opd_original/`、`opd_adapted/`；每轮记录完整学生 rollout 的验证 ADE/FDE，best 暂按验证 ADE 选，last 按固定预算保存。正式驾驶分数比较优先同时报告两组相同预算的 last，以及相同选模规则的 best，不用测试集逐 checkpoint 挑分。
++
++### E. 最终学生评测
++
++```bash
++bash scripts/training/run_student_state_correction.sh evaluate-student --arm original --pdms
++bash scripts/training/run_student_state_correction.sh evaluate-student --arm adapted --pdms
++# 比较相同预算的 last 时可加：
++# --checkpoint /你的输出目录/opd_original/last.ckpt
++```
++
++这里按 `evaluation_sampler` 完整采样学生，逐 token 使用相同种子；默认评测 best，可覆盖 checkpoint。设置 `evaluation_indexes` 才能指定 navtest/NavHard 对应特征缓存；空列表只评测 val。最终测试集不参与教师微调和选模。输出位于 `evaluate_student_original/` 或 `evaluate_student_adapted/`。
++
++新 checkpoint 的参数前缀是 `agent.action_head.*`，可由原仓库对应的普通学生/特权教师加载器读取。checkpoint 不含 Lightning optimizer/scheduler 状态；这是模型导出，**不能作为原 Lightning trainer 的断点续训 ckpt_path**。将它作为 agent 的初始化 checkpoint 使用；原评测入口也必须设置与训练一致的学生 adaLN bound 等非权重配置，不能假设仅加载权重就恢复了这些设置。
++
++## 6. 指标怎么读
++
++| 阶段/指标 | 含义 | 希望看到什么 |
++|---|---|---|
++| teacher `z4/ade_m` / `fde_m` | 教师在固定学生状态上的 GT 误差 | 留出样本均值和 P90 降低 |
++| `correction_m` | denorm(x0) 与 denorm(z4) 的 XY 位移量 | 与误差下降一起看；不是越大越好 |
++| `ade_gain_from_state_m` / `z4/ade_gain_m` | 纠偏前状态误差减去输出误差 | 正值表示修正有效；z4 是带噪输入，此项只是诊断 |
++| `paired_ade_gain_m` / `ade_improved` | 微调前后同状态 ADE 改善量/比例 | 改善不是仅集中于少量样本 |
++| `qgt_ade_m` / `baseline_qgt_ade_m` | 同一步、同一份标准 q(GT) 输入上的误差 | 正常去噪能力没有明显退化 |
++| `x0_pdm_score` / `paired_pdms_gain` | 固定学生状态输出轨迹的驾驶分数 | 提升才说明驾驶层面纠偏有效 |
++| `full_pdms` / `baseline_full_pdms` | 教师常规完整采样分数 | 原有规划能力保持 |
++| `eps_abs_mean` / `clip_fraction` | 输出幅度、raw x0 被裁剪的比例 | 警惕输出剧增且大量饱和 |
++| `corr_grad_eps_norm` | 单步纠偏 MSE 对教师 epsilon 输出的梯度范数，未乘总权重 | 检查低噪声梯度是否极弱；它不是参数梯度 |
++| `decoder_total_grad_norm` | 完整训练 loss 对 action decoder 参数的梯度，裁剪前 | 教师阶段是纠偏+保持合计，不能误称纠偏分支单独贡献 |
++| OPD `kl_proxy_loss` | 有限权重的共享均值 KD 代理损失 | 只反映拟合，不能独立证明驾驶改善 |
++| OPD `kd_grad_x0_step_i` | 加权且除以步骤数的第 i 步 KD 对学生 x0 输出梯度 | 查看末步监督是否有学习信号；非 epsilon/参数梯度 |
++| OPD 按步 ADE/FDE、x0 gap、`kl_step_i_fraction` | 各步预测质量与 loss 贡献 | 教师改善能否被学生吸收、是否有步骤独占损失 |
++| 最终学生 PDMS / EPDMS / NavHard | 最终任务表现 | 需要真实评测，不从 ADE 改善推断必然涨分 |
++
++`train.jsonl` 每 `diagnostic_interval` 个优化步写一次。训练标量为 rank0 本地 batch 统计，参数梯度在 DDP 下已平均；验证由 rank0 完整遍历指定留出样本，不重复分布式补齐样本。`validation_samples=0` 表示全部，联调时可以减小，但两组必须一致。
++
++所有统计按 sample/seed 记录；同一个场景多种子不是独立场景，不能直接用总记录数充当独立统计样本量。实际比较建议同时查看失败场景列表，尤其原长尾场景。
++
++## 7. 预期结果与后续判断（假设，不是已跑出的结果）
++
++| 观察 | 解释和下一步 |
++|---|---|
++| 教师 z4 ADE/PDMS 改善，正常能力保持，学生分数提高 | 支持“适应学生生成状态能提供更有效的 OPD 监督” |
++| 教师 z4 改善，学生无提升 | 状态适应有效但不足；后续再研究学生吸收能力、末步权重或特权信息可实现性 |
++| 教师 ADE 改善但 x0 PDMS 下降 | 更贴 GT 不等于更好驾驶，不能将其当有效监督修复 |
++| 教师纠偏 loss 不降，epsilon 梯度很弱/裁剪严重 | 优先检查参数化与饱和；不要直接除以极小方差 |
++| 教师 z4 改善但 q(GT)/完整 PDMS 明显退化 | 遗忘原能力；调整保持目标、学习率或训练时长后再决定是否蒸馏 |
++| 只在收集学生的状态改善，新学生仍失败 | 固定状态覆盖不足；确认首轮结果后再考虑多 checkpoint 状态或刷新缓存，不在首轮同时增加变量 |
++
++无需预设微调后一定接近 0.119，也不要把纠偏量增大或 KD 变小当作成功。
++
++## 8. 实现边界与检查
++
++- 已通过 14 项 CPU 数值/协议测试，覆盖状态索引、采样一致性、末步共享均值、分离 loss/采样方差下限、教师纠偏反传、OPD 教师冻结、checkpoint 导出和训练/验证分割等。
++- 已提供两进程 CPU DDP smoke。此环境执行时被 Gloo TCP 权限限制阻断（`Operation not permitted`，发生于进程组初始化），因此不能声明 DDP 已验证；请在服务器运行。它使用小型可微 surrogate planner，检查计算图/同步，不是实际 ReCogDrive 性能测试。
++- 未在此环境加载你的真实 checkpoint、访问真实 cache、运行 GPU 训练或实际 PDMS；依赖兼容与分数需要服务器验证。
++- 每个样本单独前向后，在本地 batch 内平均 loss，避免 variable-length hidden-state padding 造成阶段差异；吞吐可能低于原大 batch 实现。
++- FP32，无 AMP，无自动断点续训，无多节点 shell 封装；Python 入口可由已有 torchrun 多节点参数启动，但未验证多节点环境。
++- 缓存含重复保存的 hidden states，先预估磁盘空间；训练和测试 checkpoint/pickle 必须来自可信来源。
++- fixed-state 验证依赖 train/val manifest，路径迁移时保留相对 `.pt` 文件结构。正式比较应保存配置和清单，不手工替换缓存内容。
++
++运行测试：
++
++```bash
++python -m unittest discover -s tests -p test_student_state_correction.py -v
++torchrun --standalone --nproc_per_node=2 tests/smoke_correction_ddp.py
++```
+--- a/navsim/agents/recogdrive/recogdrive_goalfree_kd_only_distill_trainer.py
++++ b/navsim/agents/recogdrive/recogdrive_goalfree_kd_only_distill_trainer.py
+@@ -20,7 +20,7 @@
+ class ReCogDriveGoalFreeKDOnlyDistillTrainer(
+     ReCogDriveDiTSceneRouterDistillTrainer
+ ):
+-    """Full-strength reverse-KL mean matching for a goal-free student."""
++    """Clipped-precision shared-DDIM mean matching (KL surrogate)."""
+ 
+     def __init__(
+         self,
+@@ -28,6 +28,11 @@
+         kd_weight: float = 1.0,
+         kl_precision_clip: float = 25.0,
+         collect_viz: bool = True,
++        rollout_min_sigma: Optional[float] = None,
++        rollout_noise_clip: float = 5.0,
++        rollout_deterministic: bool = False,
++        diagnostic_gradients: bool = False,
++        fail_on_nonfinite: bool = False,
+         **kwargs,
+     ):
+         # This ablation always matches shared-variance DDIM reverse means and
+@@ -40,6 +45,35 @@
+         self.kl_precision_clip = float(kl_precision_clip)
+         self.collect_viz = bool(collect_viz)
+         self.last_viz = None
++        # None preserves existing launchers; new correction pipeline sets this
++        # independently of the variance floor used in the loss precision.
++        self._legacy_rollout_sigma = rollout_min_sigma is None
++        self.rollout_min_sigma = self.min_sigma if rollout_min_sigma is None else float(rollout_min_sigma)
++        self.rollout_noise_clip = float(rollout_noise_clip)
++        self.rollout_deterministic = bool(rollout_deterministic)
++        self.diagnostic_gradients = bool(diagnostic_gradients)
++        self.fail_on_nonfinite = bool(fail_on_nonfinite)
++        if self.rollout_min_sigma < 0 or self.rollout_noise_clip <= 0:
++            raise ValueError("Invalid rollout noise settings")
++
++    def _sample_chain(self, planner, vl, his, ego, batch_size, device, dtype):
++        z = torch.randn((batch_size, planner.config.action_horizon, planner.config.action_dim), device=device, dtype=dtype)
++        chain = [z.clone()]
++        for i in range(planner.ddim_steps):
++            t = planner.make_timesteps(batch_size, int(planner.ddim_t[i]), device)
++            idx = planner.make_timesteps(batch_size, i, device)
++            mu, logvar, _ = planner.p_mean_variance(z, t, idx, vl, his, ego, deterministic=self.rollout_deterministic)
++            sigma = (
++                self._safe_sigma(logvar, self.rollout_min_sigma, dtype)
++                if self._legacy_rollout_sigma
++                else (0.5 * logvar).exp().to(dtype).clamp_min(self.rollout_min_sigma)
++            )
++            if self.rollout_deterministic:
++                sigma = torch.zeros_like(sigma)
++            noise = torch.randn_like(z).clamp(-self.rollout_noise_clip, self.rollout_noise_clip)
++            z = (mu + sigma * noise).detach()
++            chain.append(z.clone())
++        return torch.stack(chain, dim=1)
+ 
+     def _precision(self, sigma2: torch.Tensor) -> torch.Tensor:
+         if self.kl_precision_clip <= 0.0:
+@@ -187,7 +221,7 @@
+                 vl_s,
+                 his_s,
+                 ego_s,
+-                deterministic=False,
++                deterministic=self.rollout_deterministic,
+             )
+             sigma_geom = (
+                 0.5 * logvar_s.float().clamp(-40.0, 20.0)
+@@ -248,6 +282,9 @@
+ 
+             step_kd = step_kd_sum / max(n_used, 1)
+             step_gap = step_gap_sum / max(n_used, 1)
++            if self.diagnostic_gradients and torch.is_grad_enabled():
++                gx = torch.autograd.grad(self.kd_weight * step_kd / num_steps, x0_s, retain_graph=True)[0]
++                step_metrics[f"kd_grad_x0_step_{step}"] = gx.detach().norm()
+             total_kd = total_kd + step_kd
+             kl_steps.append(step_kd.detach())
+             x0_gap_steps.append(step_gap.detach())
+@@ -298,6 +335,8 @@
+                 eta_logit, nan=0.0, posinf=0.0, neginf=0.0
+             ).sum() * 0.0
+         if not torch.isfinite(loss):
++            if self.fail_on_nonfinite:
++                raise FloatingPointError("Non-finite OPD loss")
+             loss = self._finite_anchor_loss(student_planner)
+ 
+         pred_traj_s = student_planner.denorm_odo(last_student_x0.float())
+@@ -315,7 +354,8 @@
+         data = {
+             "loss": loss,
+             "distill_loss": kd_loss.detach(),
+-            "reverse_kl_loss": kd_loss.detach(),
++            "reverse_kl_loss": kd_loss.detach(),  # legacy metric name; surrogate, not exact KL
++            "kl_proxy_loss": kd_loss.detach(),
+             "student_fde_gt_m": student_err[:, -1].mean().detach(),
+             "student_ade_gt_m": student_err.mean().detach(),
+             "fde_gt_teacher_final_m": teacher_err[:, -1].mean().detach(),
+--- /dev/null
++++ b/navsim/agents/recogdrive/student_state_correction.py
+@@ -0,0 +1,304 @@
++"""Fixed student-state correction utilities. No VLM loading, GT only for teacher."""
++from __future__ import annotations
++import contextlib
++import gzip
++import hashlib
++import json
++import math
++import pickle
++from pathlib import Path
++
++import torch
++from torch import nn
++from transformers.feature_extraction_utils import BatchFeature
++
++
++def load_pt(path):
++    # Only load trusted local project checkpoints/caches.
++    return torch.load(path, map_location="cpu", weights_only=False)
++
++
++def digest(path):
++    h = hashlib.sha256()
++    with open(path, "rb") as f:
++        for block in iter(lambda: f.read(8 * 1024 * 1024), b""):
++            h.update(block)
++    return h.hexdigest()
++
++
++def seed_for(token, seed, repeat=0):
++    return int.from_bytes(hashlib.sha256(f"{seed}:{token}:{repeat}".encode()).digest()[:4], "big")
++
++
++def read_indexes(paths):
++    """Read the project's direct-index format; reject conflicting duplicate tokens."""
++    entries = {}
++    for path in paths:
++        payload = json.loads(Path(path).read_text())
++        if sorted(payload.get("builders", [])) != ["internvl_feature", "trajectory_target"]:
++            raise ValueError(f"{path}: expected internvl_feature and trajectory_target builders")
++        rows = payload.get("samples")
++        if rows is None:
++            root = Path(payload["cache_path"])
++            rows = [{"token": t, "path": str(root / p)} for t, p in payload["tokens"].items()]
++        for row in rows:
++            token, folder = str(row["token"]), str(Path(row["path"]).expanduser())
++            if token in entries and entries[token] != folder:
++                raise ValueError(f"Conflicting cache paths for {token}")
++            entries[token] = folder
++    if not entries:
++        raise ValueError("Empty direct indexes")
++    return [{"token": t, "path": p} for t, p in sorted(entries.items())]
++
++
++def assert_disjoint(train, val):
++    # Require separate logs as well as tokens: adjacent frames must not leak.
++    train_tokens = {r["token"] for r in train}
++    val_tokens = {r["token"] for r in val}
++    if train_tokens & val_tokens:
++        raise ValueError("Train/validation token overlap")
++    train_logs = {Path(r["path"]).parent.name for r in train}
++    val_logs = {Path(r["path"]).parent.name for r in val}
++    if train_logs & val_logs:
++        raise ValueError("Train/validation log overlap; split indexes by log, not by frame")
++
++
++def raw_sample(row):
++    folder = Path(row["path"])
++    with gzip.open(folder / "internvl_feature.gz", "rb") as f:
++        features = pickle.load(f)
++    with gzip.open(folder / "trajectory_target.gz", "rb") as f:
++        targets = pickle.load(f)
++    return {"token": row["token"], "path": row["path"],
++            "vl": features["last_hidden_state"].float().cpu(),
++            "history": features["history_trajectory"].float().reshape(-1).cpu(),
++            "status": features["status_feature"].float().cpu(),
++            "gt": targets["trajectory"].float().cpu()}
++
++
++def inputs(sample, device):
++    vl = sample["vl"].to(device).unsqueeze(0)
++    history = sample["history"].to(device).unsqueeze(0)
++    status = sample["status"].to(device).unsqueeze(0)
++    gt = sample["gt"].to(device).unsqueeze(0)
++    return vl, BatchFeature(data={"his_traj": history, "status_feature": status,
++                                  "action": gt, "goal": gt[:, -1]})
++
++
++def encode(planner, vl, action):
++    return (planner.feature_encoder(vl),
++            planner.his_traj_encoder(action.his_traj.unsqueeze(1)).repeat(1, planner.config.action_horizon, 1),
++            planner.ego_status_encoder(action.status_feature))
++
++
++def planner_state(checkpoint):
++    state = checkpoint.get("state_dict", checkpoint)
++    # Select the student's/action-head branch, never frozen teacher or EMA branches.
++    for prefix in ("module.agent.action_head.", "agent.action_head.", "module.action_head.", "action_head."):
++        selected = {k[len(prefix):]: v for k, v in state.items() if k.startswith(prefix)}
++        if selected:
++            return selected
++    return {k.removeprefix("module."): v for k, v in state.items()}
++
++
++def build_planner(spec, device):
++    from navsim.agents.recogdrive.recogdrive_agent import make_recogdrive_config
++    from navsim.agents.recogdrive.recogdrive_diffusion_planner import ReCogDriveDiffusionPlanner
++    from navsim.agents.recogdrive.recogdrive_goal_planner import GoalCondDiffusionPlanner
++    from navsim.agents.recogdrive.recogdrive_predicted_goal_planner import PredictedGoalDiffusionPlanner
++    size = spec.get("dit_type", "small")
++    cfg = make_recogdrive_config(size, action_dim=3, action_horizon=8,
++                                input_embedding_dim=384 if size == "small" else 1536,
++                                sampling_method="ddim", num_inference_steps=spec.get("steps", 5),
++                                model_dtype="float32")
++    cfg.vlm_size = spec.get("vlm_size", "small")
++    kind = spec.get("kind", "goal_free")
++    if kind == "goal_free":
++        planner = ReCogDriveDiffusionPlanner(cfg)
++    else:
++        cls = {"privileged": GoalCondDiffusionPlanner, "pred_goal": PredictedGoalDiffusionPlanner}[kind]
++        kwargs = dict(spec.get("goal_kwargs", {}))
++        kwargs["goal_mode"] = spec.get("goal_mode", "adaln")
++        planner = cls(cfg, **kwargs)
++    state = planner_state(load_pt(spec["checkpoint"]))
++    # Require all learned parameters. Do not silently drop goal heads.
++    expected = dict(planner.named_parameters())
++    missing = [k for k in expected if k not in state]
++    mismatch = [k for k in expected if k in state and state[k].shape != expected[k].shape]
++    unexpected = set(state) - set(planner.state_dict())
++    if missing or mismatch or unexpected:
++        raise ValueError(f"Checkpoint/model mismatch: missing={missing}, shapes={mismatch}, extra={sorted(unexpected)}")
++    # Schedules are checkpoint buffers: confirm they agree with the configured steps.
++    for k in ("ddim_t", "ddim_alphas", "ddim_alphas_prev"):
++        if k in state and not torch.equal(state[k].cpu(), planner.state_dict()[k].cpu()):
++            raise ValueError(f"Checkpoint schedule mismatch: {k}")
++    planner.load_state_dict(state, strict=False)
++    planner.model.set_adaln_bound(float(spec.get("adaln_bound", 0.0)))
++    for k, v in spec.get("sampling_attributes", {}).items():
++        if k not in {"denoised_clip_value", "eps_clip_value", "final_action_clip_value"}:
++            raise ValueError(f"Unsupported sampling attribute {k}")
++        setattr(planner, k, v)
++    return planner.float().to(device)
++
++
++def goal_context(planner, enc, gt, privileged):
++    if privileged:
++        return planner.goal_context(gt[:, -1])
++    if hasattr(planner, "predict_goal_from_encoded"):
++        return planner.goal_context(planner.predict_goal_from_encoded(*enc)[0])
++    return contextlib.nullcontext()
++
++
++@torch.no_grad()
++def rollout(planner, vl, action, sampler, privileged=False):
++    """Store states BEFORE every DiT call. Last state is z4, not final output."""
++    enc = encode(planner, vl, action)
++    z = torch.randn_like(action.action)
++    states = []
++    with goal_context(planner, enc, action.action, privileged):
++        for step, timestep in enumerate(planner.ddim_t):
++            states.append(z.clone())
++            t = planner.make_timesteps(len(z), int(timestep), z.device)
++            idx = planner.make_timesteps(len(z), step, z.device)
++            mu, logvar, x0 = planner.p_mean_variance(z, t, idx, *enc, deterministic=sampler["deterministic"])
++            sigma = (0.5 * logvar).exp()
++            sigma = torch.zeros_like(sigma) if sampler["deterministic"] else sigma.clamp_min(sampler["min_sigma"])
++            noise = torch.randn_like(z).clamp(-sampler["noise_clip"], sampler["noise_clip"])
++            z = mu + sigma * noise
++    clip = getattr(planner, "final_action_clip_value", 1.0)
++    final = z if clip is None else z.clamp(-clip, clip)
++    return states, planner.denorm_odo(final), x0
++
++
++def teacher_prediction(planner, z, step, enc, goal):
++    """Expose raw epsilon/x0 for diagnostics, use production clipping for the loss."""
++    t = planner.make_timesteps(len(z), int(planner.ddim_t[step]), z.device)
++    idx = planner.make_timesteps(len(z), step, z.device)
++    embedding = planner._goal_embedding_for(goal, z.dtype)
++    eps = planner._dit_step(z, t, *enc, embedding)
++    alpha = planner.extract(planner.ddim_alphas, idx, z.shape)
++    noise_scale = planner.extract(planner.ddim_sqrt_one_minus_alphas, idx, z.shape)
++    raw = (z - noise_scale * eps) / alpha.sqrt()
++    clip = getattr(planner, "denoised_clip_value", 1.0)
++    x0 = raw.clamp(-clip, clip)
++    return x0, raw, eps
++
++
++def errors(pred, gt):
++    d = (pred[..., :2] - gt[..., :2]).norm(dim=-1)
++    return {"ade_m": float(d.mean()), "fde_m": float(d[..., -1].mean())}
++
++
++def grad_norm(parameters):
++    parts = [p.grad.detach().float().square().sum() for p in parameters if p.grad is not None]
++    return float(torch.stack(parts).sum().sqrt()) if parts else 0.0
++
++
++def summary(rows):
++    out = {"n": len(rows)}
++    for key in sorted({k for r in rows for k, v in r.items() if k not in {"seed", "step"} and isinstance(v, (int, float)) and not isinstance(v, bool)}):
++        observed = [r[key] for r in rows if key in r]
++        if any(not math.isfinite(v) for v in observed):
++            raise FloatingPointError(f"Non-finite metric: {key}")
++        values = torch.tensor(observed, dtype=torch.float64)
++        if len(values):
++            out[key] = {"n": len(values), "mean": values.mean().item(),
++                        "median": values.quantile(.5).item(), "p90": values.quantile(.9).item()}
++    return out
++
++
++class CorrectionObjective(nn.Module):
++    def __init__(self, teacher, cfg):
++        super().__init__()
++        self.planner, self.cfg = teacher, cfg
++
++    def forward(self, samples, diagnostic=False):
++        losses, metrics = [], []
++        device = next(self.planner.parameters()).device
++        for sample in samples:
++            p = self.planner
++            vl, action = inputs(sample, device)
++            enc = encode(p, vl, action)
++            xgt = p.norm_odo(action.action)
++            correction = []
++            for entry in sample["states"]:
++                z, step = entry["z"].to(device).unsqueeze(0), entry["step"]
++                # Clean goal for correction; robust noise/dropout only in retention.
++                old = p.goal_dropout_p, p.goal_noise_p
++                p.goal_dropout_p = p.goal_noise_p = 0.0
++                try:
++                    x0, raw, eps = teacher_prediction(p, z, step, enc, action.goal)
++                finally:
++                    p.goal_dropout_p, p.goal_noise_p = old
++                loss = (x0 - xgt).square().mean()
++                correction.append(loss)
++                row = {f"z{step}/corr_loss": float(loss.detach()),
++                       f"z{step}/eps_abs_mean": float(eps.detach().abs().mean()),
++                       f"z{step}/clip_fraction": float((raw.detach().abs() >= getattr(p, "denoised_clip_value", 1.0)).float().mean())}
++                with torch.no_grad():
++                    pred, before = p.denorm_odo(x0), p.denorm_odo(z)
++                    row.update({f"z{step}/{k}": v for k, v in errors(pred, action.action).items()})
++                    row[f"z{step}/correction_m"] = float((pred[..., :2] - before[..., :2]).norm(dim=-1).mean())
++                    row[f"z{step}/ade_gain_m"] = errors(before, action.action)["ade_m"] - row[f"z{step}/ade_m"]
++                if diagnostic:
++                    g = torch.autograd.grad(loss, eps, retain_graph=True)[0]
++                    row[f"z{step}/corr_grad_eps_norm"] = float(g.norm())
++                metrics.append(row)
++            corr_loss = torch.stack(correction).mean()
++            # Every update has one correction and one standard q(GT) loss.
++            # This is a 1:1 pair of objectives, not a 50% chance of omitting one.
++            retain_loss = p(vl, action)["loss"]
++            total = self.cfg["correction_weight"] * corr_loss + self.cfg["retention_weight"] * retain_loss
++            losses.append(total)
++            metrics.append({"correction_loss": float(corr_loss.detach()), "retention_eps_loss": float(retain_loss.detach())})
++        return torch.stack(losses).mean(), metrics
++
++
++class OPDObjective(nn.Module):
++    def __init__(self, student, teacher, cfg, sampler):
++        super().__init__()
++        from navsim.agents.recogdrive.recogdrive_goalfree_kd_only_distill_trainer import ReCogDriveGoalFreeKDOnlyDistillTrainer
++        self.planner = student
++        self.teacher = teacher.eval().requires_grad_(False)
++        self.trainer = ReCogDriveGoalFreeKDOnlyDistillTrainer(
++            bucket_names=["single"], fallback_bucket="single", collect_viz=False,
++            kd_weight=cfg["kd_weight"], min_sigma=cfg["loss_min_sigma"],
++            kl_precision_clip=cfg["precision_clip"],
++            rollout_min_sigma=sampler["min_sigma"], rollout_noise_clip=sampler["noise_clip"],
++            rollout_deterministic=sampler["deterministic"], fail_on_nonfinite=True)
++
++    def forward(self, samples, diagnostic=False):
++        self.teacher.eval()
++        self.trainer.diagnostic_gradients = diagnostic
++        losses, rows = [], []
++        for sample in samples:
++            vl, action = inputs(sample, next(self.planner.parameters()).device)
++            result = self.trainer.compute_loss(self.planner, {"single": self.teacher}, None, vl, action, ["single"])
++            losses.append(result["loss"])
++            rows.append({k: float(v.detach()) for k, v in result.items() if k != "loss" and isinstance(v, torch.Tensor) and v.numel() == 1})
++        return torch.stack(losses).mean(), rows
++
++
++class PDMScoring:
++    def __init__(self, cache_path):
++        from navsim.common.dataloader import MetricCacheLoader
++        from navsim.planning.simulation.planner.pdm_planner.simulation.pdm_simulator import PDMSimulator
++        from navsim.planning.simulation.planner.pdm_planner.scoring.pdm_scorer import PDMScorer, PDMScorerConfig
++        from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
++        self.cache = MetricCacheLoader(Path(cache_path))
++        sampling = TrajectorySampling(num_poses=40, interval_length=.1)
++        self.simulator = PDMSimulator(sampling)
++        self.scorer = PDMScorer(sampling, PDMScorerConfig())
++
++    def __call__(self, token, trajectory):
++        import lzma
++        from dataclasses import asdict
++        from navsim.common.dataclasses import Trajectory
++        from navsim.evaluate.pdm_score import pdm_score
++        with lzma.open(self.cache.metric_cache_paths[token], "rb") as f:
++            cache = pickle.load(f)
++        result = pdm_score(metric_cache=cache,
++                           model_trajectory=Trajectory(trajectory.detach().cpu().numpy()),
++                           future_sampling=self.simulator.proposal_sampling,
++                           simulator=self.simulator, scorer=self.scorer)
++        return asdict(result)
+--- /dev/null
++++ b/navsim/planning/script/run_student_state_correction.py
+@@ -0,0 +1,397 @@
++"""collect / finetune / validate / opd for one teacher; see README_STATE_CORRECTION.md."""
++from __future__ import annotations
++import argparse
++import json
++import os
++from pathlib import Path
++
++import torch
++import torch.distributed as dist
++from torch.nn.parallel import DistributedDataParallel as DDP
++from torch.utils.data import DataLoader, Dataset, DistributedSampler
++
++from navsim.agents.recogdrive.student_state_correction import (
++    load_pt, digest, seed_for, read_indexes, assert_disjoint, raw_sample, inputs,
++    build_planner, encode, rollout, teacher_prediction, errors, grad_norm,
++    summary, CorrectionObjective, OPDObjective, PDMScoring,
++)
++
++
++def write_json(path, data):
++    Path(path).parent.mkdir(parents=True, exist_ok=True)
++    Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False))
++
++
++def seed_all(seed):
++    import random
++    import numpy as np
++    random.seed(seed)
++    np.random.seed(seed % (2**32))
++    torch.manual_seed(seed)
++    if torch.cuda.is_available():
++        torch.cuda.manual_seed_all(seed)
++
++
++def setup():
++    world, rank = int(os.getenv("WORLD_SIZE", "1")), int(os.getenv("RANK", "0"))
++    local = int(os.getenv("LOCAL_RANK", "0"))
++    if torch.cuda.is_available():
++        torch.cuda.set_device(local)
++        device = torch.device("cuda", local)
++    else:
++        device = torch.device("cpu")
++    if world > 1:
++        dist.init_process_group("nccl" if device.type == "cuda" else "gloo")
++    return device, rank, world
++
++
++class Samples(Dataset):
++    def __init__(self, rows, states=False):
++        self.rows, self.states = rows, states
++
++    def __len__(self):
++        return len(self.rows)
++
++    def __getitem__(self, idx):
++        return load_pt(self.rows[idx]["file"]) if self.states else raw_sample(self.rows[idx])
++
++
++def collate(samples):
++    # Avoid variable-length VLM padding changing encodings between stages.
++    return samples
++
++
++def state_manifest(cfg, split):
++    path = Path(cfg["state_dir"]) / split / "manifest.json"
++    manifest = json.loads(path.read_text())
++    if manifest["schema"] != 1 or manifest["split"] != split:
++        raise ValueError(f"Bad manifest: {path}")
++    for row in manifest["samples"]:
++        row["file"] = str(path.parent / row["file"])
++    return manifest
++
++
++def check_state_manifests(cfg, planner):
++    train, val = state_manifest(cfg, "train"), state_manifest(cfg, "val")
++    assert_disjoint(train["samples"], val["samples"])
++    for m in (train, val):
++        if m["collect"]["steps"] != cfg["collect"]["steps"]:
++            raise ValueError("Cached steps differ from configured collection steps")
++        if m["sampler"] != cfg["sampler"]:
++            raise ValueError("State sampler differs from configured OPD sampler")
++        if m["ddim_t"] != planner.ddim_t.cpu().tolist():
++            raise ValueError("Teacher/student timestep schedule mismatch")
++        if m["ddim_alphas"] != planner.ddim_alphas.cpu().tolist():
++            raise ValueError("Teacher/student alpha schedule mismatch")
++    if train["student_sha256"] != val["student_sha256"]:
++        raise ValueError("Train and val states came from different students")
++    return train, val
++
++
++@torch.no_grad()
++def collect(cfg, device, rank, world):
++    if world != 1:
++        raise ValueError("Collection is a deterministic single-process stage; launch with python")
++    student = build_planner(cfg["collector_student"], device).eval().requires_grad_(False)
++    train, val = read_indexes(cfg["train_indexes"]), read_indexes(cfg["val_indexes"])
++    assert_disjoint(train, val)
++    ckpt_hash = digest(cfg["collector_student"]["checkpoint"])
++    steps = cfg["collect"]["steps"]
++    if not steps or len(set(steps)) != len(steps) or any(s < 0 or s >= student.ddim_steps for s in steps):
++        raise ValueError("Invalid collection step indices")
++    for split, entries in (("train", train), ("val", val)):
++        output = Path(cfg["state_dir"]) / split
++        output.mkdir(parents=True, exist_ok=True)
++        if any(output.iterdir()):
++            raise FileExistsError(f"Refuse to mix state caches: choose an empty directory: {output}")
++        # Seeded selection avoids chronological prefix bias when max_samples > 0.
++        entries = sorted(entries, key=lambda r: seed_for(r["token"], cfg["seed"]))
++        limit = cfg["collect"].get(f"max_{split}_samples", 0)
++        if limit:
++            entries = entries[:limit]
++        manifest = {"schema": 1, "split": split, "student_sha256": ckpt_hash,
++                    "student_spec": cfg["collector_student"], "sampler": cfg["sampler"], "collect": cfg["collect"],
++                    "ddim_t": student.ddim_t.cpu().tolist(),
++                    "ddim_alphas": student.ddim_alphas.cpu().tolist(), "samples": []}
++        for n, row in enumerate(entries):
++            sample = raw_sample(row)
++            for repeat in range(cfg["collect"]["seeds_per_scene"]):
++                sample_seed = seed_for(row["token"], cfg["seed"], repeat)
++                seed_all(sample_seed)
++                vl, action = inputs(sample, device)
++                states, final, _ = rollout(student, vl, action, cfg["sampler"])
++                sample["states"] = [{"step": s, "timestep": int(student.ddim_t[s]), "z": states[s][0].cpu()} for s in steps]
++                sample["student_final"] = final[0].cpu()
++                sample["seed"] = sample_seed
++                name = f"{n:08d}_{repeat}.pt"
++                torch.save(sample, output / name)
++                manifest["samples"].append({**row, "file": name, "repeat": repeat, "seed": sample_seed})
++            if n % 100 == 0:
++                print(f"collect {split}: {n + 1}/{len(entries)}", flush=True)
++        write_json(output / "manifest.json", manifest)
++
++
++@torch.no_grad()
++def evaluate_teacher(teacher, samples, cfg, device, baseline=None, score=False, full=False, export=False):
++    teacher.eval()
++    if baseline is not None:
++        baseline.eval()
++    pdm = PDMScoring(cfg["metric_cache_path"]) if score else None
++    rows = []
++    for sample in samples:
++        seed_all(sample["seed"] + 1)
++        vl, action = inputs(sample, device)
++        enc = encode(teacher, vl, action)
++        enc_base = encode(baseline, vl, action) if baseline is not None else None
++        for entry in sample["states"]:
++            step, z = entry["step"], entry["z"].to(device).unsqueeze(0)
++            if entry["timestep"] != int(teacher.ddim_t[step]):
++                raise ValueError("Cached state has wrong timestep")
++            x0, raw, eps = teacher_prediction(teacher, z, step, enc, action.goal)
++            pred = teacher.denorm_odo(x0)
++            before = teacher.denorm_odo(z)
++            row = {"token": sample["token"], "seed": sample["seed"], "step": step,
++                   **errors(pred, action.action),
++                   "state_ade_m": errors(before, action.action)["ade_m"],
++                   "correction_m": float((pred[..., :2] - before[..., :2]).norm(dim=-1).mean()),
++                   "eps_abs_mean": float(eps.abs().mean()),
++                   "clip_fraction": float((raw.abs() >= getattr(teacher, "denoised_clip_value", 1.0)).float().mean())}
++            row["ade_gain_from_state_m"] = row["state_ade_m"] - row["ade_m"]
++            # Fixed q(GT) counterfactual at the SAME timestep and same observation.
++            idx = teacher.make_timesteps(1, step, device)
++            alpha = teacher.extract(teacher.ddim_alphas, idx, z.shape)
++            qgt = alpha.sqrt() * teacher.norm_odo(action.action) + (1-alpha).sqrt() * torch.randn_like(z)
++            qx, _, _ = teacher_prediction(teacher, qgt, step, enc, action.goal)
++            row["qgt_ade_m"] = errors(teacher.denorm_odo(qx), action.action)["ade_m"]
++            if baseline is not None:
++                bx, _, _ = teacher_prediction(baseline, z, step, enc_base, action.goal)
++                bpred = baseline.denorm_odo(bx)
++                row.update({f"baseline_{k}": v for k, v in errors(bpred, action.action).items()})
++                bqx, _, _ = teacher_prediction(baseline, qgt, step, enc_base, action.goal)
++                row["baseline_qgt_ade_m"] = errors(baseline.denorm_odo(bqx), action.action)["ade_m"]
++                row["paired_ade_gain_m"] = row["baseline_ade_m"] - row["ade_m"]
++                row["ade_improved"] = int(row["paired_ade_gain_m"] > 0)
++            if pdm:
++                # Strict failures: missing metric caches never become zero scores.
++                row.update({f"x0_pdm_{k}": float(v) for k, v in pdm(sample["token"], pred[0]).items()})
++                if baseline is not None:
++                    row.update({f"baseline_x0_pdm_{k}": float(v) for k, v in pdm(sample["token"], bpred[0]).items()})
++                    row["paired_pdms_gain"] = row["x0_pdm_score"] - row["baseline_x0_pdm_score"]
++            if export:
++                row["teacher_x0_trajectory"] = pred[0].cpu().tolist()
++                row["student_state_trajectory"] = before[0].cpu().tolist()
++                row["gt_trajectory"] = action.action[0].cpu().tolist()
++                row["student_final_trajectory"] = sample["student_final"].tolist()
++                if baseline is not None:
++                    row["baseline_teacher_x0_trajectory"] = bpred[0].cpu().tolist()
++            rows.append(row)
++        if full:
++            # Kept separate: original planning ability, not state correction.
++            seed_all(sample["seed"])
++            _, final, _ = rollout(teacher, vl, action, cfg.get("evaluation_sampler", cfg["sampler"]), privileged=True)
++            row = {"token": sample["token"], "seed": sample["seed"], "step": -1,
++                   **{f"full_{k}": v for k, v in errors(final, action.action).items()}}
++            if pdm:
++                row["full_pdms"] = float(pdm(sample["token"], final[0])["score"])
++            if baseline is not None:
++                seed_all(sample["seed"])
++                _, bfinal, _ = rollout(baseline, vl, action, cfg.get("evaluation_sampler", cfg["sampler"]), privileged=True)
++                row.update({f"baseline_full_{k}": v for k, v in errors(bfinal, action.action).items()})
++                if pdm:
++                    row["baseline_full_pdms"] = float(pdm(sample["token"], bfinal[0])["score"])
++            rows.append(row)
++    return {str(s): summary([r for r in rows if r["step"] == s]) for s in sorted({r["step"] for r in rows})}, rows
++
++
++def save_model(path, planner, spec, cfg, epoch, global_step):
++    state = {"agent.action_head." + k: v.detach().cpu() for k, v in planner.state_dict().items()}
++    torch.save({"state_dict": state, "correction_metadata": {"spec": spec, "config": cfg,
++               "epoch": epoch, "global_step": global_step}}, path)
++
++
++def train(cfg, stage, device, rank, world, arm):
++    if stage == "finetune":
++        spec = cfg["teacher"]
++        planner = build_planner(spec, device)
++        train_m, val_m = check_state_manifests(cfg, planner)
++        train_data, val_data = Samples(train_m["samples"], True), Samples(val_m["samples"], True)
++        objective = CorrectionObjective(planner, cfg["finetune"])
++    else:
++        spec = cfg["opd_student"]
++        if spec["kind"] != "goal_free":
++            raise ValueError("This controlled OPD experiment requires goal_free student")
++        planner = build_planner(spec, device)
++        teacher_spec = dict(cfg["teacher"])
++        if arm == "adapted":
++            teacher_spec["checkpoint"] = str(Path(cfg["output_dir"]) / "finetune" / "best.ckpt")
++        teacher = build_planner(teacher_spec, device)
++        for key in ("ddim_t", "ddim_alphas", "ddim_alphas_prev"):
++            if not torch.equal(getattr(planner, key), getattr(teacher, key)):
++                raise ValueError(f"OPD schedules differ: {key}")
++        tr, va = read_indexes(cfg["train_indexes"]), read_indexes(cfg["val_indexes"])
++        assert_disjoint(tr, va)
++        train_data, val_data = Samples(tr), Samples(va)
++        objective = OPDObjective(planner, teacher, cfg["opd"], cfg["sampler"])
++    options = cfg[stage]
++    folder = Path(cfg["output_dir"]) / (stage if stage == "finetune" else f"opd_{arm}")
++    if rank == 0:
++        folder.mkdir(parents=True, exist_ok=True)
++        if (folder / "last.ckpt").exists():
++            raise FileExistsError(f"Use a new output_dir; existing run: {folder}")
++        write_json(folder / "config.json", cfg)
++        provenance = {"initial_checkpoint_sha256": digest(spec["checkpoint"]), "arm": arm,
++                      "world_size": world, "train_samples": len(train_data), "val_samples": len(val_data)}
++        if stage == "opd":
++            provenance["teacher_sha256"] = digest(teacher_spec["checkpoint"])
++        else:
++            provenance["train_manifest_sha256"] = digest(Path(cfg["state_dir"]) / "train/manifest.json")
++            provenance["val_manifest_sha256"] = digest(Path(cfg["state_dir"]) / "val/manifest.json")
++        write_json(folder / "provenance.json", provenance)
++    if world > 1:
++        dist.barrier()
++    objective.to(device)
++    model = DDP(objective, device_ids=[device.index] if device.type == "cuda" else None,
++                find_unused_parameters=True) if world > 1 else objective
++    sampler = DistributedSampler(train_data, shuffle=True, seed=cfg["seed"]) if world > 1 else None
++    loader = DataLoader(train_data, batch_size=options["batch_size"], sampler=sampler,
++                        shuffle=sampler is None, num_workers=options["workers"], collate_fn=collate)
++    optimizer = torch.optim.AdamW([p for p in planner.parameters() if p.requires_grad],
++                                 lr=options["lr"], weight_decay=options["weight_decay"])
++    best, global_step = float("inf"), 0
++    val_count = options.get("validation_samples", 0) or len(val_data)
++    for epoch in range(options["epochs"]):
++        if sampler is not None:
++            sampler.set_epoch(epoch)
++        model.train()
++        for batch in loader:
++            diagnostic = global_step % options["diagnostic_interval"] == 0
++            optimizer.zero_grad(set_to_none=True)
++            loss, rows = model(batch, diagnostic=diagnostic)
++            if not torch.isfinite(loss):
++                raise FloatingPointError("Non-finite training loss")
++            loss.backward()
++            decoder_grad = grad_norm(planner.action_decoder.parameters())
++            total_grad = torch.nn.utils.clip_grad_norm_(planner.parameters(), options["grad_clip"], error_if_nonfinite=True)
++            optimizer.step()
++            if diagnostic and rank == 0:
++                row = {"epoch": epoch, "global_step": global_step, "loss": float(loss.detach()),
++                       "decoder_total_grad_norm": decoder_grad, "total_grad_norm_before_clip": float(total_grad),
++                       "metrics": summary(rows), "metrics_scope": "rank0 local batch; parameter gradients DDP-averaged"}
++                with open(folder / "train.jsonl", "a") as f:
++                    f.write(json.dumps(row, allow_nan=False) + "\n")
++                print(f"{stage} {arm} epoch={epoch} step={global_step} loss={float(loss.detach()):.6g}", flush=True)
++            global_step += 1
++        if world > 1:
++            dist.barrier()
++        if rank == 0:
++            # Preserve train RNG state: validation must not alter next epoch's sampling.
++            with torch.random.fork_rng(devices=[device.index] if device.type == "cuda" else []):
++                if stage == "finetune":
++                    report, _ = evaluate_teacher(planner, (val_data[i] for i in range(min(val_count, len(val_data)))), cfg, device)
++                    terminal = str(max(cfg["collect"]["steps"]))
++                    criterion = report[terminal]["ade_m"]["mean"]
++                else:
++                    planner.eval()
++                    rows = []
++                    with torch.no_grad():
++                        for i in range(min(val_count, len(val_data))):
++                            sample = val_data[i]
++                            torch.manual_seed(seed_for(sample["token"], cfg["seed"]))
++                            vl, action = inputs(sample, device)
++                            _, pred, _ = rollout(planner, vl, action, cfg["sampler"])
++                            rows.append(errors(pred, action.action))
++                    report = summary(rows)
++                    criterion = report["ade_m"]["mean"]
++            write_json(folder / f"val_epoch_{epoch:03d}.json", report)
++            save_model(folder / "last.ckpt", planner, spec, cfg, epoch, global_step)
++            if criterion < best:
++                best = criterion
++                save_model(folder / "best.ckpt", planner, spec, cfg, epoch, global_step)
++        if world > 1:
++            dist.barrier()
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("stage", choices=["collect", "finetune", "validate", "opd", "evaluate-student"])
++    parser.add_argument("--config", required=True)
++    parser.add_argument("--arm", choices=["original", "adapted"], default="original")
++    parser.add_argument("--checkpoint", help="Override checkpoint for validate or evaluate-student")
++    parser.add_argument("--pdms", action="store_true", help="Score fixed-state x0; metric_cache_path required")
++    parser.add_argument("--full-rollout", action="store_true", help="Also evaluate separate full teacher rollouts")
++    parser.add_argument("--export-trajectories", action="store_true", help="Write physical-coordinate trajectories to per_sample.json")
++    args = parser.parse_args()
++    cfg = json.loads(Path(args.config).read_text())
++    if cfg["collect"]["seeds_per_scene"] < 1:
++        raise ValueError("seeds_per_scene must be >= 1")
++    for name in ("finetune", "opd"):
++        opts = cfg[name]
++        if any(opts[k] <= 0 for k in ("epochs", "batch_size", "lr", "grad_clip", "diagnostic_interval")):
++            raise ValueError(f"Invalid positive training setting: {name}")
++        if opts["workers"] < 0 or opts.get("validation_samples", 0) < 0:
++            raise ValueError(f"Invalid loader/validation setting: {name}")
++    if cfg["finetune"]["correction_weight"] <= 0 or cfg["finetune"]["retention_weight"] < 0:
++        raise ValueError("Invalid correction/retention weights")
++    if any(cfg["collect"].get(k, 0) < 0 for k in ("max_train_samples", "max_val_samples")):
++        raise ValueError("Collection sample limits must be nonnegative")
++    device, rank, world = setup()
++    seed_all(cfg["seed"] + rank)
++    if cfg["teacher"]["kind"] != "privileged":
++        raise ValueError("Teacher must be privileged")
++    if cfg["sampler"]["min_sigma"] < 0 or cfg["sampler"]["noise_clip"] <= 0:
++        raise ValueError("Invalid sampler")
++    if args.pdms and not cfg.get("metric_cache_path"):
++        raise ValueError("--pdms requires metric_cache_path")
++    if args.stage == "collect":
++        collect(cfg, device, rank, world)
++    elif args.stage == "validate":
++        if world != 1:
++            raise ValueError("Paired validation is single-process; use python")
++        teacher_spec = dict(cfg["teacher"])
++        teacher_spec["checkpoint"] = args.checkpoint or str(Path(cfg["output_dir"]) / "finetune/best.ckpt")
++        teacher = build_planner(teacher_spec, device)
++        baseline = build_planner(cfg["teacher"], device)
++        _, val = check_state_manifests(cfg, teacher)
++        if args.pdms and not cfg.get("metric_cache_path"):
++            raise ValueError("--pdms requires metric_cache_path")
++        report, rows = evaluate_teacher(teacher, Samples(val["samples"], True), cfg, device,
++                                        baseline, args.pdms, args.full_rollout, args.export_trajectories)
++        folder = Path(cfg["output_dir"]) / "paired_validation"
++        write_json(folder / "summary.json", report)
++        write_json(folder / "per_sample.json", rows)
++        write_json(folder / "provenance.json", {"teacher_sha256": digest(teacher_spec["checkpoint"]),
++                   "baseline_sha256": digest(cfg["teacher"]["checkpoint"]), "config": cfg,
++                   "val_manifest_sha256": digest(Path(cfg["state_dir"]) / "val/manifest.json"),
++                   "pdms_enabled": args.pdms, "full_rollout_enabled": args.full_rollout})
++    elif args.stage == "evaluate-student":
++        if world != 1:
++            raise ValueError("Student evaluation is single-process; use python")
++        spec = dict(cfg["opd_student"])
++        spec["checkpoint"] = args.checkpoint or str(Path(cfg["output_dir"]) / f"opd_{args.arm}/best.ckpt")
++        student = build_planner(spec, device).eval()
++        pdm = PDMScoring(cfg["metric_cache_path"]) if args.pdms else None
++        samples = Samples(read_indexes(cfg.get("evaluation_indexes") or cfg["val_indexes"]))
++        rows = []
++        with torch.no_grad():
++            for sample in samples:
++                seed_all(seed_for(sample["token"], cfg["seed"]))
++                vl, action = inputs(sample, device)
++                _, pred, _ = rollout(student, vl, action, cfg.get("evaluation_sampler", cfg["sampler"]))
++                row = {"token": sample["token"], **errors(pred, action.action)}
++                if pdm:
++                    row.update({f"pdm_{k}": float(v) for k, v in pdm(sample["token"], pred[0]).items()})
++                if args.export_trajectories:
++                    row["trajectory"] = pred[0].cpu().tolist()
++                rows.append(row)
++        folder = Path(cfg["output_dir"]) / f"evaluate_student_{args.arm}"
++        write_json(folder / "summary.json", summary(rows))
++        write_json(folder / "per_sample.json", rows)
++        write_json(folder / "provenance.json", {"checkpoint_sha256": digest(spec["checkpoint"]), "config": cfg})
++    else:
++        train(cfg, args.stage, device, rank, world, args.arm)
++    if world > 1:
++        dist.destroy_process_group()
++
++
++if __name__ == "__main__":
++    main()
+--- /dev/null
++++ b/scripts/training/run_student_state_correction.sh
+@@ -0,0 +1,18 @@
++#!/usr/bin/env bash
++set -euo pipefail
++REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
++export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
++: "${CONFIG:?Set CONFIG to your completed student_state_correction JSON file}"
++STAGE="${1:?Usage: run_student_state_correction.sh collect|finetune|validate|opd|evaluate-student [extra arguments]}"
++shift
++RUNNER="${REPO_ROOT}/navsim/planning/script/run_student_state_correction.py"
++case "$STAGE" in
++  collect|validate|evaluate-student)
++    "${PYTHON_BIN:-python}" "$RUNNER" "$STAGE" --config "$CONFIG" "$@"
++    ;;
++  finetune|opd)
++    "${TORCHRUN_BIN:-torchrun}" --standalone --nnodes=1 --nproc_per_node="${GPUS:-8}" \
++      "$RUNNER" "$STAGE" --config "$CONFIG" "$@"
++    ;;
++  *) echo "Unknown stage: $STAGE" >&2; exit 2 ;;
++esac
+--- /dev/null
++++ b/scripts/training/student_state_correction.example.json
+@@ -0,0 +1,100 @@
++{
++  "seed": 42,
++  "state_dir": "/FILL/experiments/student_states_v1",
++  "output_dir": "/FILL/experiments/state_correction_v1",
++  "train_indexes": [
++    "/FILL/train_index.json"
++  ],
++  "val_indexes": [
++    "/FILL/val_index.json"
++  ],
++  "metric_cache_path": "",
++  "collector_student": {
++    "checkpoint": "/FILL/opd_after_student.ckpt",
++    "kind": "goal_free",
++    "dit_type": "small",
++    "vlm_size": "small",
++    "steps": 5,
++    "adaln_bound": 8.0,
++    "sampling_attributes": {
++      "denoised_clip_value": 1.0,
++      "eps_clip_value": null,
++      "final_action_clip_value": 1.0
++    }
++  },
++  "teacher": {
++    "checkpoint": "/FILL/original_privileged_teacher.ckpt",
++    "kind": "privileged",
++    "dit_type": "small",
++    "vlm_size": "small",
++    "steps": 5,
++    "adaln_bound": 0.0,
++    "goal_mode": "adaln",
++    "goal_kwargs": {
++      "goal_sincos_dim": 128,
++      "goal_hidden_dim": 1024,
++      "goal_use_heading": false,
++      "goal_dropout_p": 0.1,
++      "goal_noise_p": 0.2,
++      "goal_noise_std_xy": 1.0,
++      "goal_noise_std_heading": 0.1
++    }
++  },
++  "opd_student": {
++    "checkpoint": "/FILL/original_goal_free_base.ckpt",
++    "kind": "goal_free",
++    "dit_type": "small",
++    "vlm_size": "small",
++    "steps": 5,
++    "adaln_bound": 8.0,
++    "sampling_attributes": {
++      "denoised_clip_value": 1.0,
++      "eps_clip_value": null,
++      "final_action_clip_value": 1.0
++    }
++  },
++  "sampler": {
++    "deterministic": false,
++    "min_sigma": 0.04,
++    "noise_clip": 5.0
++  },
++  "collect": {
++    "steps": [
++      4
++    ],
++    "seeds_per_scene": 1,
++    "max_train_samples": 0,
++    "max_val_samples": 0
++  },
++  "finetune": {
++    "epochs": 5,
++    "batch_size": 4,
++    "workers": 4,
++    "lr": 1e-06,
++    "weight_decay": 0.0,
++    "correction_weight": 1.0,
++    "retention_weight": 1.0,
++    "grad_clip": 1.0,
++    "diagnostic_interval": 100,
++    "validation_samples": 0
++  },
++  "opd": {
++    "epochs": 10,
++    "batch_size": 4,
++    "workers": 4,
++    "lr": 1e-05,
++    "weight_decay": 0.0,
++    "kd_weight": 1.0,
++    "loss_min_sigma": 0.04,
++    "precision_clip": 25.0,
++    "grad_clip": 1.0,
++    "diagnostic_interval": 100,
++    "validation_samples": 0
++  },
++  "evaluation_indexes": [],
++  "evaluation_sampler": {
++    "deterministic": false,
++    "min_sigma": 0.0001,
++    "noise_clip": 1.0
++  }
++}
+--- /dev/null
++++ b/tests/smoke_correction_ddp.py
+@@ -0,0 +1,34 @@
++"""Optional two-process CPU DDP graph smoke test with a tiny surrogate model.
++  torchrun --standalone --nproc_per_node=2 tests/smoke_correction_ddp.py
++This does not validate a real ReCogDrive checkpoint or GPU dependencies.
++"""
++import os
++import torch
++import torch.distributed as dist
++from torch.nn.parallel import DistributedDataParallel as DDP
++from test_student_state_correction import TinyPlanner, sample
++from navsim.agents.recogdrive.student_state_correction import CorrectionObjective, OPDObjective
++
++dist.init_process_group("gloo")
++for stage in ("finetune", "opd"):
++    torch.manual_seed(42)
++    p=TinyPlanner()
++    if stage == "finetune":
++        objective=CorrectionObjective(p,{"correction_weight":1.,"retention_weight":1.})
++    else:
++        teacher=TinyPlanner()
++        objective=OPDObjective(p,teacher,{"kd_weight":1.,"loss_min_sigma":.04,"precision_clip":25.},
++                               {"min_sigma":.04,"noise_clip":5.,"deterministic":False})
++    model=DDP(objective,find_unused_parameters=True)
++    optimizer=torch.optim.AdamW(p.parameters(),lr=1e-3)
++    for step in range(2):
++        torch.manual_seed(100+int(os.getenv("RANK"))+step)
++        optimizer.zero_grad()
++        loss,_=model([sample()],diagnostic=True)
++        loss.backward()
++        assert torch.isfinite(loss)
++        torch.nn.utils.clip_grad_norm_(p.parameters(),1.,error_if_nonfinite=True)
++        optimizer.step()
++    if dist.get_rank()==0:
++        print(stage+": two-rank forward/backward passed",flush=True)
++dist.destroy_process_group()
+--- /dev/null
++++ b/tests/test_student_state_correction.py
+@@ -0,0 +1,261 @@
++"""CPU numerical/contract tests; no real checkpoints, VLM or NAVSIM maps required.
++Run after overlay: python -m unittest discover -s tests -p test_student_state_correction.py -v
++"""
++import contextlib
++import json
++import tempfile
++import unittest
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import patch
++
++import torch
++from torch import nn
++from transformers.feature_extraction_utils import BatchFeature
++from navsim.agents.recogdrive.student_state_correction import (
++    CorrectionObjective, OPDObjective, assert_disjoint, encode, errors, inputs,
++    planner_state, read_indexes, rollout, seed_for, summary, teacher_prediction,
++)
++from navsim.agents.recogdrive.recogdrive_goalfree_kd_only_distill_trainer import ReCogDriveGoalFreeKDOnlyDistillTrainer as KD
++
++
++class TinyPlanner(nn.Module):
++    """Differentiable DDIM kernel for tests, NOT a ReCogDrive performance proxy."""
++    def __init__(self):
++        super().__init__()
++        self.config = SimpleNamespace(action_horizon=8, action_dim=3, sampling_method="ddim")
++        self.feature_encoder = nn.Linear(3, 3)
++        self.his_traj_encoder = nn.Linear(12, 3)
++        self.ego_status_encoder = nn.Linear(8, 3)
++        self.action_decoder = nn.Linear(3, 3)
++        nn.init.zeros_(self.action_decoder.weight)
++        nn.init.zeros_(self.action_decoder.bias)
++        self.ddim_steps = 5
++        self.register_buffer("ddim_t", torch.tensor([80, 60, 40, 20, 0]))
++        self.register_buffer("ddim_alphas", torch.tensor([.2, .4, .6, .8, .99]))
++        self.register_buffer("ddim_alphas_prev", torch.tensor([.4, .6, .8, .99, 1.]))
++        self.register_buffer("ddim_sqrt_one_minus_alphas", (1-self.ddim_alphas).sqrt())
++        self.goal_dropout_p = .1
++        self.goal_noise_p = .2
++        self.denoised_clip_value = 1.
++        self.goal = None
++
++    @contextlib.contextmanager
++    def goal_context(self, goal):
++        old, self.goal = self.goal, goal
++        try:
++            yield
++        finally:
++            self.goal = old
++
++    def _goal_embedding_for(self, goal, dtype):
++        return goal
++
++    def _dit_step(self, z, t, vl, his, ego, goal):
++        return self.action_decoder(z) + .001 * (vl.mean() + his.mean() + ego.mean())
++
++    @staticmethod
++    def extract(a, idx, shape):
++        return a[idx].reshape(-1, 1, 1)
++
++    @staticmethod
++    def make_timesteps(b, t, device):
++        return torch.full((b,), int(t), dtype=torch.long, device=device)
++
++    @staticmethod
++    def norm_odo(x):
++        return x / 10
++
++    @staticmethod
++    def denorm_odo(x):
++        return x * 10
++
++    def p_mean_variance(self, z, t, idx, vl, his, ego, deterministic=False):
++        eps = self._dit_step(z, t, vl, his, ego, self.goal)
++        alpha = self.extract(self.ddim_alphas, idx, z.shape)
++        prev = self.extract(self.ddim_alphas_prev, idx, z.shape)
++        x0 = ((z - (1-alpha).sqrt() * eps) / alpha.sqrt()).clamp(-1, 1)
++        sigma = ((1-prev)/(1-alpha)*(1-alpha/prev)).sqrt()
++        if deterministic:
++            sigma = torch.zeros_like(sigma)
++        mean = KD._shared_ddim_mean(self, z, idx, x0, sigma)
++        return mean, torch.log(sigma.square() + 1e-20), x0
++
++    def forward(self, vl, action):
++        enc = encode(self, vl, action)
++        target = torch.randn_like(action.action)
++        eps = self._dit_step(target, None, *enc, action.goal)
++        return {"loss": (eps-target).square().mean()}
++
++
++def sample():
++    return {"token": "abc", "path": "/cache/log_a/abc", "seed": 1,
++            "vl": torch.ones(2, 3), "history": torch.ones(12), "status": torch.ones(8),
++            "gt": torch.ones(8, 3), "student_final": torch.ones(8, 3),
++            "states": [{"step": 4, "timestep": 0, "z": torch.full((8, 3), .2)}]}
++
++
++class Tests(unittest.TestCase):
++    def setUp(self):
++        torch.manual_seed(8)
++        self.p = TinyPlanner()
++        self.vl, self.action = inputs(sample(), "cpu")
++
++    def test_checkpoint_selects_only_student(self):
++        state = {"agent.action_head.action_decoder.weight": torch.ones(1),
++                 "agent.teacher_planners.single.action_decoder.weight": torch.zeros(1)}
++        self.assertEqual(list(planner_state({"state_dict": state})), ["action_decoder.weight"])
++
++    def test_overlapping_logs_fail(self):
++        with self.assertRaisesRegex(ValueError, "log overlap"):
++            assert_disjoint([{"token": "a", "path": "/cache/log/a"}], [{"token": "b", "path": "/cache/log/b"}])
++
++    def test_overlapping_tokens_fail(self):
++        with self.assertRaisesRegex(ValueError, "token overlap"):
++            assert_disjoint([{"token": "a", "path": "/cache/log1/a"}], [{"token": "a", "path": "/cache/log2/a"}])
++
++    def test_index_formats_and_duplicates(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            a, b = Path(tmp)/"a.json", Path(tmp)/"b.json"
++            a.write_text(json.dumps({"builders": ["internvl_feature", "trajectory_target"], "cache_path": "/cache", "tokens": {"a": "log/a"}}))
++            b.write_text(json.dumps({"builders": ["internvl_feature", "trajectory_target"], "samples": [{"token": "a", "path": "/cache/log/a"}]}))
++            self.assertEqual(len(read_indexes([a, b])), 1)
++            b.write_text(b.read_text().replace("/cache/log/a", "/other/log/a"))
++            with self.assertRaisesRegex(ValueError, "Conflicting"):
++                read_indexes([a,b])
++
++    def test_teacher_prediction_matches_kernel(self):
++        enc = encode(self.p, self.vl, self.action)
++        z = sample()["states"][0]["z"].unsqueeze(0)
++        x0, _, _ = teacher_prediction(self.p, z, 4, enc, self.action.goal)
++        _, _, expected = self.p.p_mean_variance(z, torch.tensor([0]), torch.tensor([4]), *enc)
++        torch.testing.assert_close(x0, expected)
++
++    def test_terminal_shared_mean_equals_x0(self):
++        z = torch.randn(1,8,3)
++        x = torch.randn_like(z)
++        mu = KD._shared_ddim_mean(self.p, z, torch.tensor([4]), x, torch.zeros(1,1,1))
++        torch.testing.assert_close(mu,x)
++
++    def test_collection_matches_opd_sampler_and_pre_call_state(self):
++        settings = {"min_sigma": .04, "noise_clip": 5., "deterministic": False}
++        kd = KD(bucket_names=["single"], rollout_min_sigma=.04, rollout_noise_clip=5.)
++        torch.manual_seed(11)
++        states, _, _ = rollout(self.p, self.vl, self.action, settings)
++        torch.manual_seed(11)
++        enc = encode(self.p,self.vl,self.action)
++        chain = kd._sample_chain(self.p, *enc, 1, torch.device("cpu"), torch.float32)
++        self.assertEqual(len(states),5)
++        torch.testing.assert_close(states[4], chain[:,4])
++        self.assertFalse(torch.equal(states[4], chain[:,5]))
++        self.assertFalse(states[4].requires_grad)
++
++    def test_loss_floor_does_not_change_states(self):
++        enc = encode(self.p,self.vl,self.action)
++        chains=[]
++        for floor in (.04,.2):
++            kd=KD(bucket_names=["single"], min_sigma=floor, rollout_min_sigma=.0001, rollout_noise_clip=1.)
++            torch.manual_seed(2)
++            chains.append(kd._sample_chain(self.p,*enc,1,torch.device("cpu"),torch.float32))
++        torch.testing.assert_close(*chains)
++
++    def test_correction_gradient_finite_and_improves(self):
++        obj=CorrectionObjective(self.p,{"correction_weight":1.,"retention_weight":0.})
++        opt=torch.optim.SGD(self.p.parameters(),lr=10.)
++        before,_=obj([sample()],True)
++        initial=float(before.detach())
++        for _ in range(15):
++            opt.zero_grad()
++            loss,rows=obj([sample()],True)
++            self.assertTrue(torch.isfinite(loss))
++            loss.backward()
++            opt.step()
++        self.assertLess(float(loss.detach()),initial)
++        self.assertGreater(rows[0]["z4/corr_grad_eps_norm"],0)
++        self.assertEqual((self.p.goal_dropout_p,self.p.goal_noise_p),(.1,.2))
++
++    def test_opd_backward_and_teacher_frozen(self):
++        teacher=TinyPlanner()
++        teacher.action_decoder.bias.data.fill_(.2)
++        obj=OPDObjective(self.p,teacher,{"kd_weight":1.,"loss_min_sigma":.04,"precision_clip":25.},
++                         {"min_sigma":.04,"noise_clip":5.,"deterministic":False})
++        loss,rows=obj([sample()],True)
++        loss.backward()
++        self.assertTrue(torch.isfinite(loss))
++        self.assertIn("kd_grad_x0_step_4",rows[0])
++        self.assertTrue(all(p.grad is None for p in teacher.parameters()))
++        self.assertGreater(self.p.action_decoder.weight.grad.abs().sum().item(),0.)
++
++    def test_fixed_state_validation_paired_gain(self):
++        from navsim.planning.script.run_student_state_correction import evaluate_teacher
++        baseline=TinyPlanner()
++        # Positive epsilon corrects the biased positive z toward GT.
++        self.p.action_decoder.bias.data.fill_(.5)
++        cfg={"sampler":{"min_sigma":.04,"noise_clip":5.,"deterministic":False}}
++        report,rows=evaluate_teacher(self.p,[sample()],cfg,torch.device("cpu"),baseline,export=True)
++        self.assertGreater(rows[0]["paired_ade_gain_m"],0)
++        self.assertIn("teacher_x0_trajectory",rows[0])
++        self.assertEqual(report["4"]["n"],1)
++
++    def test_pipeline_collect_train_export(self):
++        import gzip
++        import pickle
++        from navsim.planning.script import run_student_state_correction as run
++        with tempfile.TemporaryDirectory() as tmp:
++            root=Path(tmp)
++            indexes=[]
++            for split in ("train","val"):
++                folder=root/f"log_{split}"/split
++                folder.mkdir(parents=True)
++                datum=sample()
++                features={"last_hidden_state":datum["vl"], "history_trajectory":datum["history"], "status_feature":datum["status"]}
++                for name,value in (("internvl_feature",features),("trajectory_target",{"trajectory":datum["gt"]})):
++                    with gzip.open(folder/f"{name}.gz","wb") as f:
++                        pickle.dump(value,f)
++                index=root/f"{split}.json"
++                index.write_text(json.dumps({"builders":["internvl_feature","trajectory_target"],"samples":[{"token":split,"path":str(folder)}]}))
++                indexes.append(str(index))
++            checkpoint=root/"input.ckpt"
++            checkpoint.write_bytes(b"test provenance only; fake model factory")
++            spec={"checkpoint":str(checkpoint),"kind":"goal_free"}
++            cfg={"seed":3,"state_dir":str(root/"states"),"output_dir":str(root/"output"),
++                 "train_indexes":[indexes[0]],"val_indexes":[indexes[1]],
++                 "collector_student":spec,"teacher":dict(spec,kind="privileged"),"opd_student":spec,
++                 "sampler":{"min_sigma":.04,"noise_clip":5.,"deterministic":False},
++                 "collect":{"steps":[4],"seeds_per_scene":1},
++                 "finetune":{"epochs":1,"batch_size":1,"workers":0,"lr":.001,"weight_decay":0.,
++                             "correction_weight":1.,"retention_weight":1.,"grad_clip":1.,"diagnostic_interval":1},
++                 "opd":{"epochs":1,"batch_size":1,"workers":0,"lr":.001,"weight_decay":0.,
++                         "kd_weight":1.,"loss_min_sigma":.04,"precision_clip":25.,"grad_clip":1.,"diagnostic_interval":1}}
++            with patch.object(run,"build_planner",side_effect=lambda *args: TinyPlanner()):
++                run.collect(cfg,torch.device("cpu"),0,1)
++                run.train(cfg,"finetune",torch.device("cpu"),0,1,"original")
++                run.train(cfg,"opd",torch.device("cpu"),0,1,"original")
++                run.train(cfg,"opd",torch.device("cpu"),0,1,"adapted")
++            result=torch.load(root/"output/finetune/best.ckpt",weights_only=False)
++            self.assertIn("action_decoder.weight",planner_state(result))
++            self.assertTrue((root/"output/opd_adapted/val_epoch_000.json").exists())
++
++    def test_pdms_scores_fixed_x0_separately_from_full_rollout(self):
++        from navsim.planning.script import run_student_state_correction as run
++        cfg={"metric_cache_path":"fake", "sampler":{"min_sigma":.04,"noise_clip":5.,"deterministic":False}}
++        calls=[]
++        def score(token,trajectory):
++            calls.append(trajectory.clone())
++            return {"score":.8}
++        with patch.object(run,"PDMScoring",return_value=score):
++            _,rows=run.evaluate_teacher(self.p,[sample()],cfg,torch.device("cpu"),TinyPlanner(),True,True,True)
++        self.assertEqual(len(calls),4)
++        torch.testing.assert_close(calls[0],torch.tensor(rows[0]["teacher_x0_trajectory"]))
++        self.assertIn("x0_pdm_score",rows[0])
++        self.assertIn("full_pdms",rows[1])
++
++    def test_seed_and_metrics(self):
++        self.assertEqual(seed_for("a",42),seed_for("a",42))
++        self.assertNotEqual(seed_for("a",42),seed_for("b",42))
++        self.assertAlmostEqual(errors(torch.ones(1,8,3),torch.zeros(1,8,3))["ade_m"],2**.5,places=5)
++        self.assertEqual(summary([{"ade_m":1.},{"ade_m":3.}])["ade_m"]["mean"],2.)
++
++
++if __name__ == "__main__":
++    unittest.main()
