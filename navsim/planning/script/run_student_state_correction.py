@@ -3,7 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from contextlib import nullcontext
+import random
+import time
+import traceback
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 import torch
@@ -245,6 +248,81 @@ def save_model(path, planner, spec, cfg, epoch, global_step):
                "epoch": epoch, "global_step": global_step}}, path)
 
 
+@contextmanager
+def validation_rng(device):
+    """Evaluation seeds must not change any rank's subsequent training RNG."""
+    import numpy as np
+    python_state, numpy_state = random.getstate(), np.random.get_state()
+    try:
+        with torch.random.fork_rng(devices=[device.index] if device.type == "cuda" else []):
+            yield
+    finally:
+        random.setstate(python_state)
+        np.random.set_state(numpy_state)
+
+
+@torch.no_grad()
+def validate_epoch(planner, val_data, cfg, stage, device, rank, world, epoch,
+                   chunk_size=32):
+    """Exact unpadded validation, shared by all ranks in bounded chunks.
+
+    Do not leave nonzero ranks in a NCCL barrier while rank 0 evaluates the
+    entire dataset. Gather raw metric rows per chunk so quantiles and sample
+    counts match single-process evaluation, including an uneven final shard.
+    """
+    count = min(cfg[stage].get("validation_samples", 0) or len(val_data), len(val_data))
+    if count < 1 or chunk_size < 1:
+        raise ValueError("Validation requires samples and a positive chunk_size")
+    planner.eval()
+    collected = []
+    started = time.monotonic()
+    if rank == 0:
+        print(f"{stage} validation epoch={epoch} start samples={count} ranks={world}", flush=True)
+    with validation_rng(device):
+        for start in range(0, count, chunk_size * world):
+            first = start + rank * chunk_size
+            stop = min(first + chunk_size, count)
+            payload = {"rows": [], "error": None}
+            try:
+                samples = (val_data[i] for i in range(first, stop))
+                if stage == "finetune":
+                    _, payload["rows"] = evaluate_teacher(planner, samples, cfg, device)
+                else:
+                    for sample in samples:
+                        torch.manual_seed(seed_for(sample["token"], cfg["seed"]))
+                        vl, action = inputs(sample, device)
+                        _, pred, _ = rollout(planner, vl, action, cfg["sampler"])
+                        payload["rows"].append(errors(pred, action.action))
+            except Exception:
+                # Report the actual failing shard on every rank instead of
+                # letting its peers wait for a generic collective timeout.
+                payload["error"] = f"rank={rank} samples=[{first},{stop})\n{traceback.format_exc()}"
+            gathered = [None] * world
+            if world > 1:
+                dist.all_gather_object(gathered, payload)
+            else:
+                gathered[0] = payload
+            failures = [item["error"] for item in gathered if item["error"]]
+            if failures:
+                raise RuntimeError("Epoch validation failed:\n" + "\n".join(failures))
+            if rank == 0:
+                for item in gathered:
+                    collected.extend(item["rows"])
+                done = min(start + chunk_size * world, count)
+                print(f"{stage} validation epoch={epoch} samples={done}/{count} "
+                      f"elapsed_s={time.monotonic() - started:.1f}", flush=True)
+    if rank != 0:
+        return None, None
+    if stage == "finetune":
+        report = {str(s): summary([row for row in collected if row["step"] == s])
+                  for s in sorted({row["step"] for row in collected})}
+        criterion = report[str(max(cfg["collect"]["steps"]))]["ade_m"]["mean"]
+    else:
+        report = summary(collected)
+        criterion = report["ade_m"]["mean"]
+    return report, criterion
+
+
 def train(cfg, stage, device, rank, world, arm):
     if stage == "finetune":
         spec = cfg["teacher"]
@@ -298,7 +376,6 @@ def train(cfg, stage, device, rank, world, arm):
     optimizer = torch.optim.AdamW([p for p in planner.parameters() if p.requires_grad],
                                  lr=options["lr"], weight_decay=options["weight_decay"])
     best, global_step = float("inf"), 0
-    val_count = options.get("validation_samples", 0) or len(val_data)
     for epoch in range(options["epochs"]):
         if sampler is not None:
             sampler.set_epoch(epoch)
@@ -307,13 +384,9 @@ def train(cfg, stage, device, rank, world, arm):
             diagnostic = global_step % options["diagnostic_interval"] == 0
             optimizer.zero_grad(set_to_none=True)
 
-            # The optional branch diagnostics use torch.autograd.grad.  Calling
-            # that graph through DDP can fire reducer hooks without a matching
-            # backward and leave NCCL ranks at different collective sequence
-            # numbers (the resulting error is a watchdog timeout, not a useful
-            # Python traceback).  Keep this graph rank-0 local and suppress DDP
-            # gradient synchronisation while it runs; the actual update below
-            # remains the normal symmetric DDP forward/backward.
+            # Keep optional autograd.grad diagnostics separate from the DDP
+            # update. This is not the cause of the epoch-end barrier timeout;
+            # that is addressed by all-rank chunked validation below.
             diagnostic_rows = None
             if diagnostic and rank == 0:
                 no_sync = model.no_sync() if world > 1 else nullcontext()
@@ -350,27 +423,15 @@ def train(cfg, stage, device, rank, world, arm):
                 writer.flush()
                 print(f"{stage} {arm} epoch={epoch} step={global_step} loss={float(loss.detach()):.6g}", flush=True)
             global_step += 1
-        if world > 1:
-            dist.barrier()
+        # Do not insert a standalone NCCL barrier after the final DDP backward.
+        # The final backward collective may still be queued on the CUDA stream;
+        # on this cluster that barrier was the actual SeqNum=21037 timeout.
+        # validate_epoch starts with the rank-symmetric all_gather_object and
+        # therefore provides the required synchronization without a second
+        # barrier collective.
+        report, criterion = validate_epoch(planner, val_data, cfg, stage, device,
+                                           rank, world, epoch)
         if rank == 0:
-            # Preserve train RNG state: validation must not alter next epoch's sampling.
-            with torch.random.fork_rng(devices=[device.index] if device.type == "cuda" else []):
-                if stage == "finetune":
-                    report, _ = evaluate_teacher(planner, (val_data[i] for i in range(min(val_count, len(val_data)))), cfg, device)
-                    terminal = str(max(cfg["collect"]["steps"]))
-                    criterion = report[terminal]["ade_m"]["mean"]
-                else:
-                    planner.eval()
-                    rows = []
-                    with torch.no_grad():
-                        for i in range(min(val_count, len(val_data))):
-                            sample = val_data[i]
-                            torch.manual_seed(seed_for(sample["token"], cfg["seed"]))
-                            vl, action = inputs(sample, device)
-                            _, pred, _ = rollout(planner, vl, action, cfg["sampler"])
-                            rows.append(errors(pred, action.action))
-                    report = summary(rows)
-                    criterion = report["ade_m"]["mean"]
             write_json(folder / f"val_epoch_{epoch:03d}.json", report)
             write_tensorboard_scalars(writer, "validation", report, epoch)
             writer.flush()
@@ -378,8 +439,11 @@ def train(cfg, stage, device, rank, world, arm):
             if criterion < best:
                 best = criterion
                 save_model(folder / "best.ckpt", planner, spec, cfg, epoch, global_step)
-        if world > 1:
-            dist.barrier()
+            print(f"{stage} epoch={epoch} validation complete ade_m={criterion:.6g}; "
+                  f"checkpoints saved in {folder}", flush=True)
+        # The last validation all_gather already synchronized all ranks.  Rank
+        # 0 may save checkpoints while other ranks prepare the next epoch; the
+        # next DDP forward will synchronize parameters again.
     if writer is not None:
         writer.close()
 

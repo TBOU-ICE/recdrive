@@ -264,7 +264,7 @@ bash scripts/training/run_student_state_correction.sh evaluate-student --arm ada
 | OPD 按步 ADE/FDE、x0 gap、`kl_step_i_fraction` | 各步预测质量与 loss 贡献 | 教师改善能否被学生吸收、是否有步骤独占损失 |
 | 最终学生 PDMS / EPDMS / NavHard | 最终任务表现 | 需要真实评测，不从 ADE 改善推断必然涨分 |
 
-`train.jsonl` 每 `diagnostic_interval` 个优化步写一次，同时写入 `finetune/tensorboard/`。分支冲突指标是 rank0 本地 batch 的未同步诊断梯度（在 DDP `no_sync` 下单独计算，不参与参数更新）；实际 optimizer 使用的总 loss 参数梯度仍由 DDP 平均。验证由 rank0 完整遍历指定留出样本，不重复分布式补齐样本。`validation_samples=0` 表示全部，联调时可以减小，但两组必须一致。
+`train.jsonl` 每 `diagnostic_interval` 个优化步写一次，同时写入 `finetune/tensorboard/`。分支冲突指标是 rank0 本地 batch 的未同步诊断梯度（在 DDP `no_sync` 下单独计算，不参与参数更新）；实际 optimizer 使用的总 loss 参数梯度仍由 DDP 平均。验证阶段由所有 rank 按不补齐的分片共同遍历留出集，每个 chunk 用 `all_gather_object` 汇总，rank 0 负责写报告和 checkpoint，避免其他 rank 在 rank 0 单独读完整验证集时等待 NCCL barrier 超时。`validation_samples=0` 表示全部，联调时可以减小，但两组必须一致。
 
 训练后生成 loss、验证指标和梯度冲突总览图：
 
