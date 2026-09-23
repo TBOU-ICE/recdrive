@@ -186,11 +186,40 @@ class MetricCacheLoader:
         :param cache_path: directory of cache folder
         :return: dictionary of token and file path
         """
+        cache_path = Path(cache_path).expanduser()
         metadata_dir = cache_path / "metadata"
-        metadata_file = [file for file in metadata_dir.iterdir() if ".csv" in str(file)][0]
-        with open(str(metadata_file), "r") as f:
-            cache_paths = f.read().splitlines()[1:]
-        metric_cache_dict = {cache_path.split("/")[-2]: cache_path for cache_path in cache_paths}
+        if not metadata_dir.is_dir():
+            raise FileNotFoundError(f"Metric-cache metadata directory does not exist: {metadata_dir}")
+
+        # Only real CSV files are metadata inputs.  In particular, do not
+        # accidentally select metric_cache_metadata_node_0.csv.bak.
+        metadata_files = sorted(metadata_dir.glob("*.csv"))
+        if not metadata_files:
+            raise FileNotFoundError(f"No metric-cache metadata CSV found in {metadata_dir}")
+
+        metric_cache_dict: Dict[str, Path] = {}
+        for metadata_file in metadata_files:
+            lines = metadata_file.read_text().splitlines()
+            for line in lines[1:]:
+                raw = line.strip()
+                if not raw:
+                    continue
+                recorded_path = Path(raw)
+                token = recorded_path.parent.name
+                if not token or recorded_path.name != self._file_name:
+                    raise ValueError(f"Malformed metric-cache metadata entry in {metadata_file}: {raw}")
+                if len(recorded_path.parts) < 4:
+                    raise ValueError(f"Cannot relocate metric-cache path: {raw}")
+
+                # Metadata may contain an absolute path from another machine,
+                # e.g. /workspace/datasets/....  Keep the cache-relative
+                # log/scene-type/token/file layout and anchor it at the path
+                # explicitly supplied by the current evaluation.
+                relocated_path = cache_path / Path(*recorded_path.parts[-4:])
+                previous = metric_cache_dict.get(token)
+                if previous is not None and previous != relocated_path:
+                    raise ValueError(f"Duplicate metric-cache token with different paths: {token}")
+                metric_cache_dict[token] = relocated_path
         return metric_cache_dict
 
     @property
