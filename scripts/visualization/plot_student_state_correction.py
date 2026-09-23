@@ -37,7 +37,15 @@ def validation_metric(report, step, key, statistic="mean"):
 
 def plot_finetune(output_dir: Path, cfg: dict) -> list[Path]:
     folder = output_dir / "finetune"
-    log_path = folder / "train.jsonl"
+    # A completed finetune may have been produced on a data machine while
+    # validation/plots are required on the workspace volume.  Read the source
+    # logs from the explicit checkpoint location, but always write plots under
+    # the configured output_dir.
+    source_folder = folder
+    checkpoint = cfg.get("finetuned_teacher_checkpoint")
+    if not (source_folder / "train.jsonl").is_file() and checkpoint:
+        source_folder = Path(checkpoint).expanduser().parent
+    log_path = source_folder / "train.jsonl"
     if not log_path.is_file():
         return []
     rows = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
@@ -99,7 +107,7 @@ def plot_finetune(output_dir: Path, cfg: dict) -> list[Path]:
     ax.legend()
 
     ax = axes[2, 1]
-    val_paths = sorted(folder.glob("val_epoch_*.json"))
+    val_paths = sorted(source_folder.glob("val_epoch_*.json"))
     epochs = []
     val_ade = []
     val_fde = []

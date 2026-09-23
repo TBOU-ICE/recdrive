@@ -337,7 +337,10 @@ def train(cfg, stage, device, rank, world, arm):
         planner = build_planner(spec, device)
         teacher_spec = dict(cfg["teacher"])
         if arm == "adapted":
-            teacher_spec["checkpoint"] = str(Path(cfg["output_dir"]) / "finetune" / "best.ckpt")
+            teacher_spec["checkpoint"] = cfg.get(
+                "finetuned_teacher_checkpoint",
+                str(Path(cfg["output_dir"]) / "finetune" / "best.ckpt"),
+            )
         teacher = build_planner(teacher_spec, device)
         for key in ("ddim_t", "ddim_alphas", "ddim_alphas_prev"):
             if not torch.equal(getattr(planner, key), getattr(teacher, key)):
