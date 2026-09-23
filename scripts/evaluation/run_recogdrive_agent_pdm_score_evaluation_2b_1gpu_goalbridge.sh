@@ -38,14 +38,14 @@ GPUS="${GPUS:-8}"
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} GPUS=${GPUS}"
 
 STUDENT_GOAL_MODE="${STUDENT_GOAL_MODE:-adaln}"
-STUDENT_ADALN_BOUND="${STUDENT_ADALN_BOUND:-0.0}"
+STUDENT_ADALN_BOUND="${STUDENT_ADALN_BOUND:-8.0}"
 GOAL_SOURCE="${GOAL_SOURCE:-pred}"
-CHECKPOINT="${CHECKPOINT:-/mnt/datasets/recdrive/20260513/training_student_to_teacher_sft_goalbridge_v1/2026.09.16.07.59.36/checkpoints/epoch=9-step=14190.ckpt}"
+CHECKPOINT="${CHECKPOINT:-/mnt/datasets/recdrive/20260513/training_goalbridge_opd_channel_teacher_v1/checkpoints/epoch=40-step=127961.ckpt}"
 VLM_PATH="${VLM_PATH:-/mnt/models/recdrive/v1.0.0/vlm_simscale_lora_merged}"
 METRIC_CACHE_PATH="${METRIC_CACHE_PATH:-/mnt/datasets/recdrive/20260513/nby/recdrive/metric_cache}"
 MAX_SCENES="${MAX_SCENES:-}"
 EVAL_SEED="${EVAL_SEED:-0}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-eval-pdms-teacher-sft-goalbridge-${GOAL_SOURCE}-${STUDENT_GOAL_MODE}-${TRAIN_TEST_SPLIT}-epoch9}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-eval-pdms-opd-v1-channel-teacher-navtest}"
 TORCHRUN_BIN="${TORCHRUN_BIN:-${CONDA_BIN}/torchrun}"
 
 [[ "${GOAL_SOURCE}" == "pred" || "${GOAL_SOURCE}" == "off" ]] || {
