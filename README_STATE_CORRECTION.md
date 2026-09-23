@@ -108,7 +108,7 @@
 ```text
 CONFIG=scripts/training/student_state_correction.pre_goal_general.json
 state_dir=/mnt/datasets/recdrive/20260513/state_correction_pre_goal_general_v1/student_states
-output_dir=/workspace/output/tensorboard/state_correction_pre_goal_general_v1/results
+output_dir=/mnt/datasets/recdrive/20260513/state_correction_pre_goal_general_v1/results
 ```
 
 完成 collect 后，按以下顺序继续：

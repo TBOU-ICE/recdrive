@@ -1,0 +1,106 @@
+{
+  "seed": 42,
+  "state_dir": "/mnt/datasets/recdrive/20260513/state_correction_pre_goal_general_v1/student_states",
+  "output_dir": "/workspace/output/tensorboard/state_correction_pre_goal_general_corr4_ret1/results",
+  "train_indexes": [
+    "/mnt/volumes/ad-e2e-al-sh01/nby/recdrive-state-correction/data/state_correction/indexes/general_or_no_tag_train_index.json"
+  ],
+  "val_indexes": [
+    "/mnt/volumes/ad-e2e-al-sh01/nby/recdrive-state-correction/data/state_correction/indexes/general_or_no_tag_val_index.json"
+  ],
+  "metric_cache_path": "/mnt/datasets/recdrive/20260513/nby/recdrive/metric_cache_train",
+  "collector_student": {
+    "checkpoint": "/mnt/datasets/recdrive/20260513/exp2/exp/training_goalbridge_goal_kd_ungated_opd_v1/2026.09.08.03.52.22/checkpoints/epoch=47-step=136128.ckpt",
+    "kind": "pred_goal",
+    "dit_type": "small",
+    "vlm_size": "small",
+    "steps": 5,
+    "adaln_bound": 8.0,
+    "goal_mode": "adaln",
+    "goal_kwargs": {
+      "goal_sincos_dim": 128,
+      "goal_hidden_dim": 1024,
+      "goal_use_heading": false,
+      "goal_predictor_hidden_dim": 512,
+      "goal_predictor_dropout": 0.0
+    },
+    "sampling_attributes": {
+      "denoised_clip_value": 1.0,
+      "eps_clip_value": null,
+      "final_action_clip_value": 1.0
+    }
+  },
+  "teacher": {
+    "checkpoint": "/mnt/datasets/recdrive/20260513/exp2/exp/training_teacher_general_or_no_tag_200il_30goal_adaln_newvlm/2026.09.08.07.58.19/lightning_logs/version_0/checkpoints/epoch=199-step=118000.ckpt",
+    "kind": "privileged",
+    "dit_type": "small",
+    "vlm_size": "small",
+    "steps": 5,
+    "adaln_bound": 0.0,
+    "goal_mode": "adaln",
+    "goal_kwargs": {
+      "goal_sincos_dim": 128,
+      "goal_hidden_dim": 1024,
+      "goal_use_heading": false,
+      "goal_dropout_p": 0.1,
+      "goal_noise_p": 0.2,
+      "goal_noise_std_xy": 1.0,
+      "goal_noise_std_heading": 0.1
+    }
+  },
+  "opd_student": {
+    "checkpoint": "/mnt/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt",
+    "kind": "goal_free",
+    "dit_type": "small",
+    "vlm_size": "small",
+    "steps": 5,
+    "adaln_bound": 8.0,
+    "sampling_attributes": {
+      "denoised_clip_value": 1.0,
+      "eps_clip_value": null,
+      "final_action_clip_value": 1.0
+    }
+  },
+  "sampler": {
+    "deterministic": false,
+    "min_sigma": 0.04,
+    "noise_clip": 5.0
+  },
+  "collect": {
+    "steps": [4],
+    "seeds_per_scene": 1,
+    "max_train_samples": 0,
+    "max_val_samples": 0
+  },
+  "finetune": {
+    "epochs": 5,
+    "batch_size": 4,
+    "workers": 4,
+    "lr": 1e-6,
+    "weight_decay": 0.0,
+    "correction_weight": 4.0,
+    "retention_weight": 1.0,
+    "grad_clip": 1.0,
+    "diagnostic_interval": 100,
+    "validation_samples": 0
+  },
+  "opd": {
+    "epochs": 10,
+    "batch_size": 4,
+    "workers": 4,
+    "lr": 1e-5,
+    "weight_decay": 0.0,
+    "kd_weight": 1.0,
+    "loss_min_sigma": 0.04,
+    "precision_clip": 25.0,
+    "grad_clip": 1.0,
+    "diagnostic_interval": 100,
+    "validation_samples": 0
+  },
+  "evaluation_indexes": [],
+  "evaluation_sampler": {
+    "deterministic": false,
+    "min_sigma": 0.0001,
+    "noise_clip": 1.0
+  }
+}
