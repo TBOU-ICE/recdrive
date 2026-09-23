@@ -1,12 +1,12 @@
 {
   "seed": 42,
-  "state_dir": "/workspace/output/tensorboard/state_correction_pre_goal_general_v1/student_states",
+  "state_dir": "/mnt/datasets/recdrive/20260513/state_correction_pre_goal_general_v1/student_states",
   "output_dir": "/workspace/output/tensorboard/state_correction_pre_goal_general_v1/results",
   "train_indexes": [
-    "/workspace/code/data/state_correction/indexes/general_or_no_tag_train_index.json"
+    "/mnt/volumes/ad-e2e-al-sh01/nby/recdrive-state-correction/data/state_correction/indexes/general_or_no_tag_train_index.json"
   ],
   "val_indexes": [
-    "/workspace/code/data/state_correction/indexes/general_or_no_tag_val_index.json"
+    "/mnt/volumes/ad-e2e-al-sh01/nby/recdrive-state-correction/data/state_correction/indexes/general_or_no_tag_val_index.json"
   ],
   "metric_cache_path": "/mnt/datasets/recdrive/20260513/nby/recdrive/metric_cache_train",
   "collector_student": {

@@ -238,6 +238,13 @@ class Tests(unittest.TestCase):
                 hydrated=run.Samples(state_rows,states=True)[0]
                 self.assertTrue({"vl","history","status","gt"}.issubset(hydrated))
                 run.train(cfg,"finetune",torch.device("cpu"),0,1,"original")
+                train_row=json.loads((root/"output/finetune/train.jsonl").read_text().splitlines()[0])
+                self.assertIn("branches/gradient_cosine",train_row["metrics"])
+                self.assertIn("decoder_branches/weighted_grad_norm_ratio",train_row["metrics"])
+                self.assertTrue(any((root/"output/finetune/tensorboard").glob("events.out.tfevents.*")))
+                from scripts.visualization.plot_student_state_correction import plot_finetune
+                plots=plot_finetune(root/"output",cfg)
+                self.assertTrue(plots and plots[0].is_file())
                 run.train(cfg,"opd",torch.device("cpu"),0,1,"original")
                 run.train(cfg,"opd",torch.device("cpu"),0,1,"adapted")
             result=torch.load(root/"output/finetune/best.ckpt",weights_only=False)

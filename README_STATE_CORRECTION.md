@@ -103,6 +103,43 @@
 
 ## 5. 执行顺序
 
+当前 general 首轮配置使用：
+
+```text
+CONFIG=scripts/training/student_state_correction.pre_goal_general.json
+state_dir=/mnt/datasets/recdrive/20260513/state_correction_pre_goal_general_v1/student_states
+output_dir=/workspace/output/tensorboard/state_correction_pre_goal_general_v1/results
+```
+
+完成 collect 后，按以下顺序继续：
+
+```bash
+# 1. 微调 general 特权教师
+bash scripts/training/run_student_state_correction.sh finetune
+
+# 2. 配对验证原教师与适应后教师
+bash scripts/training/run_student_state_correction.sh validate --export-trajectories
+
+# 3. 计算固定 z4 PDMS 和完整教师 rollout PDMS
+bash scripts/training/run_student_state_correction.sh validate \
+  --pdms --full-rollout --export-trajectories
+
+# 4. 生成 loss、梯度冲突、验证曲线和代表性轨迹图
+bash scripts/training/run_student_state_correction.sh plot
+
+# 5. 用原教师训练 goal-free 学生基线
+bash scripts/training/run_student_state_correction.sh opd --arm original
+
+# 6. 用微调后的教师训练对照学生
+bash scripts/training/run_student_state_correction.sh opd --arm adapted
+
+# 7. 评测两组学生
+bash scripts/training/run_student_state_correction.sh evaluate-student --arm original --pdms
+bash scripts/training/run_student_state_correction.sh evaluate-student --arm adapted --pdms
+```
+
+`finetune` 和 `opd` 使用 `GPUS=8` 的 torchrun；`validate`、`plot` 和 `evaluate-student` 是单进程。只有 paired validation 已导出轨迹后，`plot` 才会生成代表性轨迹图；训练曲线和梯度冲突图会直接生成。
+
 先激活原项目环境，进入仓库根目录：
 
 ```bash
@@ -216,13 +253,26 @@ bash scripts/training/run_student_state_correction.sh evaluate-student --arm ada
 | `full_pdms` / `baseline_full_pdms` | 教师常规完整采样分数 | 原有规划能力保持 |
 | `eps_abs_mean` / `clip_fraction` | 输出幅度、raw x0 被裁剪的比例 | 警惕输出剧增且大量饱和 |
 | `corr_grad_eps_norm` | 单步纠偏 MSE 对教师 epsilon 输出的梯度范数，未乘总权重 | 检查低噪声梯度是否极弱；它不是参数梯度 |
+| `branches/*_grad_norm` | correction/retention 对教师全部可训练参数的独立梯度范数，并同时记录乘 loss 权重后的范数 | 判断 `1/1` loss 权重是否真的带来同量级参数更新 |
+| `decoder_branches/*_grad_norm` | 两分支对 action decoder 参数的独立梯度范数 | 检查冲突是否集中在轨迹解码核心 |
+| `branches/gradient_cosine` / `decoder_branches/gradient_cosine` | 两分支参数梯度的余弦相似度 | 持续小于 0 表示更新方向冲突；接近 0 表示大体独立 |
+| `branches/weighted_grad_norm_ratio` | 加权 correction 梯度范数除以加权 retention 梯度范数 | 远小于 1 表示 retention 主导，远大于 1 表示 correction 主导 |
+| `branches/gradient_conflict_fraction` | 两分支共同非零的梯度元素中符号相反的比例 | 与 cosine 一起看，不单独作为调权依据 |
 | `decoder_total_grad_norm` | 完整训练 loss 对 action decoder 参数的梯度，裁剪前 | 教师阶段是纠偏+保持合计，不能误称纠偏分支单独贡献 |
 | OPD `kl_proxy_loss` | 有限权重的共享均值 KD 代理损失 | 只反映拟合，不能独立证明驾驶改善 |
 | OPD `kd_grad_x0_step_i` | 加权且除以步骤数的第 i 步 KD 对学生 x0 输出梯度 | 查看末步监督是否有学习信号；非 epsilon/参数梯度 |
 | OPD 按步 ADE/FDE、x0 gap、`kl_step_i_fraction` | 各步预测质量与 loss 贡献 | 教师改善能否被学生吸收、是否有步骤独占损失 |
 | 最终学生 PDMS / EPDMS / NavHard | 最终任务表现 | 需要真实评测，不从 ADE 改善推断必然涨分 |
 
-`train.jsonl` 每 `diagnostic_interval` 个优化步写一次。训练标量为 rank0 本地 batch 统计，参数梯度在 DDP 下已平均；验证由 rank0 完整遍历指定留出样本，不重复分布式补齐样本。`validation_samples=0` 表示全部，联调时可以减小，但两组必须一致。
+`train.jsonl` 每 `diagnostic_interval` 个优化步写一次，同时写入 `finetune/tensorboard/`。分支冲突指标是 rank0 本地 batch 的未同步诊断梯度；实际 optimizer 使用的总 loss 参数梯度仍由 DDP 平均。验证由 rank0 完整遍历指定留出样本，不重复分布式补齐样本。`validation_samples=0` 表示全部，联调时可以减小，但两组必须一致。
+
+训练后生成 loss、验证指标和梯度冲突总览图：
+
+```bash
+bash scripts/training/run_student_state_correction.sh plot
+```
+
+执行带 `--export-trajectories` 的 paired validation 后再次运行同一命令，还会生成改善最大、退化最大和中位样本的少量配对轨迹图及 paired ADE gain 分布；不为全部验证样本逐张出图。
 
 所有统计按 sample/seed 记录；同一个场景多种子不是独立场景，不能直接用总记录数充当独立统计样本量。实际比较建议同时查看失败场景列表，尤其原长尾场景。
 
@@ -242,7 +292,7 @@ bash scripts/training/run_student_state_correction.sh evaluate-student --arm ada
 ## 8. 实现边界与检查
 
 - 已通过 14 项 CPU 数值/协议测试，覆盖状态索引、采样一致性、末步共享均值、分离 loss/采样方差下限、教师纠偏反传、OPD 教师冻结、checkpoint 导出和训练/验证分割等。
-- 已提供两进程 CPU DDP smoke。此环境执行时被 Gloo TCP 权限限制阻断（`Operation not permitted`，发生于进程组初始化），因此不能声明 DDP 已验证；请在服务器运行。它使用小型可微 surrogate planner，检查计算图/同步，不是实际 ReCogDrive 性能测试。
+- 已通过两进程 CPU DDP smoke，包括 correction/retention 参数梯度冲突诊断与随后总 loss backward；它使用小型可微 surrogate planner，检查计算图/同步，不是实际 ReCogDrive 性能测试。
 - 未在此环境加载你的真实 checkpoint、访问真实 cache、运行 GPU 训练或实际 PDMS；依赖兼容与分数需要服务器验证。
 - 每个样本单独前向后，在本地 batch 内平均 loss，避免 variable-length hidden-state padding 造成阶段差异；吞吐可能低于原大 batch 实现。
 - FP32，无 AMP，无自动断点续训，无多节点 shell 封装；Python 入口可由已有 torchrun 多节点参数启动，但未验证多节点环境。
@@ -255,208 +305,3 @@ bash scripts/training/run_student_state_correction.sh evaluate-student --arm ada
 python -m unittest discover -s tests -p test_student_state_correction.py -v
 torchrun --standalone --nproc_per_node=2 tests/smoke_correction_ddp.py
 ```
-
-
-### 0. 可选：重新生成无泄漏索引
-
-  ### 1. Collect：采集有 predicted-goal 学生的 z4
-
-  这是第一项正式任务，只做学生推理，不更新学生：
-
-  ### 2. Finetune：微调 general 特权教师
-
-  Collect 全部完成后执行：
-
-  bash scripts/training/run_student_state_correction.sh finetune
-
-  该阶段默认使用 8 卡 DDP，目标是：
-
-  student-z4 correction loss
-  +
-  原始 q(GT) denoising retention loss
-
-  主要输出：
-
-  /mnt/datasets/recdrive/20260513/exp2/exp/
-  state_correction_pre_goal_general_v1/results/finetune/
-
-  其中：
-
-  - best.ckpt：按验证集 z4 ADE 选择；
-  - last.ckpt：最后一个 epoch；
-  - train.jsonl：loss 和梯度诊断；
-  - val_epoch_*.json：各 epoch 的固定状态验证结果。
-
-  ### 3. Validate：配对验证原教师与适应后教师
-
-  建议先只做几何验证：
-
-  CUDA_VISIBLE_DEVICES=0 \
-  bash scripts/training/run_student_state_correction.sh validate \
-    --export-trajectories
-
-  重点检查：
-
-  - paired_ade_gain_m 是否为正；
-  - ade_improved 比例；
-  - 新教师的 ade_m / fde_m；
-  - qgt_ade_m 相对 baseline_qgt_ade_m 是否明显退化；
-  - clip_fraction 是否异常升高；
-  - eps_abs_mean 是否爆炸。
-
-  几何验证正常后，再跑 PDMS 和完整教师 rollout：
-
-  CUDA_VISIBLE_DEVICES=0 \
-  bash scripts/training/run_student_state_correction.sh validate \
-    --pdms \
-    --full-rollout \
-    --export-trajectories
-
-  配置中的 metric_cache_train 已核对，覆盖全部 8,181 个验证 token。
-
-  输出位于：
-
-  /mnt/datasets/recdrive/20260513/exp2/exp/
-  state_correction_pre_goal_general_v1/results/paired_validation/
-
-  在进入 OPD 前，至少应满足：
-
-  - 固定 z4 上的 ADE/FDE 有改善；
-  - x0_pdm_score 没有变差，最好有提升；
-  - qgt_ade_m 没有明显退化；
-  - full_pdms 没有明显退化；
-  - 改善不只是少数样本拉动均值；
-  - clip_fraction 没有严重饱和。
-
-  如果只是 ADE 提升而固定状态 PDMS 下降，不建议继续蒸馏。
-
-  ### 4. OPD original：使用原教师
-
-  验证通过后，先跑原教师基线：
-
-  bash scripts/training/run_student_state_correction.sh opd \
-    --arm original
-
-  输出：
-
-  .../results/opd_original/
-
-  这组从原始 goal-free base 初始化，使用未适应的 general 教师。
-
-  ### 5. OPD adapted：使用适应后教师
-
-  然后使用 finetune/best.ckpt：
-
-  bash scripts/training/run_student_state_correction.sh opd \
-    --arm adapted
-
-  输出：
-
-  .../results/opd_adapted/
-
-  两组会保持完全一致的：
-
-  - goal-free 学生初始化；
-  - 数据；
-  - seed；
-  - sampler；
-  - optimizer；
-  - epoch；
-  - batch size；
-  - GPU 数量；
-  - KD loss 参数。
-
-  唯一差别是原教师和适应后教师。
-
-  ### 6. 最终评测两个学生的 best checkpoint
-
-  先评测 original：
-
-  CUDA_VISIBLE_DEVICES=0 \
-  bash scripts/training/run_student_state_correction.sh evaluate-student \
-    --arm original \
-    --pdms
-
-  再评测 adapted：
-
-  CUDA_VISIBLE_DEVICES=0 \
-  bash scripts/training/run_student_state_correction.sh evaluate-student \
-    --arm adapted \
-    --pdms
-
-  这两条默认评测各自 best.ckpt，使用部署采样设置：
-
-  min_sigma=0.0001
-  noise_clip=1.0
-
-  当前 evaluation_indexes 为空，因此这里评测的是同一份 validation index，不是 navtest/
-  NavHard。
-
-  ### 7. 建议再比较相同预算的 last checkpoint
-
-  README 建议同时比较 last，避免 best-by-ADE 带来选择偏差：
-
-  RESULT_ROOT=/mnt/datasets/recdrive/20260513/exp2/exp/
-  state_correction_pre_goal_general_v1/results
-
-  CUDA_VISIBLE_DEVICES=0 \
-  bash scripts/training/run_student_state_correction.sh evaluate-student \
-    --arm original \
-    --pdms \
-    --checkpoint "$RESULT_ROOT/opd_original/last.ckpt"
-
-  CUDA_VISIBLE_DEVICES=0 \
-  bash scripts/training/run_student_state_correction.sh evaluate-student \
-    --arm adapted \
-    --pdms \
-    --checkpoint "$RESULT_ROOT/opd_adapted/last.ckpt"
-
-  注意：同一个 arm 的 best 和 last 评测都会写入同一个 evaluate_student_<arm> 目录，后
-  跑的会覆盖前一次 JSON。要同时保留 best/last，需在运行 last 前复制或重命名 best 的评
-  测目录。
-
-  ## 完整顺序摘要
-
-  实际正式顺序就是：
-
-  prepare indexes（已完成）
-      ↓
-  collect predicted-goal student z4
-      ↓
-  finetune general privileged teacher
-      ↓
-  validate original vs adapted teacher
-      ↓
-  确认 z4 改善且 q(GT)/full rollout 未明显退化
-      ↓
-  opd --arm original
-      ↓
-  opd --arm adapted
-      ↓
-  evaluate-student original
-      ↓
-  evaluate-student adapted
-      ↓
-  再用原 NavHard / NAVSIM2 入口评测导出的学生 checkpoint
-
-  ## 已完成的验证
-
-  我已执行：
-
-  - 三个真实 checkpoint 的严格模型加载；
-  - 配置 JSON 解析；
-  - train/val token 和 log 重叠检查；
-  - 已知坏 cache 排除检查；
-  - validation metric-cache 全覆盖检查；
-  - Python syntax compile；
-  - shell bash -n；
-  - test_student_state_correction.py 全部 14 项测试。
-
-  结果是：
-
-  Ran 14 tests
-  OK
-
-  唯一需要你确认的实验选择是：我按 README 的单教师首轮设计，先用了 general_or_no_tag。
-  如果你原本想先适配 progress_curbside_stopgo、rule_intersection 或
-  safety_dynamics_interaction，流程不变，但 teacher checkpoint、bu

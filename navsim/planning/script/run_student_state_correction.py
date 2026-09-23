@@ -22,6 +22,16 @@ def write_json(path, data):
     Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False))
 
 
+def write_tensorboard_scalars(writer, prefix, payload, step):
+    """Recursively write numeric JSON metrics using stable slash-separated tags."""
+    for key, value in payload.items():
+        tag = f"{prefix}/{key}" if prefix else str(key)
+        if isinstance(value, dict):
+            write_tensorboard_scalars(writer, tag, value, step)
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            writer.add_scalar(tag, value, step)
+
+
 def seed_all(seed):
     import random
     import numpy as np
@@ -274,6 +284,10 @@ def train(cfg, stage, device, rank, world, arm):
         write_json(folder / "provenance.json", provenance)
     if world > 1:
         dist.barrier()
+    writer = None
+    if rank == 0:
+        from torch.utils.tensorboard import SummaryWriter
+        writer = SummaryWriter(log_dir=str(folder / "tensorboard"))
     objective.to(device)
     model = DDP(objective, device_ids=[device.index] if device.type == "cuda" else None,
                 find_unused_parameters=True) if world > 1 else objective
@@ -299,11 +313,23 @@ def train(cfg, stage, device, rank, world, arm):
             total_grad = torch.nn.utils.clip_grad_norm_(planner.parameters(), options["grad_clip"], error_if_nonfinite=True)
             optimizer.step()
             if diagnostic and rank == 0:
+                metric_summary = summary(rows)
                 row = {"epoch": epoch, "global_step": global_step, "loss": float(loss.detach()),
                        "decoder_total_grad_norm": decoder_grad, "total_grad_norm_before_clip": float(total_grad),
-                       "metrics": summary(rows), "metrics_scope": "rank0 local batch; parameter gradients DDP-averaged"}
+                       "lr": float(optimizer.param_groups[0]["lr"]),
+                       "metrics": metric_summary,
+                       "metrics_scope": (
+                           "loss/metrics and branch-conflict gradients are rank0 local-batch; "
+                           "total backward parameter gradients are DDP-averaged"
+                       )}
                 with open(folder / "train.jsonl", "a") as f:
                     f.write(json.dumps(row, allow_nan=False) + "\n")
+                writer.add_scalar("train/total_loss", row["loss"], global_step)
+                writer.add_scalar("train/decoder_total_grad_norm", decoder_grad, global_step)
+                writer.add_scalar("train/total_grad_norm_before_clip", float(total_grad), global_step)
+                writer.add_scalar("train/lr", row["lr"], global_step)
+                write_tensorboard_scalars(writer, "train/metrics", metric_summary, global_step)
+                writer.flush()
                 print(f"{stage} {arm} epoch={epoch} step={global_step} loss={float(loss.detach()):.6g}", flush=True)
             global_step += 1
         if world > 1:
@@ -328,12 +354,16 @@ def train(cfg, stage, device, rank, world, arm):
                     report = summary(rows)
                     criterion = report["ade_m"]["mean"]
             write_json(folder / f"val_epoch_{epoch:03d}.json", report)
+            write_tensorboard_scalars(writer, "validation", report, epoch)
+            writer.flush()
             save_model(folder / "last.ckpt", planner, spec, cfg, epoch, global_step)
             if criterion < best:
                 best = criterion
                 save_model(folder / "best.ckpt", planner, spec, cfg, epoch, global_step)
         if world > 1:
             dist.barrier()
+    if writer is not None:
+        writer.close()
 
 
 def main():

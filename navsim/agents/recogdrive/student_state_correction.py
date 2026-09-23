@@ -194,6 +194,74 @@ def grad_norm(parameters):
     return float(torch.stack(parts).sum().sqrt()) if parts else 0.0
 
 
+def branch_gradient_diagnostics(correction_loss, retention_loss, planner, correction_weight, retention_weight):
+    """Compare the two objectives on shared parameters without accumulating .grad.
+
+    These diagnostics are intentionally computed only at the configured
+    diagnostic interval.  The returned gradients are local-rank batch
+    gradients; the subsequent total-loss backward remains the DDP-synchronised
+    update used by the optimizer.
+    """
+    named = [(name, p) for name, p in planner.named_parameters() if p.requires_grad]
+    params = [p for _, p in named]
+    corr_grads = torch.autograd.grad(
+        correction_loss, params, retain_graph=True, allow_unused=True
+    )
+    retain_grads = torch.autograd.grad(
+        retention_loss, params, retain_graph=True, allow_unused=True
+    )
+
+    def stats(prefix, selected):
+        corr_sq = correction_loss.new_zeros((), dtype=torch.float32)
+        retain_sq = correction_loss.new_zeros((), dtype=torch.float32)
+        dot = correction_loss.new_zeros((), dtype=torch.float32)
+        jointly_active = correction_loss.new_zeros((), dtype=torch.float32)
+        conflicting = correction_loss.new_zeros((), dtype=torch.float32)
+        for idx in selected:
+            corr = corr_grads[idx]
+            retain = retain_grads[idx]
+            if corr is None and retain is None:
+                continue
+            if corr is None:
+                corr = torch.zeros_like(retain)
+            if retain is None:
+                retain = torch.zeros_like(corr)
+            corr = corr.detach().float()
+            retain = retain.detach().float()
+            corr_sq = corr_sq + corr.square().sum()
+            retain_sq = retain_sq + retain.square().sum()
+            product = corr * retain
+            dot = dot + product.sum()
+            jointly_active = jointly_active + (product != 0).sum()
+            conflicting = conflicting + (product < 0).sum()
+        corr_norm = corr_sq.sqrt()
+        retain_norm = retain_sq.sqrt()
+        cosine = dot / (corr_norm * retain_norm).clamp_min(1e-12)
+        weighted_corr = corr_norm * abs(float(correction_weight))
+        weighted_retain = retain_norm * abs(float(retention_weight))
+        ratio = weighted_corr / weighted_retain.clamp_min(1e-12)
+        return {
+            f"{prefix}correction_grad_norm": float(corr_norm),
+            f"{prefix}retention_grad_norm": float(retain_norm),
+            f"{prefix}weighted_correction_grad_norm": float(weighted_corr),
+            f"{prefix}weighted_retention_grad_norm": float(weighted_retain),
+            f"{prefix}weighted_grad_norm_ratio": float(ratio),
+            f"{prefix}gradient_dot": float(dot),
+            f"{prefix}gradient_cosine": float(cosine),
+            f"{prefix}gradient_conflict_fraction": float(
+                conflicting / jointly_active.clamp_min(1)
+            ),
+        }
+
+    all_indices = list(range(len(named)))
+    decoder_indices = [
+        idx for idx, (name, _) in enumerate(named) if name.startswith("action_decoder.")
+    ]
+    output = stats("branches/", all_indices)
+    output.update(stats("decoder_branches/", decoder_indices))
+    return output
+
+
 def summary(rows):
     out = {"n": len(rows)}
     for key in sorted({k for r in rows for k, v in r.items() if k not in {"seed", "step"} and isinstance(v, (int, float)) and not isinstance(v, bool)}):
@@ -213,7 +281,7 @@ class CorrectionObjective(nn.Module):
         self.planner, self.cfg = teacher, cfg
 
     def forward(self, samples, diagnostic=False):
-        losses, metrics = [], []
+        correction_losses, retention_losses, metrics = [], [], []
         device = next(self.planner.parameters()).device
         for sample in samples:
             p = self.planner
@@ -248,10 +316,24 @@ class CorrectionObjective(nn.Module):
             # Every update has one correction and one standard q(GT) loss.
             # This is a 1:1 pair of objectives, not a 50% chance of omitting one.
             retain_loss = p(vl, action)["loss"]
-            total = self.cfg["correction_weight"] * corr_loss + self.cfg["retention_weight"] * retain_loss
-            losses.append(total)
+            correction_losses.append(corr_loss)
+            retention_losses.append(retain_loss)
             metrics.append({"correction_loss": float(corr_loss.detach()), "retention_eps_loss": float(retain_loss.detach())})
-        return torch.stack(losses).mean(), metrics
+        corr_batch = torch.stack(correction_losses).mean()
+        retain_batch = torch.stack(retention_losses).mean()
+        if diagnostic:
+            metrics.append(branch_gradient_diagnostics(
+                corr_batch,
+                retain_batch,
+                self.planner,
+                self.cfg["correction_weight"],
+                self.cfg["retention_weight"],
+            ))
+        total = (
+            self.cfg["correction_weight"] * corr_batch
+            + self.cfg["retention_weight"] * retain_batch
+        )
+        return total, metrics
 
 
 class OPDObjective(nn.Module):
