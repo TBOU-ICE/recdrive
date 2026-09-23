@@ -24,7 +24,14 @@ for stage in ("finetune", "opd"):
     for step in range(2):
         torch.manual_seed(100+int(os.getenv("RANK"))+step)
         optimizer.zero_grad()
-        loss,_=model([sample()],diagnostic=True)
+        # Branch diagnostics use autograd.grad and must not be run through the
+        # DDP wrapper.  Exercise the same no_sync + regular-update pattern as
+        # the production state-correction trainer.
+        if dist.get_rank() == 0:
+            with model.no_sync():
+                _, diagnostic_rows = objective([sample()], diagnostic=True)
+            assert diagnostic_rows
+        loss,_=model([sample()],diagnostic=False)
         loss.backward()
         assert torch.isfinite(loss)
         torch.nn.utils.clip_grad_norm_(p.parameters(),1.,error_if_nonfinite=True)

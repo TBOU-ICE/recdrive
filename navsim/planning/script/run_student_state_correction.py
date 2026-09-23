@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from contextlib import nullcontext
 from pathlib import Path
 
 import torch
@@ -305,7 +306,24 @@ def train(cfg, stage, device, rank, world, arm):
         for batch in loader:
             diagnostic = global_step % options["diagnostic_interval"] == 0
             optimizer.zero_grad(set_to_none=True)
-            loss, rows = model(batch, diagnostic=diagnostic)
+
+            # The optional branch diagnostics use torch.autograd.grad.  Calling
+            # that graph through DDP can fire reducer hooks without a matching
+            # backward and leave NCCL ranks at different collective sequence
+            # numbers (the resulting error is a watchdog timeout, not a useful
+            # Python traceback).  Keep this graph rank-0 local and suppress DDP
+            # gradient synchronisation while it runs; the actual update below
+            # remains the normal symmetric DDP forward/backward.
+            diagnostic_rows = None
+            if diagnostic and rank == 0:
+                no_sync = model.no_sync() if world > 1 else nullcontext()
+                with no_sync:
+                    rng_devices = [device.index] if device.type == "cuda" else []
+                    with torch.random.fork_rng(devices=rng_devices):
+                        diagnostic_loss, diagnostic_rows = objective(batch, diagnostic=True)
+                del diagnostic_loss
+
+            loss, rows = model(batch, diagnostic=False)
             if not torch.isfinite(loss):
                 raise FloatingPointError("Non-finite training loss")
             loss.backward()
@@ -313,7 +331,7 @@ def train(cfg, stage, device, rank, world, arm):
             total_grad = torch.nn.utils.clip_grad_norm_(planner.parameters(), options["grad_clip"], error_if_nonfinite=True)
             optimizer.step()
             if diagnostic and rank == 0:
-                metric_summary = summary(rows)
+                metric_summary = summary(diagnostic_rows)
                 row = {"epoch": epoch, "global_step": global_step, "loss": float(loss.detach()),
                        "decoder_total_grad_norm": decoder_grad, "total_grad_norm_before_clip": float(total_grad),
                        "lr": float(optimizer.param_groups[0]["lr"]),
