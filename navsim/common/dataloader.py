@@ -10,6 +10,24 @@ import lzma
 from navsim.common.dataclasses import AgentInput, Scene, SceneFilter, SensorConfig
 from navsim.planning.metric_caching.metric_cache import MetricCache
 
+_WORKSPACE_DATASETS = "/workspace/datasets/"
+_MNT_DATASETS = "/mnt/datasets/"
+
+
+def _align_dataset_mount(recorded_path: str, cache_root: str) -> str:
+    """Rewrite metadata paths to the mount used by ``cache_root``.
+
+    Metric-cache CSVs store absolute ``/workspace/datasets/...`` paths from the
+    machine that built them. Eval machines that only expose ``/mnt/datasets``
+    must read the same files under that prefix.
+    """
+    recorded_path = recorded_path.strip()
+    if cache_root.startswith(_MNT_DATASETS) and recorded_path.startswith(_WORKSPACE_DATASETS):
+        return _MNT_DATASETS + recorded_path[len(_WORKSPACE_DATASETS) :]
+    if cache_root.startswith(_WORKSPACE_DATASETS) and recorded_path.startswith(_MNT_DATASETS):
+        return _WORKSPACE_DATASETS + recorded_path[len(_MNT_DATASETS) :]
+    return recorded_path
+
 
 def filter_scenes(data_path: Path, scene_filter: SceneFilter) -> Dict[str, List[Dict[str, Any]]]:
     """
@@ -190,7 +208,12 @@ class MetricCacheLoader:
         metadata_file = [file for file in metadata_dir.iterdir() if ".csv" in str(file)][0]
         with open(str(metadata_file), "r") as f:
             cache_paths = f.read().splitlines()[1:]
-        metric_cache_dict = {cache_path.split("/")[-2]: cache_path for cache_path in cache_paths}
+        cache_root = str(cache_path)
+        metric_cache_dict = {
+            raw.split("/")[-2]: _align_dataset_mount(raw, cache_root)
+            for raw in cache_paths
+            if raw.strip()
+        }
         return metric_cache_dict
 
     @property
