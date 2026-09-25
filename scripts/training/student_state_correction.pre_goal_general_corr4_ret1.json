@@ -1,7 +1,8 @@
 {
   "seed": 42,
   "state_dir": "/mnt/datasets/recdrive/20260513/state_correction_pre_goal_general_v1/student_states",
-  "output_dir": "/workspace/output/tensorboard/state_correction_pre_goal_general_corr4_ret1/results",
+  "output_dir": "/workspace/output/tensorboard/state_correction_pre_goal_general_corr4_ret1_pred_goal_opd_v1/results",
+  "finetuned_teacher_checkpoint": "/mnt/datasets/recdrive/20260513/state_correction_pre_goal_general_corr4_ret1/results/finetune/best.ckpt",
   "train_indexes": [
     "/workspace/code/data/state_correction/indexes/general_or_no_tag_train_index.json"
   ],
@@ -49,12 +50,20 @@
     }
   },
   "opd_student": {
-    "checkpoint": "/mnt/models/recdrive/v1.0.0/training_dit_il_fullmix_simscale_newvlm/2026.07.27.11.45.27/lightning_logs/version_0/checkpoints/ckpt/epoch=2-step=4683.ckpt",
-    "kind": "goal_free",
+    "checkpoint": "/mnt/datasets/recdrive/20260513/exp2/exp/training_goalbridge_goal_kd_ungated_opd_v1/2026.09.08.03.52.22/checkpoints/epoch=47-step=136128.ckpt",
+    "kind": "pred_goal",
     "dit_type": "small",
     "vlm_size": "small",
     "steps": 5,
     "adaln_bound": 8.0,
+    "goal_mode": "adaln",
+    "goal_kwargs": {
+      "goal_sincos_dim": 128,
+      "goal_hidden_dim": 1024,
+      "goal_use_heading": false,
+      "goal_predictor_hidden_dim": 512,
+      "goal_predictor_dropout": 0.0
+    },
     "sampling_attributes": {
       "denoised_clip_value": 1.0,
       "eps_clip_value": null,
@@ -85,12 +94,13 @@
     "validation_samples": 0
   },
   "opd": {
-    "epochs": 10,
+    "epochs": 50,
     "batch_size": 4,
     "workers": 4,
     "lr": 1e-5,
     "weight_decay": 0.0,
     "kd_weight": 1.0,
+    "goal_loss_weight": 1.0,
     "loss_min_sigma": 0.04,
     "precision_clip": 25.0,
     "grad_clip": 1.0,

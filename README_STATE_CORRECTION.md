@@ -13,10 +13,10 @@
 | collect | 已有 OPD 后学生；训练/验证缓存 | 固定学生实际访问的末步状态 | 状态 `.pt` 与 manifest |
 | finetune | 原特权教师；训练集学生状态 + 同场景标准 q(GT) | 学会从学生状态纠偏，同时保留原去噪能力 | 教师 `best.ckpt`、`last.ckpt`、日志 |
 | validate | 微调前/后教师；同一份留出学生状态 | 配对检查纠偏是否改善 | 分步统计、逐样本结果、可选轨迹和 PDMS |
-| opd original/adapted | 同一个原始 goal-free 学生初始化；分别使用两位教师 | 隔离教师状态适应对蒸馏的作用 | 两组学生 checkpoint |
+| opd original/adapted | 同一个原始 pred-goal 学生初始化；分别使用两位教师 | 保持部署结构，隔离教师状态适应对蒸馏的作用 | 两组学生 checkpoint |
 | evaluate-student | 两组 OPD 学生；同一评测缓存/种子 | 检查最终驾驶效果 | ADE/FDE、可选 PDMS |
 
-**收集状态的学生与 OPD 初始化学生是两个不同角色。** 默认前者是已有 OPD 后模型，后者是这次对照统一使用的原始 goal-free base。不是继续给采集学生做 SFT。
+**收集状态的学生与 OPD 初始化学生可以是同一结构。** 本配置两者都使用带 `pred_goal`/AdaLN 的学生；采集器生成 z4，OPD 训练时学生仍使用自己的 predicted goal，教师使用 GT goal。
 
 ## 2. 文件与安装
 
@@ -48,7 +48,7 @@
 | `teacher.checkpoint` | 一位原始特权教师 checkpoint |
 | `teacher.goal_mode` | 与教师训练时一致：`adaln`、`cross` 或 `channel` |
 | `teacher.goal_kwargs` | 与原结构一致的 goal encoder 参数；保留训练时的 goal 扰动参数 |
-| `opd_student.checkpoint` | 两组 OPD 共同的原始 goal-free 初始化 checkpoint；不要默认填旧 SFT checkpoint |
+| `opd_student.checkpoint` | 两组 OPD 共同的原始 pred-goal 初始化 checkpoint；必须与 `goal_mode`/goal 参数匹配 |
 | `train_indexes` / `val_indexes` | 现有 direct index JSON 列表，分割应按 log 且互不重叠；可只填写这位教师对应的数据范围 |
 | `state_dir` | 新的空目录，保存固定学生状态；状态收集拒绝覆盖非空目录 |
 | `output_dir` | 新实验输出目录；训练拒绝覆盖已有 `last.ckpt` |
@@ -72,7 +72,7 @@
 }
 ```
 
-这只改变状态采集模型；首轮下游 OPD 仍固定 goal-free 学生。尽量优先用已经复现该问题的 goal-free OPD 学生采集；如果问题仅在 pred-goal 上确认，就如实记录这次训练用的是 pred-goal 状态，不能声称它与 goal-free 学生访问分布完全相同。
+采集与 OPD 都保持 pred-goal 结构：采集阶段保存学生访问的 z4；OPD 阶段从当前 pred-goal 学生的自身 predicted goal 生成 on-policy 链，并在该链上匹配 privileged teacher 的 GT-goal 目标。
 
 ### direct index 格式
 
@@ -108,7 +108,7 @@
 ```text
 CONFIG=scripts/training/student_state_correction.pre_goal_general.json
 state_dir=/mnt/datasets/recdrive/20260513/state_correction_pre_goal_general_v1/student_states
-output_dir=/workspace/output/tensorboard/state_correction_pre_goal_general_v1/results
+output_dir=/workspace/output/tensorboard/state_correction_pre_goal_general_v2/results
 ```
 
 完成 collect 后，按以下顺序继续：
@@ -127,7 +127,7 @@ bash scripts/training/run_student_state_correction.sh validate \
 # 4. 生成 loss、梯度冲突、验证曲线和代表性轨迹图
 bash scripts/training/run_student_state_correction.sh plot
 
-# 5. 用原教师训练 goal-free 学生基线
+# 5. 用原教师训练 pred-goal 学生
 bash scripts/training/run_student_state_correction.sh opd --arm original
 
 # 6. 用微调后的教师训练对照学生
@@ -221,7 +221,7 @@ bash scripts/training/run_student_state_correction.sh opd --arm adapted
 
 两组都从 `opd_student.checkpoint` 开始，分别冻结原教师和 `finetune/best.ckpt`，训练数据、seed、采样、优化器、预算相同。两组必须使用相同 GPU 数量与 batch size。
 
-保留原 goal-free KD trainer 的共享学生 DDIM 方差重建均值，以及有裁剪的 precision 加权均方差；**是 KL 代理损失，不是严格 KL**。五步平均；关闭外推、goal head、anchor、额外 jerk loss；一个教师覆盖选定训练集，不再进行语义 bucket 路由。学生状态每次按当前学生生成并 detach。
+pred-goal OPD 使用学生自己的 predicted goal 进行 AdaLN 条件化，增加 goal regression loss（`goal_loss_weight=1`）并匹配 privileged teacher 的 GT-goal reverse mean（`kd_weight=1`）；**KD 仍是 KL 代理损失，不是严格 KL**。五步平均；关闭外推、anchor 和额外 jerk loss；学生状态每次按当前学生生成并 detach。当前预算为 50 epochs。
 
 训练入口为独立 FP32 runner：与旧 Lightning 实验可能存在优化器、精度、缓存 padding 等差异。因此有效对照是**此入口中的 original vs adapted**，不能把其中一组直接与历史旧 runner 的单个分数当作唯一因果证据。
 

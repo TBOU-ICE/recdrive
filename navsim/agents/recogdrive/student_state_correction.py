@@ -339,15 +339,33 @@ class CorrectionObjective(nn.Module):
 class OPDObjective(nn.Module):
     def __init__(self, student, teacher, cfg, sampler):
         super().__init__()
-        from navsim.agents.recogdrive.recogdrive_goalfree_kd_only_distill_trainer import ReCogDriveGoalFreeKDOnlyDistillTrainer
         self.planner = student
         self.teacher = teacher.eval().requires_grad_(False)
-        self.trainer = ReCogDriveGoalFreeKDOnlyDistillTrainer(
-            bucket_names=["single"], fallback_bucket="single", collect_viz=False,
-            kd_weight=cfg["kd_weight"], min_sigma=cfg["loss_min_sigma"],
-            kl_precision_clip=cfg["precision_clip"],
-            rollout_min_sigma=sampler["min_sigma"], rollout_noise_clip=sampler["noise_clip"],
-            rollout_deterministic=sampler["deterministic"], fail_on_nonfinite=True)
+        if hasattr(student, "predict_goal_from_encoded"):
+            # The state-correction experiment is intended to preserve the
+            # deployable predicted-goal student.  The student conditions its
+            # rollout on its own predicted goal; only the frozen privileged
+            # teacher receives the GT goal.
+            from navsim.agents.recogdrive.recogdrive_goalbridge_goal_kd_distill_trainer import (
+                ReCogDriveGoalBridgeGoalKDDistillTrainer,
+            )
+            self.trainer = ReCogDriveGoalBridgeGoalKDDistillTrainer(
+                bucket_names=["single"], fallback_bucket="single",
+                collect_viz=False, min_sigma=sampler["min_sigma"],
+                goal_loss_weight=cfg.get("goal_loss_weight", 1.0),
+                kd_weight=cfg["kd_weight"],
+                kl_precision_clip=cfg["precision_clip"],
+            )
+        else:
+            from navsim.agents.recogdrive.recogdrive_goalfree_kd_only_distill_trainer import (
+                ReCogDriveGoalFreeKDOnlyDistillTrainer,
+            )
+            self.trainer = ReCogDriveGoalFreeKDOnlyDistillTrainer(
+                bucket_names=["single"], fallback_bucket="single", collect_viz=False,
+                kd_weight=cfg["kd_weight"], min_sigma=cfg["loss_min_sigma"],
+                kl_precision_clip=cfg["precision_clip"],
+                rollout_min_sigma=sampler["min_sigma"], rollout_noise_clip=sampler["noise_clip"],
+                rollout_deterministic=sampler["deterministic"], fail_on_nonfinite=True)
 
     def forward(self, samples, diagnostic=False):
         self.teacher.eval()

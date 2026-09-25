@@ -332,8 +332,6 @@ def train(cfg, stage, device, rank, world, arm):
         objective = CorrectionObjective(planner, cfg["finetune"])
     else:
         spec = cfg["opd_student"]
-        if spec["kind"] != "goal_free":
-            raise ValueError("This controlled OPD experiment requires goal_free student")
         planner = build_planner(spec, device)
         teacher_spec = dict(cfg["teacher"])
         if arm == "adapted":
